@@ -1,16 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
-    <title>我是测试用的文章</title>
-    <url>/2021/03/31/%E6%88%91%E6%98%AF%E6%B5%8B%E8%AF%95%E7%94%A8%E7%9A%84%E6%96%87%E7%AB%A0/</url>
-    <content><![CDATA[<p>这是测试内容<br>这是测试内容这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容这是测试内容这是测试内容<br>这是测试内容<br>这是测试内容这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容这是测试内容这是测试内容</p>
+    <title>go语言调度器源代码情景分析之三：内存</title>
+    <url>/2021/04/01/go%E8%AF%AD%E8%A8%80%E8%B0%83%E5%BA%A6%E5%99%A8%E6%BA%90%E4%BB%A3%E7%A0%81%E6%83%85%E6%99%AF%E5%88%86%E6%9E%90%E4%B9%8B%E4%B8%89%EF%BC%9A%E5%86%85%E5%AD%98/</url>
+    <content><![CDATA[<p>原创 张方波 <a href="https://mp.weixin.qq.com/s/iZxfTL34NFKsJNyLvREZPQ" title="源码游记" rel="external nofollow noopener noreferrer" target="_blank">源码游记</a> 2019-04-18</p>
+<p>内存是计算机系统的存储设备，其主要作用是协助CPU在执行程序时存储数据和指令。</p>
+<p>内存由大量内存单元组成，内存单元大小为1个字节（1字节包含8个二进制位）， 每个内存单元都有一个编号，更专业的说法是每一个内存单元都有一个地址，我们在编写汇编代码或编译器把用高级语言所写的程序编译成汇编指令时，如果要读写内存，就必须在指令中指定内存地址，这样CPU才知道它要存取哪个或哪些内存单元。</p>
+<p>大家都知道，高级语言中有变量的概念，变量又有全局变量和函数局部变量之分，而不管是哪种变量（除了C语言中申明为register的变量），都需要保存在内存之中， 同时，绝大多数类型的变量都不会只占一个字节大小的内存，但是每个内存单元却只有一个字节大小，那么像这种大于一个字节的变量是如何保存在内存中的呢？聪明的你一定会想到，任何大于一个字节的变量都存储在相邻的几个内存单元中，事实也确实如此，比如go语言中的int64类型的变量在内存中就被存放在连续的8个内存单元之中，要读写该变量，只需在汇编指令中指定这些内存单元的起始地址以及读写的字节数即可。说到这里，问题又来了，既然一个int64类型的变量在内存中占8个字节，那么如何安排这8个字节来存储64位的整型数据呢？比如如何在内存中存储0x1122334455667788这个16进制表示的整型值，是把高位的0x11放在这8个内存单元中的第一个字节还是把低位的0x88放在第一个字节呢？其实两种方案都是可以的，不同的CPU采用的方案也可能不同，比如X86系列（包括AMD64）的CPU就会把低位的0x88放在起始位置，而PowerPC CPU则会把高位的0x11放在起始的第一个字节，这就是所谓的大小端存储模式：</p>
+<p>大端存储模式：数据的高字节保存在内存的低地址中，低字节保存在内存的高地址中。</p>
+<p>小端存储模式：数据的高字节保存在内存的高地址中，低字节保存在内存的低地址中。</p>
+<p>需要注意的是大小端存储模式与CPU相关，而与内存无关，内存只管保存数据而不关心数据是什么以及怎么解释这些数据。下图是大小端存储模式的示意图：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/a37b03f237fdab1644c3376b50af4ed5.png" alt></p>
+<p>下面再用上一节讨论寄存器时使用过的例子来帮助我们加深对内存的理解：</p>
+<p>c = a + b  // go语言代码<br>mov   (%rsp),%rdx         #把变量a的值从内存中读取到寄存器rdx中<br>mov    0x8(%rsp),%rax   #把变量b的值从内存中读取到寄存器rax中<br>add   %rdx,%rax            #把寄存器rdx和rax中的值相加，并把结果放回rax寄存器中<br>mov   %rax,0x10(%rsp)  #把寄存器rax中的值写回变量c所在的内存<br>这里的4条指令有3条跟内存读写有关，指令中的rsp寄存器里面存放的是一个内存地址，现假设这个内存地址是X, 则第一条指令 mov    (%rsp),%rdx 表示把从地址为X开始的8个内存单元中的值读取到rdx寄存器中（因为rdx是一个64位寄存器，这就隐含了要一次读取连续的8个字节，指令中的地址只是起始地址，这个地址开始的8个字节是变量a所在的位置），第二条指令类似，只是起始地址为X + 0x8（变量b在内存中的地址），最后一条指令表示把rax寄存器中的值写入从地址为X + 0x10开始的8个内存单元中。下图直观的表示了上面4条指令的执行过程。</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/e333519f9dd49ddfd113314075ba768d.png" alt></p>
+<p>对这个图做个简单的说明：</p>
+<p>这里假定rsp寄存器的值是X</p>
+<p>图中的内存部分，每一行有8个内存单元，它们的地址从右向左依次加一，即如果最右边的内存单元的地址为X的话，则同一行最左边的内存单元的地址为X+7。</p>
+<p>灰色箭头表述数据流动方向</p>
+<p>紫红色数字n表示上述代码片段中的第n条指令</p>
+<p>最后，我们对内存部分做个简单的总结：</p>
+<p>内存中的每个字节都有一个地址；</p>
+<p>任何大于一个字节的变量在内存中都存储在相邻连续的的几个内存单元之中；</p>
+<p>大端存储模式指数据的高字节保存在内存的低地址中，低字节保存在内存的高地址中；小端存储模式指数据的高字节保存在内存的高地址中，低字节保存在内存的低地址中。</p>
 ]]></content>
       <categories>
         <category>go</category>
-        <category>delevop</category>
+        <category>go语言调度器源代码情景分析</category>
       </categories>
       <tags>
         <tag>go</tag>
+        <tag>go语言调度器源代码情景分析</tag>
       </tags>
   </entry>
   <entry>
@@ -73,7 +93,43 @@
 <p>最后，如果您有任何建议或疑问，可以扫描下方微信二维码添加好友，我们一起进步！</p>
 ]]></content>
       <categories>
-        <category>go专栏</category>
+        <category>go</category>
+        <category>go语言调度器源代码情景分析</category>
+      </categories>
+      <tags>
+        <tag>go</tag>
+        <tag>go语言调度器源代码情景分析</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>go语言调度器源代码情景分析之二：CPU寄存器</title>
+    <url>/2021/04/01/go%E8%AF%AD%E8%A8%80%E8%B0%83%E5%BA%A6%E5%99%A8%E6%BA%90%E4%BB%A3%E7%A0%81%E6%83%85%E6%99%AF%E5%88%86%E6%9E%90%E4%B9%8B%E4%BA%8C%EF%BC%9ACPU%E5%AF%84%E5%AD%98%E5%99%A8/</url>
+    <content><![CDATA[<p>原创 张方波 <a href="https://mp.weixin.qq.com/s/wTfbFfBfTJNGsgIJ_71nAg" title="源码游记" rel="external nofollow noopener noreferrer" target="_blank">源码游记</a> 2019-04-17</p>
+<p>寄存器是CPU内部的存储单元，用于存放从内存读取而来的数据（包括指令）和CPU运算的中间结果，之所以要使用寄存器来临时存放数据而不是直接操作内存，一是因为CPU的工作原理决定了有些操作运算只能在CPU内部进行，二是因为CPU读写寄存器的速度比读写内存的速度快得多。</p>
+<p>为了便于交流和使用汇编语言进行编程，CPU厂商为每个寄存器都取了一个名字，比如AMD64 CPU中的rax, rbx, rcx, rdx等等，这样程序员就可以很方便的在汇编代码中使用寄存器的名字来进行编程，为了对寄存器的使用有个直观的感受，我们用个例子来简单的说明一下。</p>
+<p>假设有如下go语言编写的一行代码：</p>
+<p>c = a + b<br>在AMD64 Linux平台下，使用go编译器编译它可得到如下AT&amp;T格式的汇编代码（如果对汇编代码不熟悉的话可以直接看每一条指令后面的注释，不影响我们理解）：</p>
+<p>mov   (%rsp),%rdx          //把变量a的值从内存中读取到寄存器rdx中<br>mov    0x8(%rsp),%rax   //把变量b的值从内存中读取到寄存器rax中<br>add   %rdx,%rax             //把寄存器rdx和rax中的值相加，并把结果放回rax寄存器中<br>mov   %rax,0x10(%rsp)  //把寄存器rax中的值写回变量c所在的内存<br>可以看到，上面的一行go语言代码被编译成了4条汇编指令，指令中出现的rax，rdx和rsp都是寄存器的名字（AT&amp;T格式的汇编代码中所有寄存器名字前面都有一个%符号），虽然这里只有4条指令，但也从一个侧面说明汇编代码其实比较简单，它所做的工作不外乎就是把数据在内存和寄存器中搬来搬去或做一些基础的数学和逻辑运算。</p>
+<p>不同体系结构的CPU，其内部寄存器的数量、种类以及名称可能大不相同，这里我们只介绍目前使用最为广泛的AMD64这种体系结构的CPU，这种CPU共有20多个可以直接在汇编代码中使用的寄存器，其中有几个寄存器在操作系统代码中才会见到，而应用层代码一般只会用到如下分为三类的19个寄存器。</p>
+<p>通用寄存器：rax, rbx, rcx, rdx, rsi, rdi, rbp, rsp, r8, r9, r10, r11, r12, r13, r14, r15寄存器。CPU对这16个通用寄存器的用途没有做特殊规定，程序员和编译器可以自定义其用途（下面会介绍，rsp/rbp寄存器其实是有特殊用途的）；</p>
+<p>程序计数寄存器（PC寄存器，有时也叫IP寄存器）：rip寄存器。它用来存放下一条即将执行的指令的地址，这个寄存器决定了程序的执行流程；</p>
+<p>段寄存器：fs和gs寄存器。一般用它来实现线程本地存储（TLS），比如AMD64 linux平台下go语言和pthread都使用fs寄存器来实现系统线程的TLS，在本章线程本地存储一节和第二章详细分析goroutine调度器的时候我们可以分别看到Linux平台下Pthread线程库和go是如何使用fs寄存器的。</p>
+<p>上述这些寄存器除了fs和gs段寄存器是16位的，其它都是64位的，也就是8个字节，其中的16个通用寄存器还可以作为32/16/8位寄存器使用，只是使用时需要换一个名字，比如可以用eax这个名字来表示一个32位的寄存器，它使用的是rax寄存器的低32位。</p>
+<p>为了便于查阅，下表列出这些64通用寄存器对应的32/16/8位寄存器的名字：</p>
+<p>64位    32位    16位    8位<br>rax    eax    ax    al/ah<br>rbx    ebx    bx    bl/bh<br>rcx    ecx    cx    cl/ch<br>rdx    edx    dx    dl/dh<br>rsi    esi    si    -<br>rdi    edi    di    -<br>rbp    ebp    bp    -<br>rsp    esp    sp    -<br>r8~r15    r8d~r15d    r8w~r15w    r8b~r15b<br>通用寄存器的用法如前面我们所见，主要用于临时存放数据，后面的章节我们还会见到大量使用通用寄存器的例子，所以这里就不对其进行详细介绍了，但有三个比较特殊的寄存器值得在这里单独提出来做一下说明：</p>
+<p>rip寄存器</p>
+<p>rip寄存器里面存放的是CPU即将执行的下一条指令在内存中的地址。看如下汇编语言代码片段：</p>
+<p>0x0000000000400770: add   %rdx,%rax<br>0x0000000000400773: mov   $0x0,%ecx<br>假设当前CPU正在执行第一条指令，这条指令在内存中的地址是0x0000000000400770，紧接它后面的下一条指令的地址是0x0000000000400773，所以此时rip寄存器里面存放的值是0x0000000000400773。</p>
+<p>这里需要牢记的就是rip寄存器的值不是正在被CPU执行的指令在内存中的地址，而是紧挨这条正在被执行的指令后面那一条指令的地址。</p>
+<p>读者可能会有疑问，在前面的两个汇编指令片段中并没有指令修改rip寄存器的值，是怎么做到让它一直指向下一条即将执行的指令的呢？其实修改rip寄存器的值是CPU自动控制的，不需要我们用指令去修改，当然CPU也提供了几条可以间接修改rip寄存器的指令，在汇编语言一节中我们会详细介绍CPU自动修改以及用指令修改rip寄存器值的两种方式。</p>
+<p>rsp 栈顶寄存器和rbp栈基址寄存器</p>
+<p>这两个寄存器都跟函数调用栈有关，其中rsp寄存器一般用来存放函数调用栈的栈顶地址，而rbp寄存器通常用来存放函数的栈帧起始地址，编译器一般使用这两个寄存器加一定偏移的方式来访问函数局部变量或函数参数，比如：</p>
+<p>mov    0x8(%rsp),%rdx<br>这条指令把地址为 0x8(%rsp) 的内存中的值拷贝到rdx寄存器，这里的0x8(%rsp) 就利用了 rsp 寄存器加偏移 8 的方式来读取内存中的值。</p>
+<p>寄存器的内容我们就先简单的介绍到这里，但这些并不是我们需要了解的有关寄存器的全部内容，有些内容需要等我们学习了汇编指令和函数调用栈之后才能更加深刻的理解，到时候我们再回头来继续介绍相关的知识。</p>
+]]></content>
+      <categories>
+        <category>go</category>
+        <category>go语言调度器源代码情景分析</category>
       </categories>
       <tags>
         <tag>go</tag>
@@ -83,15 +139,79 @@
   <entry>
     <title>Hello World</title>
     <url>/2021/03/30/hello-world/</url>
-    <content><![CDATA[<p>Welcome to <a href="https://hexo.io/" target="_blank" rel="noopener">Hexo</a>! This is your very first post. Check <a href="https://hexo.io/docs/" target="_blank" rel="noopener">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a href="https://hexo.io/docs/troubleshooting.html" target="_blank" rel="noopener">troubleshooting</a> or you can ask me on <a href="https://github.com/hexojs/hexo/issues" target="_blank" rel="noopener">GitHub</a>.</p>
+    <content><![CDATA[<p>Welcome to <a href="https://hexo.io/" rel="external nofollow noopener noreferrer" target="_blank">Hexo</a>! This is your very first post. Check <a href="https://hexo.io/docs/" rel="external nofollow noopener noreferrer" target="_blank">documentation</a> for more info. If you get any problems when using Hexo, you can find the answer in <a href="https://hexo.io/docs/troubleshooting.html" rel="external nofollow noopener noreferrer" target="_blank">troubleshooting</a> or you can ask me on <a href="https://github.com/hexojs/hexo/issues" rel="external nofollow noopener noreferrer" target="_blank">GitHub</a>.</p>
 <h2 id="Quick-Start"><a href="#Quick-Start" class="headerlink" title="Quick Start"></a>Quick Start</h2><h3 id="Create-a-new-post"><a href="#Create-a-new-post" class="headerlink" title="Create a new post"></a>Create a new post</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ hexo new <span class="string">"My New Post"</span></span><br></pre></td></tr></table></figure>
-<p>More info: <a href="https://hexo.io/docs/writing.html" target="_blank" rel="noopener">Writing</a></p>
+<p>More info: <a href="https://hexo.io/docs/writing.html" rel="external nofollow noopener noreferrer" target="_blank">Writing</a></p>
 <h3 id="Run-server"><a href="#Run-server" class="headerlink" title="Run server"></a>Run server</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ hexo server</span><br></pre></td></tr></table></figure>
-<p>More info: <a href="https://hexo.io/docs/server.html" target="_blank" rel="noopener">Server</a></p>
+<p>More info: <a href="https://hexo.io/docs/server.html" rel="external nofollow noopener noreferrer" target="_blank">Server</a></p>
 <h3 id="Generate-static-files"><a href="#Generate-static-files" class="headerlink" title="Generate static files"></a>Generate static files</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ hexo generate</span><br></pre></td></tr></table></figure>
-<p>More info: <a href="https://hexo.io/docs/generating.html" target="_blank" rel="noopener">Generating</a></p>
+<p>More info: <a href="https://hexo.io/docs/generating.html" rel="external nofollow noopener noreferrer" target="_blank">Generating</a></p>
 <h3 id="Deploy-to-remote-sites"><a href="#Deploy-to-remote-sites" class="headerlink" title="Deploy to remote sites"></a>Deploy to remote sites</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">$ hexo deploy</span><br></pre></td></tr></table></figure>
-<p>More info: <a href="https://hexo.io/docs/deployment.html" target="_blank" rel="noopener">Deployment</a></p>
+<p>More info: <a href="https://hexo.io/docs/deployment.html" rel="external nofollow noopener noreferrer" target="_blank">Deployment</a></p>
 ]]></content>
+  </entry>
+  <entry>
+    <title>我是测试用的文章</title>
+    <url>/2021/03/31/%E6%88%91%E6%98%AF%E6%B5%8B%E8%AF%95%E7%94%A8%E7%9A%84%E6%96%87%E7%AB%A0/</url>
+    <content><![CDATA[<p>这是测试内容<br>这是测试内容这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容这是测试内容这是测试内容<br>这是测试内容<br>这是测试内容这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容<br>这是测试内容这是测试内容这是测试内容</p>
+]]></content>
+  </entry>
+  <entry>
+    <title>go语言调度器源代码情景分析之四：函数调用栈</title>
+    <url>/2021/04/01/go%E8%AF%AD%E8%A8%80%E8%B0%83%E5%BA%A6%E5%99%A8%E6%BA%90%E4%BB%A3%E7%A0%81%E6%83%85%E6%99%AF%E5%88%86%E6%9E%90%E4%B9%8B%E5%9B%9B%EF%BC%9A%E5%87%BD%E6%95%B0%E8%B0%83%E7%94%A8%E6%A0%88/</url>
+    <content><![CDATA[<p>原创 阿波张 <a href="https://mp.weixin.qq.com/s/EY1acVrkUnmFQ0E1IwLzUQ" title="源码游记" rel="external nofollow noopener noreferrer" target="_blank">源码游记</a> 2019-04-19</p>
+<p>什么是栈</p>
+<p>栈是一种“后进先出”的数据结构，它相当于一个容器，当需要往容器里面添加元素时只能放在最上面的一个元素之上，需要取出元素时也只能从最上面开始取，通常我们称添加元素为入栈(push)，取出元素为出栈(pop)。</p>
+<p>不知道读者是否有快餐店吃饭的经历，快餐店一般都有一摞干净的盘子让顾客取用，这就好比一个栈，我们取盘子时通常都是拿走最上面一个(pop)，当盘子被取走剩得不多时，服务员又会拿一些干净的盘子放在原有盘子的上面(push)，取盘子和放盘子这一端用栈的术语来说叫栈顶，另一端叫栈底。</p>
+<p>下面用图演示一下栈的push和pop。</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/c2f68414069dc1b87bbba233bfe136a2.png" alt></p>
+<p>进程在内存中的布局</p>
+<p>严格说来这里讲的是进程在虚拟地址空间中的布局，但这并不影响我们的讨论，所以这里我们就不做区分，笼统的称之为进程在内存中的布局。</p>
+<p>操作系统把磁盘上的可执行文件加载到内存运行之前，会做很多工作，其中很重要的一件事情就是把可执行文件中的代码，数据放在内存中合适的位置，并分配和初始化程序运行过程中所必须的堆栈，所有准备工作完成后操作系统才会调度程序起来运行。来看一下程序运行时在内存中的布局图：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/dcf6b34ce88cbf4c9ba8ce54fe318cbe.png" alt></p>
+<p>进程在内存中的布局主要分为4个区域：代码区，数据区，堆和栈。在详细讨论栈之前，先来简单介绍一下其它区域。</p>
+<p>代码区，包括能被CPU执行的机器代码（指令）和只读数据比如字符串常量，程序一旦加载完成代码区的大小就不会再变化了。</p>
+<p>数据区，包括程序的全局变量和静态变量（c语言有静态变量，而go没有），与代码区一样，程序加载完毕后数据区的大小也不会发生改变。</p>
+<p>堆，程序运行时动态分配的内存都位于堆中，这部分内存由内存分配器负责管理。该区域的大小会随着程序的运行而变化，即当我们向堆请求分配内存但分配器发现堆中的内存不足时，它会向操作系统内核申请向高地址方向扩展堆的大小，而当我们释放内存把它归还给堆时如果内存分配器发现剩余空闲内存太多则又会向操作系统请求向低地址方向收缩堆的大小。从这个内存申请和释放流程可以看出，我们从堆上分配的内存用完之后必须归还给堆，否则内存分配器可能会反复向操作系统申请扩展堆的大小从而导致堆内存越用越多，最后出现内存不足，这就是所谓的内存泄漏。值的一提的是传统的c/c++代码就必须小心处理内存的分配和释放，而在go语言中，有垃圾回收器帮助我们，所以程序员只管申请内存，而不用管内存的释放，这大大降低了程序员的心智负担，这不光是提高了程序员的生产力，更重要的是还会减少很多bug的产生。</p>
+<p>函数调用栈</p>
+<p>函数调用栈简称栈，在程序运行过程中，不管是函数的执行还是函数调用，栈都起着非常重要的作用，它主要被用来：</p>
+<p>保存函数的局部变量；</p>
+<p>向被调用函数传递参数；</p>
+<p>返回函数的返回值；</p>
+<p>保存函数的返回地址。返回地址是指从被调用函数返回后调用者应该继续执行的指令地址，在汇编指令一节介绍call指令时我们将会对返回地址做更加详细的说明。</p>
+<p>每个函数在执行过程中都需要使用一块栈内存用来保存上述这些值，我们称这块栈内存为某函数的栈帧(stack frame)。当发生函数调用时，因为调用者还没有执行完，其栈内存中保存的数据还有用，所以被调用函数不能覆盖调用者的栈帧，只能把被调用函数的栈帧“push”到栈上，等被调函数执行完成后再把其栈帧从栈上“pop”出去，这样，栈的大小就会随函数调用层级的增加而生长，随函数的返回而缩小，也就是说函数调用层级越深，消耗的栈空间就越大。栈的生长和收缩都是自动的，由编译器插入的代码自动完成，因此位于栈内存中的函数局部变量所使用的内存随函数的调用而分配，随函数的返回而自动释放，所以程序员不管是使用有垃圾回收还是没有垃圾回收的高级编程语言都不需要自己释放局部变量所使用的内存，这一点与堆上分配的内存截然不同。</p>
+<p>另外，AMD64 Linux平台下，栈是从高地址向低地址方向生长的，为什么栈会采用这种看起来比较反常的生长方向呢，具体原因无从考究，不过根据前面那张进程的内存布局图可以猜测，当初这么设计的计算机科学家是希望尽量利用内存地址空间，才采用了堆和栈相向生长的方式，因为程序运行之前无法确定堆和栈谁会消耗更多的内存，如果栈也跟堆一样向高地址方向生长的话，栈底的位置不好确定，离堆太近则堆内存可能不够用，离堆太远栈又可能不够用，于是乎就采用了现在这种相向生长的方式。</p>
+<p>AMD64 CPU提供了2个与栈相关的寄存器：</p>
+<p>rsp寄存器，始终指向函数调用栈栈顶</p>
+<p>rbp寄存器，一般用来指向函数栈帧的起始位置</p>
+<p>下面用两个图例来说明一下函数调用栈以及rsp/rbp与栈之间的关系。</p>
+<p>假设现在有如下函数调用链且正在执行函数C()：</p>
+<p>A()-&gt;B()-&gt;C()<br>则函数ABC的栈帧以及rsp/rbp的状态大致如下图所示（注意，栈从高地址向低地址方向生长）：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/95d7ac62614da2aaedc42277388d4f74.png" alt></p>
+<p>对于上图，有几点需要说明一下：</p>
+<p>调用函数时，参数和返回值都是存放在调用者的栈帧之中，而不是在被调函数之中；</p>
+<p>目前正在执行C函数，且函数调用链为A()-&gt;B()-&gt;C()，所以以栈帧为单位来看的话，C函数的栈帧目前位于栈顶；</p>
+<p>CPU硬件寄存器rsp指向整个栈的栈顶，当然它也指向C函数的栈帧的栈顶，而rbp寄存器指向的是C函数栈帧的起始位置；</p>
+<p>虽然图中ABC三个函数的栈帧看起来都差不多大，但事实上在真实的程序中，每个函数的栈帧大小可能都不同，因为不同的函数局部变量的个数以及所占内存的大小都不尽相同；</p>
+<p>有些编译器比如gcc会把参数和返回值放在寄存器中而不是栈中，go语言中函数的参数和返回值都是放在栈上的；</p>
+<p>随着程序的运行，如果C、B两个函数都执行完成并返回到了A函数继续执行，则栈状态如下图：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/30eafa3ef7a07229b12eac9524ddc48e.png" alt></p>
+<p>因为C、B两个函数都已经执行完成并返回到了A函数之中，所以C、B两个函数的栈帧就已经被POP出栈了，也就是说它们所消耗的栈内存被自动回收了。因为现在正在执行A函数，所以寄存器rbp和rsp指向的是A函数的栈中的相应位置。如果A函数又继续调用了D函数的话，则栈又变成下面这个样子：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/a452ab3aa80bcba6e773413c48df6abf.png" alt></p>
+<p>可以看到，现在D函数的栈帧其实使用的是之前调用B、C两个函数所使用的栈内存，这没有问题，因为B和C函数已经执行完了，现在D函数重用了这块内存，这也是为什么在C语言中绝对不要返回函数局部变量的地址，因为同一个地址的栈内存会被重用，这就会造成意外的bug，而go语言中没有这个限制，因为go语言的编译器比较智能，当它发现程序返回了某个局部变量的地址，编译器会把这个变量放到堆上去，而不会放在栈上。同样，这里我们还是需要注意rbp和rsp这两个寄存器现在指向了D函数的栈帧。从上面的分析我们可以看出，寄存器rbp和rsp始终指向正在执行的函数的栈帧。</p>
+<p>最后，我们再来看一个递归函数的例子，假设有如下go语言代码片段：</p>
+<p>func f(n int) {<br>   if n &lt;= 0 { //递归结束条件 n &lt;= 0<br>       return<br>  }<br>   ……<br>   f(n - 1) //递归调用f函数自己<br>   ……<br>}<br>函数f是一个递归函数，f函数会一直递归的调用自己直到参数 n 小于等于0为止，如果我们在其它某个函数里调用了f(10)，而且现在正在执行f(8)的话，则其栈状态如下图所示：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/f395cf6fd8a3a2bc36d8e59d93c3c968.png" alt></p>
+<p>从上图可以看出，即使是同一个函数，每次调用都会产生一个不同的栈帧，因此对于递归函数，每递归一次都会消耗一定的栈内存，如果递归层数太多就有导致栈溢出的风险，这也是为什么我们在实际的开发过程中应该尽量避免使用递归函数的原因之一，另外一个原因是递归函数执行效率比较低，因为它要反复调用函数，而调用函数有较大的性能开销。</p>
+<p>本节我们简要的介绍了栈的基本概念及它在程序运行过程中的重要作用，但遗留了一些细节问题，比如每个函数的栈帧是怎么分配的，局部变量和参数又是如何保存在栈中的，又是谁把返回地址放在了栈上等等，这些内容我们会在函数调用过程一节加以详细介绍。这里为什么不把细节跟概念放在一起讨论呢，主要是因为我们首先要对栈有个大致的了解，才能更好的理解下一节即将讲述的有关汇编语言相关的知识，而没有汇编语言作为基础，我们又不能很好的理解栈的这些细节问题，所以我们决定把基本概念和用途与细节分开介绍。</p>
+]]></content>
+      <categories>
+        <category>go</category>
+        <category>go语言调度器源代码情景分析</category>
+      </categories>
+      <tags>
+        <tag>go</tag>
+        <tag>go语言调度器源代码情景分析</tag>
+      </tags>
   </entry>
 </search>
