@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="原创 爱写程序的阿波张 源码游记 2019-05-09 本文是《Go语言调度器源代码情景分析》系列的第14篇，也是第二章的第4小节 上一节我们通过分析main goroutine的创建详细讨论了goroutine的创建及初始化流程，这一节我们接着来分析调度器如何把main goroutine调度到CPU上去运行。本节需要重点关注的问题有： 如何保存g0的调度信息？ schedule函数有什么重要作">
+<meta name="keywords" content="go,go语言调度器源代码情景分析">
+<meta property="og:type" content="article">
+<meta property="og:title" content="go语言调度器之调度main goroutine（14)">
+<meta property="og:url" content="https://shankusu2017.github.io/go语言调度器源代码情景分析/Go语言调度器之调度main-goroutine（14/index.html">
+<meta property="og:site_name" content="shankusu2017">
+<meta property="og:description" content="原创 爱写程序的阿波张 源码游记 2019-05-09 本文是《Go语言调度器源代码情景分析》系列的第14篇，也是第二章的第4小节 上一节我们通过分析main goroutine的创建详细讨论了goroutine的创建及初始化流程，这一节我们接着来分析调度器如何把main goroutine调度到CPU上去运行。本节需要重点关注的问题有： 如何保存g0的调度信息？ schedule函数有什么重要作">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/ab90055747ffb9e0de576987a3bd6377.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/bb1306280e12ad8be259c63547ad1b1f.png">
+<meta property="og:updated_time" content="2021-04-03T02:20:23.609Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="go语言调度器之调度main goroutine（14)">
+<meta name="twitter:description" content="原创 爱写程序的阿波张 源码游记 2019-05-09 本文是《Go语言调度器源代码情景分析》系列的第14篇，也是第二章的第4小节 上一节我们通过分析main goroutine的创建详细讨论了goroutine的创建及初始化流程，这一节我们接着来分析调度器如何把main goroutine调度到CPU上去运行。本节需要重点关注的问题有： 如何保存g0的调度信息？ schedule函数有什么重要作">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/img_convert/ab90055747ffb9e0de576987a3bd6377.png">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/go语言调度器源代码情景分析/Go语言调度器之调度main-goroutine（14/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>go语言调度器之调度main goroutine（14) | shankusu2017</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">shankusu2017</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">3</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-archives">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/archives/" rel="section"><i class="menu-item-icon fa fa-fw fa-archive"></i> <br>Archives<span class="badge">26</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/go语言调度器源代码情景分析/Go语言调度器之调度main-goroutine（14/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="shankusu2017">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">go语言调度器之调度main goroutine（14)
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">Posted on</span>
+              
+
+              
+                
+              
+
+              <time title="Created: 2021-04-03 10:01:28 / Modified: 10:20:23" itemprop="dateCreated datePublished" datetime="2021-04-03T10:01:28+08:00">2021-04-03</time>
+            
+
+            
+              
+
+              
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">In</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/go/" itemprop="url" rel="index"><span itemprop="name">go</span></a></span>
+
+                
+                
+                  , 
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/go/go语言调度器源代码情景分析/" itemprop="url" rel="index"><span itemprop="name">go语言调度器源代码情景分析</span></a></span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p>原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/8eJm5hjwKXya85VnT4y8Cw" rel="external nofollow noopener noreferrer" target="_blank">源码游记</a> 2019-05-09</p>
+<p>本文是《Go语言调度器源代码情景分析》系列的第14篇，也是第二章的第4小节</p>
+<p>上一节我们通过分析main goroutine的创建详细讨论了goroutine的创建及初始化流程，这一节我们接着来分析调度器如何把main goroutine调度到CPU上去运行。本节需要重点关注的问题有：</p>
+<p>如何保存g0的调度信息？</p>
+<p>schedule函数有什么重要作用？</p>
+<p>gogo函数如何完成从g0到main goroutine的切换？</p>
+<p>接着前一节继续分析代码，从newproc返回到rt0_go，继续往下执行mstart。<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">runtime/proc.<span class="keyword">go</span> : <span class="number">1153</span></span><br><span class="line"></span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">mstart</span><span class="params">()</span></span> &#123;</span><br><span class="line">    _g_ := getg() <span class="comment">//_g_ = g0</span></span><br><span class="line"> </span><br><span class="line">    <span class="comment">//对于启动过程来说，g0的stack.lo早已完成初始化，所以onStack = false</span></span><br><span class="line">    osStack := _g_.stack.lo == <span class="number">0</span></span><br><span class="line">    <span class="keyword">if</span> osStack &#123;</span><br><span class="line">        <span class="comment">// Initialize stack bounds from system stack.</span></span><br><span class="line">        <span class="comment">// Cgo may have left stack size in stack.hi.</span></span><br><span class="line">        <span class="comment">// minit may update the stack bounds.</span></span><br><span class="line">        size := _g_.stack.hi</span><br><span class="line">        <span class="keyword">if</span> size == <span class="number">0</span> &#123;</span><br><span class="line">            size = <span class="number">8192</span> * sys.StackGuardMultiplier</span><br><span class="line">        &#125;</span><br><span class="line">        _g_.stack.hi = <span class="keyword">uintptr</span>(noescape(unsafe.Pointer(&amp;size)))</span><br><span class="line">        _g_.stack.lo = _g_.stack.hi - size + <span class="number">1024</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// Initialize stack guards so that we can start calling</span></span><br><span class="line">    <span class="comment">// both Go and C functions with stack growth prologues.</span></span><br><span class="line">    _g_.stackguard0 = _g_.stack.lo + _StackGuard</span><br><span class="line">    _g_.stackguard1 = _g_.stackguard0</span><br><span class="line">    </span><br><span class="line">    mstart1()</span><br><span class="line"> </span><br><span class="line">    <span class="comment">// Exit this thread.</span></span><br><span class="line">    <span class="keyword">if</span> GOOS == <span class="string">"windows"</span> || GOOS == <span class="string">"solaris"</span> || GOOS == <span class="string">"plan9"</span> || GOOS == <span class="string">"darwin"</span> || GOOS == <span class="string">"aix"</span> &#123;</span><br><span class="line">        <span class="comment">// Window, Solaris, Darwin, AIX and Plan 9 always system-allocate</span></span><br><span class="line">        <span class="comment">// the stack, but put it in _g_.stack before mstart,</span></span><br><span class="line">        <span class="comment">// so the logic above hasn't set osStack yet.</span></span><br><span class="line">        osStack = <span class="literal">true</span></span><br><span class="line">    &#125;</span><br><span class="line">    mexit(osStack)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>mstart函数本身没啥说的，它继续调用mstart1函数。<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br></pre></td><td class="code"><pre><span class="line">runtime/proc.<span class="keyword">go</span> : <span class="number">1184</span></span><br><span class="line"></span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">mstart1</span><span class="params">()</span></span> &#123;</span><br><span class="line">    _g_ := getg()  <span class="comment">//启动过程时 _g_ = m0的g0</span></span><br><span class="line"> </span><br><span class="line">    <span class="keyword">if</span> _g_ != _g_.m.g0 &#123;</span><br><span class="line">        throw(<span class="string">"bad runtime·mstart"</span>)</span><br><span class="line">    &#125;</span><br><span class="line"> </span><br><span class="line">    <span class="comment">// Record the caller for use as the top of stack in mcall and</span></span><br><span class="line">    <span class="comment">// for terminating the thread.</span></span><br><span class="line">    <span class="comment">// We're never coming back to mstart1 after we call schedule,</span></span><br><span class="line">    <span class="comment">// so other calls can reuse the current frame.</span></span><br><span class="line">    <span class="comment">//getcallerpc()获取mstart1执行完的返回地址</span></span><br><span class="line">    <span class="comment">//getcallersp()获取调用mstart1时的栈顶地址</span></span><br><span class="line">    save(getcallerpc(), getcallersp())</span><br><span class="line">    asminit()  <span class="comment">//在AMD64 Linux平台中，这个函数什么也没做，是个空函数</span></span><br><span class="line">    minit()    <span class="comment">//与信号相关的初始化，目前不需要关心</span></span><br><span class="line"> </span><br><span class="line">    <span class="comment">// Install signal handlers; after minit so that minit can</span></span><br><span class="line">    <span class="comment">// prepare the thread to be able to handle the signals.</span></span><br><span class="line">    <span class="keyword">if</span> _g_.m == &amp;m0 &#123; <span class="comment">//启动时_g_.m是m0，所以会执行下面的mstartm0函数</span></span><br><span class="line">        mstartm0() <span class="comment">//也是信号相关的初始化，现在我们不关注</span></span><br><span class="line">    &#125;</span><br><span class="line"> </span><br><span class="line">    <span class="keyword">if</span> fn := _g_.m.mstartfn; fn != <span class="literal">nil</span> &#123; <span class="comment">//初始化过程中fn == nil</span></span><br><span class="line">        fn()</span><br><span class="line">    &#125;</span><br><span class="line"> </span><br><span class="line">    <span class="keyword">if</span> _g_.m != &amp;m0 &#123;<span class="comment">// m0已经绑定了allp[0]，不是m0的话还没有p，所以需要获取一个p</span></span><br><span class="line">        acquirep(_g_.m.nextp.ptr())</span><br><span class="line">        _g_.m.nextp = <span class="number">0</span></span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">//schedule函数永远不会返回</span></span><br><span class="line">    schedule()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>mstart1首先调用save函数来保存g0的调度信息，save这一行代码非常重要，是我们理解调度循环的关键点之一。这里首先需要注意的是代码中的getcallerpc()返回的是mstart调用mstart1时被call指令压栈的返回地址，getcallersp()函数返回的是调用mstart1函数之前mstart函数的栈顶地址，其次需要看看save函数到底做了哪些重要工作。<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">runtime/proc.<span class="keyword">go</span> : <span class="number">2733</span></span><br><span class="line"></span><br><span class="line"> </span><br><span class="line"><span class="comment">// save updates getg().sched to refer to pc and sp so that a following</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// gogo will restore pc and sp.</span></span><br><span class="line"><span class="comment">//</span></span><br><span class="line"><span class="comment">// save must not have write barriers because invoking a write barrier</span></span><br><span class="line"><span class="comment">// can clobber getg().sched.</span></span><br><span class="line"><span class="comment">//</span></span><br><span class="line"><span class="comment">//go:nosplit</span></span><br><span class="line"><span class="comment">//go:nowritebarrierrec</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">save</span><span class="params">(pc, sp <span class="keyword">uintptr</span>)</span></span> &#123;</span><br><span class="line">    _g_ := getg()</span><br><span class="line"> </span><br><span class="line">    _g_.sched.pc = pc <span class="comment">//再次运行时的指令地址</span></span><br><span class="line">    _g_.sched.sp = sp <span class="comment">//再次运行时到栈顶</span></span><br><span class="line">    _g_.sched.lr = <span class="number">0</span></span><br><span class="line">    _g_.sched.ret = <span class="number">0</span></span><br><span class="line">    _g_.sched.g = guintptr(unsafe.Pointer(_g_))</span><br><span class="line">    <span class="comment">// We need to ensure ctxt is zero, but can't have a write</span></span><br><span class="line">    <span class="comment">// barrier here. However, it should always already be zero.</span></span><br><span class="line">    <span class="comment">// Assert that.</span></span><br><span class="line">    <span class="keyword">if</span> _g_.sched.ctxt != <span class="literal">nil</span> &#123;</span><br><span class="line">        badctxt()</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>可以看到，save函数保存了调度相关的所有信息，包括最为重要的当前正在运行的g的下一条指令的地址和栈顶地址，不管是对g0还是其它goroutine来说这些信息在调度过程中都是必不可少的，我们会在后面的调度分析中看到调度器是如何利用这些信息来完成调度的。代码执行完save函数之后g0的状态如下图所示：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/ab90055747ffb9e0de576987a3bd6377.png" alt></p>
+<p>从上图可以看出，g0.sched.sp指向了mstart1函数执行完成后的返回地址，该地址保存在了mstart函数的栈帧之中；g0.sched.pc指向的是mstart函数中调用mstart1函数之后的 if 语句。</p>
+<p>为什么g0已经执行到mstart1这个函数了而且还会继续调用其它函数，但g0的调度信息中的pc和sp却要设置在mstart函数中？难道下次切换到g0时要从mstart函数中的 if 语句继续执行？可是从mstart函数可以看到，if语句之后就要退出线程了！这看起来很奇怪，不过随着分析的进行，我们会看到这里为什么要这么做。</p>
+<p>继续分析代码，save函数执行完成后，返回到mstart1继续其它跟m相关的一些初始化，完成这些初始化后则调用调度系统的核心函数schedule()完成goroutine的调度，之所以说它是核心，原因在于每次调度goroutine都是从schedule函数开始的。<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br></pre></td><td class="code"><pre><span class="line">runtime/proc.<span class="keyword">go</span> : <span class="number">2469</span></span><br><span class="line"></span><br><span class="line"> </span><br><span class="line"><span class="comment">// One round of scheduler: find a runnable goroutine and execute it.</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// Never returns.</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">schedule</span><span class="params">()</span></span> &#123;</span><br><span class="line">    _g_ := getg()  <span class="comment">//_g_ = 每个工作线程m对应的g0，初始化时是m0的g0</span></span><br><span class="line"> </span><br><span class="line">    <span class="comment">//......</span></span><br><span class="line"> </span><br><span class="line">    <span class="keyword">var</span> gp *g</span><br><span class="line"> </span><br><span class="line">    <span class="comment">//......</span></span><br><span class="line">    </span><br><span class="line">    <span class="keyword">if</span> gp == <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="comment">// Check the global runnable queue once in a while to ensure fairness.</span></span><br><span class="line">        <span class="comment">// Otherwise two goroutines can completely occupy the local runqueue</span></span><br><span class="line">        <span class="comment">// by constantly respawning each other.</span></span><br><span class="line">        <span class="comment">//为了保证调度的公平性，每进行61次调度就需要优先从全局运行队列中获取goroutine，</span></span><br><span class="line">        <span class="comment">//因为如果只调度本地队列中的g，那么全局运行队列中的goroutine将得不到运行</span></span><br><span class="line">        <span class="keyword">if</span> _g_.m.p.ptr().schedtick%<span class="number">61</span> == <span class="number">0</span> &amp;&amp; sched.runqsize &gt; <span class="number">0</span> &#123;</span><br><span class="line">            lock(&amp;sched.lock) <span class="comment">//所有工作线程都能访问全局运行队列，所以需要加锁</span></span><br><span class="line">            gp = globrunqget(_g_.m.p.ptr(), <span class="number">1</span>) <span class="comment">//从全局运行队列中获取1个goroutine</span></span><br><span class="line">            unlock(&amp;sched.lock)</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> gp == <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="comment">//从与m关联的p的本地运行队列中获取goroutine</span></span><br><span class="line">        gp, inheritTime = runqget(_g_.m.p.ptr())</span><br><span class="line">        <span class="keyword">if</span> gp != <span class="literal">nil</span> &amp;&amp; _g_.m.spinning &#123;</span><br><span class="line">            throw(<span class="string">"schedule: spinning with local work"</span>)</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> gp == <span class="literal">nil</span> &#123;</span><br><span class="line">        <span class="comment">//如果从本地运行队列和全局运行队列都没有找到需要运行的goroutine，</span></span><br><span class="line">        <span class="comment">//则调用findrunnable函数从其它工作线程的运行队列中偷取，如果偷取不到，则当前工作线程进入睡眠，</span></span><br><span class="line">        <span class="comment">//直到获取到需要运行的goroutine之后findrunnable函数才会返回。</span></span><br><span class="line">      gp, inheritTime = findrunnable() <span class="comment">// blocks until work is available</span></span><br><span class="line">    &#125;</span><br><span class="line"> </span><br><span class="line">    <span class="comment">//跟启动无关的代码.....</span></span><br><span class="line"> </span><br><span class="line">    <span class="comment">//当前运行的是runtime的代码，函数调用栈使用的是g0的栈空间</span></span><br><span class="line">    <span class="comment">//调用execte切换到gp的代码和栈空间去运行</span></span><br><span class="line">    execute(gp, inheritTime)  </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>schedule函数通过调用globrunqget()和runqget()函数分别从全局运行队列和当前工作线程的本地运行队列中选取下一个需要运行的goroutine，如果这两个队列都没有需要运行的goroutine则通过findrunnalbe()函数从其它p的运行队列中盗取goroutine，一旦找到下一个需要运行的goroutine，则调用excute函数从g0切换到该goroutine去运行。对于我们这个场景来说，前面的启动流程已经创建好第一个goroutine并放入了当前工作线程的本地运行队列，所以这里会通过runqget把目前唯一的一个goroutine取出来，至于具体是如何取出来的，我们将在第三章讨论调度策略时再回头来详细分析globrunqget()，runqget()和findrunnable()这三个函数的实现流程，现在我们先来分析execute函数是如何把从运行队列中找出来的goroutine调度到CPU上运行的。<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">runtime/proc.<span class="keyword">go</span> : <span class="number">2136</span></span><br><span class="line"></span><br><span class="line"> </span><br><span class="line"><span class="comment">// Schedules gp to run on the current M.</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// If inheritTime is true, gp inherits the remaining time in the</span></span><br><span class="line"><span class="comment">// current time slice. Otherwise, it starts a new time slice.</span></span><br><span class="line"><span class="comment">// Never returns.</span></span><br><span class="line"><span class="comment">//</span></span><br><span class="line"><span class="comment">// Write barriers are allowed because this is called immediately after</span></span><br><span class="line"><span class="comment">// acquiring a P in several places.</span></span><br><span class="line"><span class="comment">//</span></span><br><span class="line"><span class="comment">//go:yeswritebarrierrec</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">execute</span><span class="params">(gp *g, inheritTime <span class="keyword">bool</span>)</span></span> &#123;</span><br><span class="line">    _g_ := getg() <span class="comment">//g0</span></span><br><span class="line"> </span><br><span class="line">    <span class="comment">//设置待运行g的状态为_Grunning</span></span><br><span class="line">    casgstatus(gp, _Grunnable, _Grunning)</span><br><span class="line"> </span><br><span class="line">    <span class="comment">//......</span></span><br><span class="line">    </span><br><span class="line">    <span class="comment">//把g和m关联起来</span></span><br><span class="line">    _g_.m.curg = gp </span><br><span class="line">    gp.m = _g_.m</span><br><span class="line"> </span><br><span class="line">    <span class="comment">//......</span></span><br><span class="line"> </span><br><span class="line">    <span class="comment">//gogo完成从g0到gp真正的切换</span></span><br><span class="line">    gogo(&amp;gp.sched)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>execute函数的第一个参数gp即是需要调度起来运行的goroutine，这里首先把gp的状态从_Grunnable修改为_Grunning，然后把gp和m关联起来，这样通过m就可以找到当前工作线程正在执行哪个goroutine，反之亦然。</p>
+<p>完成gp运行前的准备工作之后，execute调用gogo函数完成从g0到gp的的切换：CPU执行权的转让以及栈的切换。</p>
+<p>gogo函数也是通过汇编语言编写的，这里之所以需要使用汇编，是因为goroutine的调度涉及不同执行流之间的切换，前面我们在讨论操作系统切换线程时已经看到过，执行流的切换从本质上来说就是CPU寄存器以及函数调用栈的切换，然而不管是go还是c这种高级语言都无法精确控制CPU寄存器的修改，因而高级语言在这里也就无能为力了，只能依靠汇编指令来达成目的。<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line">runtime/asm_amd64.s : <span class="number">251</span></span><br><span class="line"></span><br><span class="line"> </span><br><span class="line"># <span class="function"><span class="keyword">func</span> <span class="title">gogo</span><span class="params">(buf *gobuf)</span></span></span><br><span class="line"></span><br><span class="line"># restore state from Gobuf; longjmp</span><br><span class="line">TEXT runtime·gogo(SB), NOSPLIT, $<span class="number">16</span><span class="number">-8</span></span><br><span class="line">    #buf = &amp;gp.sched</span><br><span class="line">    MOVQ  buf+<span class="number">0</span>(FP), BX   # BX = buf</span><br><span class="line"> </span><br><span class="line">    #gobuf-&gt;g --&gt; dx register</span><br><span class="line">    MOVQ  gobuf_g(BX), DX  # DX = gp.sched.g</span><br><span class="line"> </span><br><span class="line">    #下面这行代码没有实质作用，检查gp.sched.g是否是<span class="literal">nil</span>，如果是<span class="literal">nil</span>进程会crash死掉</span><br><span class="line">    MOVQ  <span class="number">0</span>(DX), CX   # <span class="built_in">make</span> sure g != <span class="literal">nil</span></span><br><span class="line"> </span><br><span class="line">    get_tls(CX) </span><br><span class="line"> </span><br><span class="line">    #把要运行的g的指针放入线程本地存储，这样后面的代码就可以通过线程本地存储</span><br><span class="line">    #获取到当前正在执行的goroutine的g结构体对象，从而找到与之关联的m和p</span><br><span class="line">    MOVQ  DX, g(CX)</span><br><span class="line"> </span><br><span class="line">    #把CPU的SP寄存器设置为sched.sp，完成了栈的切换</span><br><span class="line">    MOVQ  gobuf_sp(BX), SP  # restore SP</span><br><span class="line"> </span><br><span class="line">    #下面三条同样是恢复调度上下文到CPU相关寄存器</span><br><span class="line">    MOVQ  gobuf_ret(BX), AX</span><br><span class="line">    MOVQ  gobuf_ctxt(BX), DX</span><br><span class="line">    MOVQ  gobuf_bp(BX), BP</span><br><span class="line"> </span><br><span class="line">    #清空sched的值，因为我们已把相关值放入CPU对应的寄存器了，不再需要，这样做可以少gc的工作量</span><br><span class="line">    MOVQ  $<span class="number">0</span>, gobuf_sp(BX)  # clear to help garbage collector</span><br><span class="line">    MOVQ  $<span class="number">0</span>, gobuf_ret(BX)</span><br><span class="line">    MOVQ  $<span class="number">0</span>, gobuf_ctxt(BX)</span><br><span class="line">    MOVQ  $<span class="number">0</span>, gobuf_bp(BX)</span><br><span class="line"> </span><br><span class="line">    #把sched.pc值放入BX寄存器</span><br><span class="line">    MOVQ  gobuf_pc(BX), BX</span><br><span class="line"> </span><br><span class="line">    #JMP把BX寄存器的包含的地址值放入CPU的IP寄存器，于是，CPU跳转到该地址继续执行指令，</span><br><span class="line">    JMP BX</span><br></pre></td></tr></table></figure></p>
+<p>gogo函数的这段汇编代码短小而强悍，虽然笔者已经在代码中做了详细的注释，但为了完全搞清楚它的工作原理，我们有必要再对这些指令进行逐条分析：</p>
+<p>execute函数在调用gogo时把gp的sched成员的地址作为实参（型参buf）传递了过来，该参数位于FP寄存器所指的位置，所以第1条指令</p>
+<p>MOVQ  buf+0(FP), BX # &amp;gp.sched –&gt; BX</p>
+<p>把buf的值也就是gp.sched的地址放在了BX寄存器之中，这样便于后面的指令依靠BX寄存器来存取gp.sched的成员。sched成员保存了调度相关的信息，上一节我们已经看到，main goroutine创建时已经把这些信息设置好了。</p>
+<p>第2条指令</p>
+<p>MOVQ  gobuf_g(BX), DX  # gp.sched.g –&gt; DX</p>
+<p>把gp.sched.g读取到DX寄存器，注意这条指令的源操作数是间接寻址，如果读者对间接寻址不熟悉的话可以参考预备知识汇编语言部分。</p>
+<p>第3条指令</p>
+<p>MOVQ  0(DX), CX # make sure g != nil</p>
+<p>的作用在于检查gp.sched.g是否为nil，如果为nil指针的话，这条指令会导致程序死掉，有读者可能会有疑问，为什么要让它死掉啊，原因在于这个gp.sched.g是由go runtime代码负责设置的，按道理说不可能为nil，如果为nil，一定是程序逻辑写得有问题，所以需要把这个bug暴露出来，而不是把它隐藏起来。</p>
+<p>第4条和第5条指令</p>
+<p>get_tls(CX)</p>
+<p>#把DX值也就是需要运行的goroutine的指针写入线程本地存储之中</p>
+<p>#运行这条指令之前，线程本地存储存放的是g0的地址<br>MOVQ  DX, g(CX)<br>把DX寄存器的值也就是gp.sched.g(这是一个指向g的指针)写入线程本地存储之中，这样后面的代码就可以通过线程本地存储获取到当前正在执行的goroutine的g结构体对象，从而找到与之关联的m和p。</p>
+<p>第6条指令</p>
+<p>MOVQ  gobuf_sp(BX), SP # restore SP</p>
+<p>设置CPU的栈顶寄存器SP为gp.sched.sp，这条指令完成了栈的切换，从g0的栈切换到了gp的栈。</p>
+<p>第7～13条指令</p>
+<p>#下面三条同样是恢复调度上下文到CPU相关寄存器</p>
+<p>  MOVQ  gobuf_ret(BX), AX #系统调用的返回值放入AX寄存器<br>  MOVQ  gobuf_ctxt(BX), DX<br>  MOVQ  gobuf_bp(BX), BP</p>
+<p>  //清空gp.sched中不再需要的值，因为我们已把相关值放入CPU对应的寄存器了，不再需要，这样做可以少gc的工作量<br>  MOVQ  $0, gobuf_sp(BX)  // clear to help garbage collector<br>  MOVQ  $0, gobuf_ret(BX)<br>  MOVQ  $0, gobuf_ctxt(BX)<br>  MOVQ  $0, gobuf_bp(BX)<br>一是根据gp.sched其它字段设置CPU相关寄存器，可以看到这里恢复了CPU的栈基地址寄存器BP，二是把gp.sched中已经不需要的成员设置为0，这样可以减少gc的工作量。</p>
+<p>第14条指令</p>
+<p>MOVQ  gobuf_pc(BX), BX</p>
+<p>把gp.sched.pc的值读取到BX寄存器，这个pc值是gp这个goroutine马上需要执行的第一条指令的地址，对于我们这个场景来说它现在就是runtime.main函数的第一条指令，现在这条指令的地址就放在BX寄存器里面。最后一条指令</p>
+<p>JMP  BX</p>
+<p>这里的JMP BX指令把BX寄存器里面的指令地址放入CPU的rip寄存器，于是，CPU就会跳转到该地址继续执行属于gp这个goroutine的代码，这样就完成了goroutine的切换。</p>
+<p>总结一下这15条指令，其实就只做了两件事：</p>
+<p>把gp.sched的成员恢复到CPU的寄存器完成状态以及栈的切换；</p>
+<p>跳转到gp.sched.pc所指的指令地址（runtime.main）处执行。</p>
+<p>现在已经从g0切换到了gp这个goroutine，对于我们这个场景来说，gp还是第一次被调度起来运行，它的入口函数是runtime.main，所以接下来CPU就开始执行runtime.main函数：<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br></pre></td><td class="code"><pre><span class="line">runtime/proc.<span class="keyword">go</span> : <span class="number">109</span></span><br><span class="line"></span><br><span class="line"> </span><br><span class="line"><span class="comment">// The main goroutine.</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">    g := getg()  <span class="comment">// g = main goroutine，不再是g0了</span></span><br><span class="line"> </span><br><span class="line">    ......</span><br><span class="line"> </span><br><span class="line">    <span class="comment">// Max stack size is 1 GB on 64-bit, 250 MB on 32-bit.</span></span><br><span class="line">    <span class="comment">// Using decimal instead of binary GB and MB because</span></span><br><span class="line">    <span class="comment">// they look nicer in the stack overflow failure message.</span></span><br><span class="line">    <span class="keyword">if</span> sys.PtrSize == <span class="number">8</span> &#123; <span class="comment">//64位系统上每个goroutine的栈最大可达1G</span></span><br><span class="line">        maxstacksize = <span class="number">1000000000</span></span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        maxstacksize = <span class="number">250000000</span></span><br><span class="line">    &#125;</span><br><span class="line"> </span><br><span class="line">    <span class="comment">// Allow newproc to start new Ms.</span></span><br><span class="line">    mainStarted = <span class="literal">true</span></span><br><span class="line"> </span><br><span class="line">    <span class="keyword">if</span> GOARCH != <span class="string">"wasm"</span> &#123; <span class="comment">// no threads on wasm yet, so no sysmon</span></span><br><span class="line">        <span class="comment">//现在执行的是main goroutine，所以使用的是main goroutine的栈，需要切换到g0栈去执行newm()</span></span><br><span class="line">        systemstack(<span class="function"><span class="keyword">func</span><span class="params">()</span></span> &#123;</span><br><span class="line">            <span class="comment">//创建监控线程，该线程独立于调度器，不需要跟p关联即可运行</span></span><br><span class="line">             newm(sysmon, <span class="literal">nil</span>)</span><br><span class="line">        &#125;)</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    ......</span><br><span class="line"> </span><br><span class="line">    <span class="comment">//调用runtime包的初始化函数，由编译器实现</span></span><br><span class="line">    runtime_init() <span class="comment">// must be before defer</span></span><br><span class="line"> </span><br><span class="line">    <span class="comment">// Record when the world started.</span></span><br><span class="line">    runtimeInitTime = nanotime()</span><br><span class="line"> </span><br><span class="line">    gcenable()  <span class="comment">//开启垃圾回收器</span></span><br><span class="line"> </span><br><span class="line">    ......</span><br><span class="line"> </span><br><span class="line">    <span class="comment">//main 包的初始化函数，也是由编译器实现，会递归的调用我们import进来的包的初始化函数</span></span><br><span class="line">    fn := main_init <span class="comment">// make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime</span></span><br><span class="line">    fn()</span><br><span class="line"> </span><br><span class="line">    ......</span><br><span class="line">    </span><br><span class="line">    <span class="comment">//调用main.main函数</span></span><br><span class="line">    fn = main_main <span class="comment">// make an indirect call, as the linker doesn't know the address of the main package when laying down the runtime</span></span><br><span class="line">    fn()</span><br><span class="line">    </span><br><span class="line">    ......</span><br><span class="line"> </span><br><span class="line">    <span class="comment">//进入系统调用，退出进程，可以看出main goroutine并未返回，而是直接进入系统调用退出进程了</span></span><br><span class="line">    exit(<span class="number">0</span>)</span><br><span class="line">    </span><br><span class="line">    <span class="comment">//保护性代码，如果exit意外返回，下面的代码也会让该进程crash死掉</span></span><br><span class="line">    <span class="keyword">for</span> &#123;</span><br><span class="line">        <span class="keyword">var</span> x *<span class="keyword">int32</span></span><br><span class="line">        *x = <span class="number">0</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>runtime.main函数主要工作流程如下：</p>
+<p>启动一个sysmon系统监控线程，该线程负责整个程序的gc、抢占调度以及netpoll等功能的监控，在抢占调度一章我们再继续分析sysmon是如何协助完成goroutine的抢占调度的；</p>
+<p>执行runtime包的初始化；</p>
+<p>执行main包以及main包import的所有包的初始化；</p>
+<p>执行main.main函数；</p>
+<p>从main.main函数返回后调用exit系统调用退出进程；</p>
+<p>从上述流程可以看出，runtime.main执行完main包的main函数之后就直接调用exit系统调用结束进程了，它并没有返回到调用它的函数（还记得是从哪里开始执行的runtime.main吗？），其实runtime.main是main goroutine的入口函数，并不是直接被调用的，而是在schedule()-&gt;execute()-&gt;gogo()这个调用链的gogo函数中用汇编代码直接跳转过来的，所以从这个角度来说，goroutine确实不应该返回，没有地方可返回啊！可是从前面的分析中我们得知，在创建goroutine的时候已经在其栈上放好了一个返回地址，伪造成goexit函数调用了goroutine的入口函数，这里怎么没有用到这个返回地址啊？其实那是为非main goroutine准备的，非main goroutine执行完成后就会返回到goexit继续执行，而main goroutine执行完成后整个进程就结束了，这是main goroutine与其它goroutine的一个区别。</p>
+<p>总结一下从g0切换到main goroutine的流程：</p>
+<p>保存g0的调度信息，主要是保存CPU栈顶寄存器SP到g0.sched.sp成员之中；</p>
+<p>调用schedule函数寻找需要运行的goroutine，我们这个场景找到的是main goroutine;</p>
+<p>调用gogo函数首先从g0栈切换到main goroutine的栈，然后从main goroutine的g结构体对象之中取出sched.pc的值并使用JMP指令跳转到该地址去执行；</p>
+<p>main goroutine执行完毕直接调用exit系统调用退出进程。</p>
+<p>下一节我们将用例子来分析非main goroutine的退出。</p>
+<p>最后，如果你觉得本文对你有帮助的话，麻烦帮忙点一下文末右下角的 在看 或转发到朋友圈，非常感谢！</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/bb1306280e12ad8be259c63547ad1b1f.png" alt></p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/go/" rel="tag"> <i class="fa fa-tag"></i> go</a>
+          
+            <a href="/tags/go语言调度器源代码情景分析/" rel="tag"> <i class="fa fa-tag"></i> go语言调度器源代码情景分析</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/go语言调度器源代码情景分析/Go语言调度器之创建main-goroutine-13/" rel="next" title="go语言调度器之创建main goroutine(13)">
+                <i class="fa fa-chevron-left"></i> go语言调度器之创建main goroutine(13)
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/go语言调度器源代码情景分析/非main-goroutine的退出及调度循环（15）/" rel="prev" title="非main goroutine的退出及调度循环（15）">
+                非main goroutine的退出及调度循环（15） <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+
+      <div class="site-overview-wrap sidebar-panel sidebar-panel-active">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives/">
+                
+                    <span class="site-state-item-count">26</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">3</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">3</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="https://blog.csdn.net/pyf09" title="CSDN &rarr; https://blog.csdn.net/pyf09" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-book"></i>CSDN</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
