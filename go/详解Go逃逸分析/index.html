@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="原文链接机器铃砍菜刀 Go是一门带有垃圾回收的现代语言，它抛弃了传统C/C++的开发者需要手动管理内存的方式，实现了内存的主动申请和释放的管理。Go的垃圾回收，让堆和栈的概念对程序员保持透明，它增加的逃逸分析与GC，使得程序员的双手真正地得到了解放，给了开发者更多的精力去关注软件设计本身。 就像《CPU缓存体系对Go程序的影响》文章中说过的一样，“你不一定需要成为一名硬件工程师，但是你确实需要了解">
+<meta name="keywords" content="gc,s">
+<meta property="og:type" content="article">
+<meta property="og:title" content="详解Go逃逸分析">
+<meta property="og:url" content="https://shankusu2017.github.io/go/详解Go逃逸分析/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="原文链接机器铃砍菜刀 Go是一门带有垃圾回收的现代语言，它抛弃了传统C/C++的开发者需要手动管理内存的方式，实现了内存的主动申请和释放的管理。Go的垃圾回收，让堆和栈的概念对程序员保持透明，它增加的逃逸分析与GC，使得程序员的双手真正地得到了解放，给了开发者更多的精力去关注软件设计本身。 就像《CPU缓存体系对Go程序的影响》文章中说过的一样，“你不一定需要成为一名硬件工程师，但是你确实需要了解">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/fbd21177b93826eda5b41c6f610b7f13.png">
+<meta property="og:image" content="https://img-blog.csdnimg.cn/img_convert/2784feee73aee22f252f9d1ed1f1da7c.png">
+<meta property="og:updated_time" content="2021-04-04T08:37:13.595Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="详解Go逃逸分析">
+<meta name="twitter:description" content="原文链接机器铃砍菜刀 Go是一门带有垃圾回收的现代语言，它抛弃了传统C/C++的开发者需要手动管理内存的方式，实现了内存的主动申请和释放的管理。Go的垃圾回收，让堆和栈的概念对程序员保持透明，它增加的逃逸分析与GC，使得程序员的双手真正地得到了解放，给了开发者更多的精力去关注软件设计本身。 就像《CPU缓存体系对Go程序的影响》文章中说过的一样，“你不一定需要成为一名硬件工程师，但是你确实需要了解">
+<meta name="twitter:image" content="https://img-blog.csdnimg.cn/img_convert/fbd21177b93826eda5b41c6f610b7f13.png">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/go/详解Go逃逸分析/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>详解Go逃逸分析 | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">7</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-archives">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/archives/" rel="section"><i class="menu-item-icon fa fa-fw fa-archive"></i> <br>Archives<span class="badge">49</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/go/详解Go逃逸分析/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">详解Go逃逸分析
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">Posted on</span>
+              
+
+              
+                
+              
+
+              <time title="Created: 2021-04-04 16:15:00 / Modified: 16:37:13" itemprop="dateCreated datePublished" datetime="2021-04-04T16:15:00+08:00">2021-04-04</time>
+            
+
+            
+              
+
+              
+            
+          </span>
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">In</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/go/" itemprop="url" rel="index"><span itemprop="name">go</span></a></span>
+
+                
+                
+                  , 
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/go/go内存详解/" itemprop="url" rel="index"><span itemprop="name">go内存详解</span></a></span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p>原文链接<a href="https://juejin.cn/post/6917201712029630478" rel="external nofollow noopener noreferrer" target="_blank">机器铃砍菜刀</a></p>
+<p>Go是一门带有垃圾回收的现代语言，它抛弃了传统C/C++的开发者需要手动管理内存的方式，实现了内存的主动申请和释放的管理。Go的垃圾回收，让堆和栈的概念对程序员保持透明，它增加的逃逸分析与GC，使得程序员的双手真正地得到了解放，给了开发者更多的精力去关注软件设计本身。</p>
+<p>就像《CPU缓存体系对Go程序的影响》文章中说过的一样，“你不一定需要成为一名硬件工程师，但是你确实需要了解硬件的工作原理”。Go虽然帮我们实现了内存的自动管理，我们仍然需要知道其内在原理。内存管理主要包括两个动作：分配与释放。逃逸分析就是服务于内存分配，为了更好理解逃逸分析，我们先谈一下堆栈。</p>
+<p>堆和栈</p>
+<p>应用程序的内存载体，我们可以简单地将其分为堆和栈。</p>
+<p>在Go中，栈的内存是由编译器自动进行分配和释放，栈区往往存储着函数参数、局部变量和调用函数帧，它们随着函数的创建而分配，函数的退出而销毁。一个goroutine对应一个栈，栈是调用栈（call stack）的简称。一个栈通常又包含了许多栈帧（stack frame），它描述的是函数之间的调用关系，每一帧对应一次尚未返回的函数调用，它本身也是以栈形式存放数据。</p>
+<p>举例：在一个goroutine里，函数A()正在调用函数B()，那么这个调用栈的内存布局示意图如下。</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/fbd21177b93826eda5b41c6f610b7f13.png" alt></p>
+<p>与栈不同的是，应用程序在运行时只会存在一个堆。狭隘地说，内存管理只是针对堆内存而言的。程序在运行期间可以主动从堆上申请内存，这些内存通过Go的内存分配器分配，并由垃圾收集器回收。</p>
+<p>栈是每个goroutine独有的，这就意味着栈上的内存操作是不需要加锁的。而堆上的内存，有时需要加锁防止多线程冲突（为什么要说有时呢，因为Go的内存分配策略学习了TCMalloc的线程缓存思想，他为每个处理器P分配了一个mcache，从mcache分配内存也是无锁的）。</p>
+<p>而且，对于程序堆上的内存回收，还需要通过标记清除阶段，例如Go采用的三色标记法。但是，在栈上的内存而言，它的分配与释放非常廉价。简单地说，它只需要两个CPU指令：一个是分配入栈，另外一个是栈内释放。而这，只需要借助于栈相关寄存器即可完成。</p>
+<p>另外还有一点，栈内存能更好地利用CPU的缓存策略。因为它们相较于堆而言是更连续的。</p>
+<p>逃逸分析</p>
+<p>那么，我们怎么知道一个对象是应该放在堆内存，还是栈内存之上呢？可以官网的FAQ（地址：golang.org/doc/faq）中找到…</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/2784feee73aee22f252f9d1ed1f1da7c.png" alt></p>
+<p>如果可以，Go编译器会尽可能将变量分配到到栈上。但是，当编译器无法证明函数返回后，该变量没有被引用，那么编译器就必须在堆上分配该变量，以此避免悬挂指针（dangling pointer）。另外，如果局部变量非常大，也会将其分配在堆上。</p>
+<p>那么，Go是如何确定的呢？答案就是：逃逸分析。编译器通过逃逸分析技术去选择堆或者栈，逃逸分析的基本思想如下：检查变量的生命周期是否是完全可知的，如果通过检查，则可以在栈上分配。否则，就是所谓的逃逸，必须在堆上进行分配。</p>
+<p>Go语言虽然没有明确说明逃逸分析规则，但是有以下几点准则，是可以参考的。</p>
+<p>逃逸分析是在编译器完成的，这是不同于jvm的运行时逃逸分析;<br>如果变量在函数外部没有引用，则优先放到栈中；<br>如果变量在函数外部存在引用，则必定放在堆中；<br>我们可通过go build -gcflags ‘-m -l’命令来查看逃逸分析结果，其中-m 打印逃逸分析信息，-l禁止内联优化。下面，我们通过一些案例，来熟悉一些常见的逃逸情况。</p>
+<p>情况一：变量类型不确定<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> main</span><br><span class="line"> </span><br><span class="line"><span class="keyword">import</span> <span class="string">"fmt"</span></span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">	a := <span class="number">666</span></span><br><span class="line">	fmt.Println(a)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>逃逸分析结果如下<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"> $ <span class="keyword">go</span> build -gcflags <span class="string">'-m -l'</span> main.<span class="keyword">go</span></span><br><span class="line"># command-line-arguments</span><br><span class="line">./main.<span class="keyword">go</span>:<span class="number">7</span>:<span class="number">13</span>: ... argument does not escape</span><br><span class="line">./main.<span class="keyword">go</span>:<span class="number">7</span>:<span class="number">13</span>: a escapes to heap</span><br></pre></td></tr></table></figure></p>
+<p>可以看到，分析结果告诉我们变量a逃逸到了堆上。但是，我们并没有外部引用啊，为啥也会有逃逸呢？为了看到更多细节，可以在语句中再添加一个-m参数。得到信息如下<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"> $ go build -gcflags <span class="string">'-m -m -l'</span> main.go</span><br><span class="line"><span class="comment"># command-line-arguments</span></span><br><span class="line">./main.go:7:13: a escapes to heap:</span><br><span class="line">./main.go:7:13:   flow: &#123;storage <span class="keyword">for</span> ... argument&#125; = &amp;&#123;storage <span class="keyword">for</span> a&#125;:</span><br><span class="line">./main.go:7:13:     from a (spill) at ./main.go:7:13</span><br><span class="line">./main.go:7:13:     from ... argument (slice-literal-element) at ./main.go:7:13</span><br><span class="line">./main.go:7:13:   flow: &#123;heap&#125; = &#123;storage <span class="keyword">for</span> ... argument&#125;:</span><br><span class="line">./main.go:7:13:     from ... argument (spill) at ./main.go:7:13</span><br><span class="line">./main.go:7:13:     from fmt.Println(... argument...) (call parameter) at ./main.go:7:13</span><br><span class="line">./main.go:7:13: ... argument does not escape</span><br><span class="line">./main.go:7:13: a escapes to heap</span><br></pre></td></tr></table></figure></p>
+<p>a逃逸是因为它被传入了fmt.Println的参数中，这个方法参数自己发生了逃逸。<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">Println</span><span class="params">(a ...<span class="keyword">interface</span>&#123;&#125;)</span> <span class="params">(n <span class="keyword">int</span>, err error)</span></span></span><br></pre></td></tr></table></figure></p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">因为fmt.Println的函数参数为<span class="keyword">interface</span>类型，编译期不能确定其参数的具体类型，所以将其分配于堆上。</span><br></pre></td></tr></table></figure>
+<p>情况二：暴露给外部指针<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> main</span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">foo</span><span class="params">()</span> *<span class="title">int</span></span> &#123;</span><br><span class="line">	a := <span class="number">666</span></span><br><span class="line">	<span class="keyword">return</span> &amp;a</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">	_ = foo()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>逃逸分析如下，变量a发生了逃逸。<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"> $ go build -gcflags <span class="string">'-m -m -l'</span> main.go</span><br><span class="line"><span class="comment"># command-line-arguments</span></span><br><span class="line">./main.go:4:2: a escapes to heap:</span><br><span class="line">./main.go:4:2:   flow: ~r0 = &amp;a:</span><br><span class="line">./main.go:4:2:     from &amp;a (address-of) at ./main.go:5:9</span><br><span class="line">./main.go:4:2:     from <span class="built_in">return</span> &amp;a (<span class="built_in">return</span>) at ./main.go:5:2</span><br><span class="line">./main.go:4:2: moved to heap: a</span><br></pre></td></tr></table></figure></p>
+<p>这种情况直接满足我们上述中的原则：变量在函数外部存在引用。这个很好理解，因为当函数执行完毕，对应的栈帧就被销毁，但是引用已经被返回到函数之外。如果这时外部从引用地址取值，虽然地址还在，但是这块内存已经被释放回收了，这就是非法内存，问题可就大了。所以，很明显，这种情况必须分配到堆上。</p>
+<p>情况三：变量所占内存较大<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">foo</span><span class="params">()</span></span> &#123;</span><br><span class="line">	s := <span class="built_in">make</span>([]<span class="keyword">int</span>, <span class="number">10000</span>, <span class="number">10000</span>)</span><br><span class="line">	<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; <span class="built_in">len</span>(s); i++ &#123;</span><br><span class="line">		s[i] = i</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">	foo()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>逃逸分析结果<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ go build -gcflags <span class="string">'-m -m -l'</span> main.go</span><br><span class="line"><span class="comment"># command-line-arguments</span></span><br><span class="line">./main.go:4:11: make([]int, 10000, 10000) escapes to heap:</span><br><span class="line">./main.go:4:11:   flow: &#123;heap&#125; = &amp;&#123;storage <span class="keyword">for</span> make([]int, 10000, 10000)&#125;:</span><br><span class="line">./main.go:4:11:     from make([]int, 10000, 10000) (too large <span class="keyword">for</span> stack) at ./main.go:4:11</span><br><span class="line">./main.go:4:11: make([]int, 10000, 10000) escapes to heap</span><br></pre></td></tr></table></figure></p>
+<p>可以看到，当我们创建了一个容量为10000的int类型的底层数组对象时，由于对象过大，它也会被分配到堆上。这里我们不禁要想一个问题，为啥大对象需要分配到堆上。</p>
+<p>这里需要注意，在上文中没有说明的是：在Go中，执行用户代码的goroutine是一种用户态线程，其调用栈内存被称为用户栈，它其实也是从堆区分配的，但是我们仍然可以将其看作和系统栈一样的内存空间，它的分配和释放是通过编译器完成的。与其相对应的是系统栈，它的分配和释放是操作系统完成的。在GMP模型中，一个M对应一个系统栈（也称为M的g0栈），M上的多个goroutine会共享该系统栈。</p>
+<p>不同平台上的系统栈最大限制不同。<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ <span class="built_in">ulimit</span> -s</span><br><span class="line">8192</span><br></pre></td></tr></table></figure></p>
+<p>以x86_64架构为例，它的系统栈大小最大可为8Mb。我们常说的goroutine初始大小为2kb，其实说的是用户栈，它的最小和最大可以在runtime/stack.go中找到，分别是2KB和1GB。</p>
+<p>// The minimum size of stack used by Go code<br>_StackMin = 2048<br>…<br>var maxstacksize uintptr = 1 &lt;&lt; 20 // enough until runtime.main sets it for real<br>复制代码<br>而堆则会大很多，从1.11之后，Go采用了稀疏的内存布局，在Linux的x86-64架构上运行时，整个堆区最大可以管理到256TB的内存。所以，为了不造成栈溢出和频繁的扩缩容，大的对象分配在堆上更加合理。那么，多大的对象会被分配到堆上呢。</p>
+<p>通过测试，小菜刀发现该大小为64KB（这在Go内存分配中是属于大对象的范围：&gt;32kb），即s :=make([]int, n, n)中，一旦n达到8192，就一定会逃逸。注意，网上有人通过fmt.Println(unsafe.Sizeof(s))得到s的大小为24字节，就误以为只需分配24个字节的内存，这是错误的，因为实际还有底层数组的内存需要分配。</p>
+<p>情况四：变量大小不确定</p>
+<p>我们将情况三种的示例，简单更改一下。<br><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">package</span> main</span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">foo</span><span class="params">()</span></span> &#123;</span><br><span class="line">	n := <span class="number">1</span></span><br><span class="line">	s := <span class="built_in">make</span>([]<span class="keyword">int</span>, n)</span><br><span class="line">	<span class="keyword">for</span> i := <span class="number">0</span>; i &lt; <span class="built_in">len</span>(s); i++ &#123;</span><br><span class="line">		s[i] = i</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">main</span><span class="params">()</span></span> &#123;</span><br><span class="line">	foo()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>得到逃逸分析结果如下<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">$ go build -gcflags <span class="string">'-m -m -l'</span> main.go</span><br><span class="line"><span class="comment"># command-line-arguments</span></span><br><span class="line">./main.go:5:11: make([]int, n) escapes to heap:</span><br><span class="line">./main.go:5:11:   flow: &#123;heap&#125; = &amp;&#123;storage <span class="keyword">for</span> make([]int, n)&#125;:</span><br><span class="line">./main.go:5:11:     from make([]int, n) (non-constant size) at ./main.go:5:11</span><br><span class="line">./main.go:5:11: make([]int, n) escapes to heap</span><br></pre></td></tr></table></figure></p>
+<p>这次，我们在make方法中，没有直接指定大小，而是填入了变量n，这时Go逃逸分析也会将其分配到堆区去。可见，为了保证内存的绝对安全，Go的编译器可能会将一些变量不合时宜地分配到堆上，但是因为这些对象最终也会被垃圾收集器处理，所以也能接受。</p>
+<p>总结</p>
+<p>本文只列举了逃逸分析的部分例子，实际的情况还有很多，理解思想最重要。这里就不过多列举了。</p>
+<p>既然Go的堆栈分配对于开发者来说是透明的，编译器已经通过逃逸分析为对象选择好了分配方式。那么我们还可以从中获益什么？</p>
+<p>答案是肯定的，理解逃逸分析一定能帮助我们写出更好的程序。知道变量分配在栈堆之上的差别，那么我们就要尽量写出分配在栈上的代码，堆上的变量变少了，可以减轻内存分配的开销，减小gc的压力，提高程序的运行速度。</p>
+<p>所以，你会发现有些Go上线项目，它们在函数传参的时候，并没有传递结构体指针，而是直接传递的结构体。这个做法，虽然它需要值拷贝，但是这是在栈上完成的操作，开销远比变量逃逸后动态地在堆上分配内存少的多。当然该做法不是绝对的，如果结构体较大，传递指针将更合适。</p>
+<p>因此，从GC的角度来看，指针传递是个双刃剑，需要谨慎使用，否则线上调优解决GC延时可能会让你崩溃。</p>
+<ol>
+<li>闭包造成的逃逸</li>
+<li>返回指向栈变量的指针</li>
+<li>申请大对象造成的逃逸</li>
+<li>申请可变长空间造成的逃逸</li>
+<li>返回局部引用的 slice 造成的逃逸</li>
+<li>返回局部引用的 map 造成的逃逸</li>
+<li>返回函数造成的逃逸</li>
+<li>逃逸是在编译期间完成的，主要是决定是在栈中或者堆中分配内存?</li>
+</ol>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/gc/" rel="tag"> <i class="fa fa-tag"></i> gc</a>
+          
+            <a href="/tags/s/" rel="tag"> <i class="fa fa-tag"></i> s</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/go/理解golang调度之三：并发/" rel="next" title="理解golang调度之三：并发">
+                <i class="fa fa-chevron-left"></i> 理解golang调度之三：并发
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/algorithm/垃圾回收GC浅谈/" rel="prev" title="垃圾回收GC浅谈">
+                垃圾回收GC浅谈 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+
+      <div class="site-overview-wrap sidebar-panel sidebar-panel-active">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives/">
+                
+                    <span class="site-state-item-count">49</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">7</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">8</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="https://blog.csdn.net/pyf09" title="CSDN &rarr; https://blog.csdn.net/pyf09" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-book"></i>CSDN</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
