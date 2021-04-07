@@ -1,0 +1,1613 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="本文从一个简单示例入手，详细讲解 Lua 字节码文件的存储结构及各字段含义，进而引出 Lua 虚拟机指令集和运行时的核心数据结构 Lua State，最后解释 Lua 虚拟机的 47 条指令如何在 Lua State 上运作的。  为了达到较高的执行效率，lua 代码并不是直接被 Lua 解释器解释执行，而是会先编译为字节码，然后再交给 lua 虚拟机去执行。lua 代码称为 chunk，编译成">
+<meta name="keywords" content="lua,lua知识点">
+<meta property="og:type" content="article">
+<meta property="og:title" content="深入理解Lua虚拟机">
+<meta property="og:url" content="https://shankusu2017.github.io/lua/深入理解Lua虚拟机/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="本文从一个简单示例入手，详细讲解 Lua 字节码文件的存储结构及各字段含义，进而引出 Lua 虚拟机指令集和运行时的核心数据结构 Lua State，最后解释 Lua 虚拟机的 47 条指令如何在 Lua State 上运作的。  为了达到较高的执行效率，lua 代码并不是直接被 Lua 解释器解释执行，而是会先编译为字节码，然后再交给 lua 虚拟机去执行。lua 代码称为 chunk，编译成">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/bcd6ce0147114cebbcd9f0c0d7adee03?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/b19a7fd07e744d719eeedfc69949ab65?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/32fc87dd7ed64bd6bf9bf5d7f32a749b?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/c948d406090448f88eef97949d9d78cb?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/2fb11a263eca496f93df861745b11a73?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/cbb9d9e96d784d89a0dcb31d7fa790fe?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/b3bedb46c642448bb763f5007bc52e8c?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/41326c37a2764da1bbb244964c8a6cbe?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/ad961bbec5824743949352c6b18db38d?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/8e26c797ef854ec392cd5119a50ea68f?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/c5a115b426cd4fa4ad2c9a3ebbb7c3b4?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/33fc9f47fed047dfa706cd0783dbe0c3?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/038ce33628b848a2b821a3d48badbb70?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/1a78929fa797476ab89a676a0d951ea1?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/3fbbe826ecfb4bbc9244c4faa1c55274?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/5d5be65bc16640e883d2dd3e0b72fa46?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/e9b2057255ec469689e0cb60235dbddb?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/e8e6687f1d99407a8e62d61df2e22e39?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/9e026d965cd04e9ebc6d56816b342542?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/07b7c5b03d6e456ba467b9f54bd3a0d9?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/4849926dd2c8460693c83b13cd4daa8b?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/c0dbc0195e8e45de81fc697399d2f6ff?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/bab05d984ee744ba93b9146e52f061ab?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/2ad1d863d7d9431f905059dc840fc962?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/b5f4389ccf1b421a88801be161733e35?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/cabba38804fc4af4b91ef3e6120cd23b?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/58f952d6c394479a8c68cdbaac48c2d8?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/b58892f4aabb4bfa9c9ea970d44726cd?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/691864b1d5094529a3a0ed10dd6e7879?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/64ff9c30cc434a13abe4eed37cd7b846?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/3f63cacef167451aa073da240fcb0e24?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/3a4bbb1f035b46a9a2c38866b2009982?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/2b34822a093f42d78d2c6436f0f5debb?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/7f766e23711746bda75fe1cc76ba4aed?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/916820bd14cd4f7fb7ba7c1fa65f6b9b?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/f0501b686d90434797c15e6e09102948?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/1196cd6635154accbcd594f83a6d843a?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/bd8e1ebd5a12455a8903ae4c26c01589?from=pc">
+<meta property="og:image" content="https://p6-tt.byteimg.com/origin/pgc-image/0cb91e33d94e4dcabc6e8a1adcf459ab?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/164a6a250fcc46a8918355777ffb0848?from=pc">
+<meta property="og:image" content="https://p3-tt.byteimg.com/origin/pgc-image/a209d81fdebc4dbcace002a601920443?from=pc">
+<meta property="og:image" content="https://p1-tt.byteimg.com/origin/pgc-image/14bea5e82eca482e93f1c624fea3467c?from=pc">
+<meta property="og:updated_time" content="2021-04-06T15:07:02.149Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="深入理解Lua虚拟机">
+<meta name="twitter:description" content="本文从一个简单示例入手，详细讲解 Lua 字节码文件的存储结构及各字段含义，进而引出 Lua 虚拟机指令集和运行时的核心数据结构 Lua State，最后解释 Lua 虚拟机的 47 条指令如何在 Lua State 上运作的。  为了达到较高的执行效率，lua 代码并不是直接被 Lua 解释器解释执行，而是会先编译为字节码，然后再交给 lua 虚拟机去执行。lua 代码称为 chunk，编译成">
+<meta name="twitter:image" content="https://p1-tt.byteimg.com/origin/pgc-image/bcd6ce0147114cebbcd9f0c0d7adee03?from=pc">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/lua/深入理解Lua虚拟机/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>深入理解Lua虚拟机 | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">12</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/lua/深入理解Lua虚拟机/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">深入理解Lua虚拟机
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <blockquote>
+<p>本文从一个简单示例入手，详细讲解 Lua 字节码文件的存储结构及各字段含义，进而引出 Lua 虚拟机指令集和运行时的核心数据结构 Lua State，最后解释 Lua 虚拟机的 47 条指令如何在 Lua State 上运作的。</p>
+</blockquote>
+<p>为了达到较高的执行效率，lua 代码并不是直接被 Lua 解释器解释执行，而是会先编译为字节码，然后再交给 lua 虚拟机去执行。lua 代码称为 chunk，编译成的字节码则称为二进制 chunk（Binary chunk）。lua.exe、wlua.exe 解释器可直接执行 lua 代码（解释器内部会先将其编译成字节码），也可执行使用 luac.exe 将 lua 代码预编译（Precompiled）为字节码。使用预编译的字节码并不会加快脚本执行的速度，但可以加快脚本加载的速度，并在一定程度上保护源代码。luac.exe 可作为编译器，把 lua 代码编译成字节码，同时可作为反编译器，分析字节码的内容。<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">luac.exe -v  // 显示luac的版本号</span><br><span class="line">luac.exe Hello.lua  //</span><br><span class="line">在当前目录下，编译得到Hello.lua的二进制chunk文件luac.out（默认含调试符号）</span><br><span class="line"></span><br><span class="line">luac.exe -o Hello.out Hello1.lua Hello2.lua //</span><br><span class="line">在当前目录下，编译得到Hello1.lua和Hello2.lua的二进制chunk文件Hello.out（默认含调试符号）</span><br><span class="line"></span><br><span class="line">luac.exe -s -o d:\\Hello.out Hello.lua  //</span><br><span class="line">编译得到Hello.lua的二进制chunk文件d:\\Hello.out（去掉调试符号）</span><br><span class="line"></span><br><span class="line">luac.exe -p Hello1.lua Hello2.lua  //</span><br><span class="line">对Hello1.lua和Hello2.lua只进行语法检测（注：只会检查语法规则，不会检查变量、函数等是否定义和实现，函数参数返回值是否合法）</span><br></pre></td></tr></table></figure></p>
+<p>lua 编译器以函数为单位对源代码进行编译，每个函数会被编译成一个称之为原型（Prototype）的结构，原型主要包含 6 部分内容：函数基本信息（basic info，含参数数量、局部变量数量等信息）、字节码（bytecodes）、常量（constants）表、upvalue（闭包捕获的非局部变量）表、调试信息（debug info）、子函数原型列表（sub functions）。</p>
+<p>原型结构使用这种嵌套递归结构，来描述函数中定义的子函数：<br><img src="https://p1-tt.byteimg.com/origin/pgc-image/bcd6ce0147114cebbcd9f0c0d7adee03?from=pc" alt><br>注：lua 允许开发者可将语句写到文件的全局范围中，这是因为 lua 在编译时会将整个文件放到一个称之为 main 函数中，并以它为起点进行编译。</p>
+<p>Hello.lua 源代码如下：<br><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">print</span> (<span class="string">"hello"</span>)</span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">add</span><span class="params">(a, b)</span></span></span><br><span class="line">    <span class="keyword">return</span> a+b</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure></p>
+<p>编译得到的 Hello.out 的二进制为：<br><img src="https://p6-tt.byteimg.com/origin/pgc-image/b19a7fd07e744d719eeedfc69949ab65?from=pc" alt><br>二进制 chunk（Binary chunk）的格式并没有标准化，也没有任何官方文档对其进行说明，一切以 lua 官方实现的源代码为准。其设计并没有考虑跨平台，对于需要超过一个字节表示的数据，必须要考虑大小端（Endianness）问题。</p>
+<p>lua 官方实现的做法比较简单：编译 lua 脚本时，直接按照本机的大小端方式生成二进制 chunk 文件，当加载二进制 chunk 文件时，会探测被加载文件的大小端方式，如果和本机不匹配，就拒绝加载。二进制 chunk 格式设计也没有考虑不同 lua 版本之间的兼容问题，当加载二进制 chunk 文件时，会检测其版本号，如果和当前 lua 版本不匹配，就拒绝加载。另外，二进制 chunk 格式设计也没有被刻意设计得很紧凑。在某些情况下，一段 lua 代码编译成二进制 chunk 后，甚至会被文本形式的源代码还要大。预编译成二进制 chunk 主要是为了提升加载速度，因此这也不是很大的问题。</p>
+<h1 id="头部字段："><a href="#头部字段：" class="headerlink" title="头部字段："></a>头部字段：</h1><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/32fc87dd7ed64bd6bf9bf5d7f32a749b?from=pc" alt></p>
+<h1 id="嵌套的函数原型："><a href="#嵌套的函数原型：" class="headerlink" title="嵌套的函数原型："></a>嵌套的函数原型：</h1><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/c948d406090448f88eef97949d9d78cb?from=pc" alt></p>
+<blockquote>
+<p>注 1：二进制 chunk 中的字符串分为三种情况：</p>
+</blockquote>
+<ol>
+<li><p>①NULL 字符串用 0x00 表示；</p>
+</li>
+<li><p>② 长度小于等于 253（0xFD）的字符串，先用 1 个 byte 存储字符串长度+1 的数值，然后是字节数组；</p>
+</li>
+<li><p>③ 长度大于等于 254（0xFE）的字符串，第一个字节是 0xFF，后面跟一个 8 字节 size_t 类型存储字符串长度+1 的数值，然后是字节数组。</p>
+</li>
+<li><p>注 2：常量 tag 对应表</p>
+</li>
+</ol>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/2fb11a263eca496f93df861745b11a73?from=pc" alt><br>查看二进制 chunk 中的所有函数（精简模式）：</p>
+<blockquote>
+<p>luac.exe -l Hello.lua</p>
+</blockquote>
+<blockquote>
+<p>luac.exe -l Hello.out</p>
+</blockquote>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/cbb9d9e96d784d89a0dcb31d7fa790fe?from=pc" alt></p>
+<blockquote>
+<p>注 1：每个函数信息包括两个部分：前面两行是函数的基本信息，后面是函数的指令列表。<br>注 2：函数的基本信息包括：函数名称、函数的起始行列号、函数包含的指令数量、函数地址。函数的参数 params 个数（0+表示函数为不固定参数）、寄存器 slots 数量、upvalue 数量、局部变量 locals 数量、常量 constants 数量、子函数 functions 数量。<br>注 3：指令列表里的每一条指令包含指令序号、对应代码行号、操作码和操作数。分号后为 luac 生成的注释，以便于我们理解指令。<br>注 4：整个文件内容被放置到了 main 函数中，并以它作为嵌套起点。</p>
+</blockquote>
+<p>查看二进制 chunk 中的所有函数（详细模式）：</p>
+<blockquote>
+<p>luac.exe -l -l Hello.lua 注：参数为 2 个-l<br>luac.exe -l -l Hello.out 注：详细模式下，luac 会把常量表、局部变量表和 upvalue 表的信息也打印出来<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">main &lt;Test2.lua:0,0&gt; (6 instructions at 0046e528)</span><br><span class="line">0+ params, 2 slots, 1 upvalue, 0 locals, 3 constants, 1 <span class="keyword">function</span></span><br><span class="line">        序号    代码行    指令</span><br><span class="line">        1       [1]     GETTABUP        0 0 -1  ; _ENV <span class="string">"print"</span>   //GETTABUP A B C  //将upvalues表索引为B:0的upvalue(即：_ENV)中key为常量表索引为C:-1的(即<span class="built_in">print</span>)，放到寄存器索引为A:0的地方</span><br><span class="line">        2       [1]     LOADK           1 -2    ; <span class="string">"hello"</span>  //LOADK A Bx  //将常量表索引为Bx:-2的hello加载到寄存器索引为A:1的地方</span><br><span class="line">        3       [1]     CALL            0 2 1    ; //CALL A B C  //调用寄存器索引为A:0的函数，参数个数为B:2减1(即1个)，C:1表示无返回值</span><br><span class="line">        4       [5]     CLOSURE         0 0     ; 0046e728      //CLOSURE A Bx  //将子函数原型列表索引为Bx:0的函数地址，放到寄存器索引为A:0的地方</span><br><span class="line">        5       [3]     SETTABUP        0 -3 0  ; _ENV <span class="string">"add"</span>   //SETTABUP A B C  //将upvalues表索引为A:0的upvalue(即：_ENV)中key为常量表索引为B:-3(即add)，设置为寄存器索引为C:0指向的值</span><br><span class="line">        6       [5]     RETURN          0 1        ; //RETURN A B   //B:1表示无返回值</span><br><span class="line">constants (3) <span class="keyword">for</span> 0046e528:</span><br><span class="line">        序号    常量名</span><br><span class="line">        1       <span class="string">"print"</span></span><br><span class="line">        2       <span class="string">"hello"</span></span><br><span class="line">        3       <span class="string">"add"</span></span><br><span class="line">locals (0) <span class="keyword">for</span> 0046e528:</span><br><span class="line">upvalues (1) <span class="keyword">for</span> 0046e528:</span><br><span class="line">        序号    upvalue名    是否为直接外围函数的局部变量    在外围函数调用帧的索引</span><br><span class="line">        0       _ENV        1                               0</span><br><span class="line"></span><br><span class="line"><span class="keyword">function</span> &lt;Test2.lua:3,5&gt; (3 instructions at 0046e728)</span><br><span class="line">2 params, 3 slots, 0 upvalues, 2 locals, 0 constants, 0 <span class="built_in">functions</span></span><br><span class="line">        序号    代码行    指令</span><br><span class="line">        1       [4]     ADD             2 0 1    ; //ADD A B C  //将寄存器索引为0、1的两个数相加得到的结果放到寄存器索引为2的地方</span><br><span class="line">        2       [4]     RETURN          2 2        ; //RETURN A B //B:2表示有一个返回值  A:2表示返回值在寄存器索引为2的地方</span><br><span class="line">        3       [5]     RETURN          0 1        ; //RETURN A B //B:1表示无返回值</span><br><span class="line">constants (0) <span class="keyword">for</span> 0046e728:</span><br><span class="line">locals (2) <span class="keyword">for</span> 0046e728:</span><br><span class="line">    寄存器索引    起始指令序号  终止指令序号  -1得到实际指令序号</span><br><span class="line">        0       a       1       4        ; a变量的指令范围为[0, 3]，起始为0表示为传入的参数变量</span><br><span class="line">        1       b       1       4        ; b变量的指令范围为[0, 3]</span><br><span class="line">upvalues (0) <span class="keyword">for</span> 0046e728:</span><br></pre></td></tr></table></figure></p>
+</blockquote>
+<blockquote>
+<p>luac.exe -l - // 从标准设备读入脚本，输完后按回车，然后按 Ctrl+Z 并回车，会打印出输入内容对应的二进制 chunk 内容 注：进入输入模式后可按 Ctrl+C 强制退出<br>luac.exe -l – // 使用上次输入，打印出二进制 chunk 内容<br>luac.exe -l -l – // 使用上次输入，详细模式下打印出二进制 chunk 内容（参数为 2 个-l）</p>
+</blockquote>
+<h1 id="Stack-Based-VM-vs-Rigister-Based-VM"><a href="#Stack-Based-VM-vs-Rigister-Based-VM" class="headerlink" title="Stack Based VM vs Rigister Based VM"></a>Stack Based VM vs Rigister Based VM</h1><p>高级编程语言的虚拟机是利用软件技术对硬件进行的模拟和抽象。按照实现方式，可分为两类：基于栈（Stack Based）和基于寄存器（Rigister Based）。Java、.NET CLR、Python、Ruby、Lua5.0 之前的版本的虚拟机都是基于栈的虚拟机；从 5.0 版本开始，Lua 的虚拟机改成了基于寄存器的虚拟机。</p>
+<p>一个简单的加法赋值运算：a=b+c</p>
+<p>基于栈的虚拟机，会转化成如下指令:<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">push b; // 将变量b的值压入stack</span><br><span class="line">push c; // 将变量c的值压入stack</span><br><span class="line">add; // 将stack顶部的两个值弹出后相加，然后将结果压入stack顶</span><br><span class="line">mov a; // 将stack顶部结果放到a中</span><br></pre></td></tr></table></figure></p>
+<p>所有的指令执行，都是基于一个操作数栈的。你想要执行任何指令时，对不起，得先入栈，然后算完了再给我出栈。总的来说，就是抽象出了一个高度可移植的操作数栈，所有代码都会被编译成字节码，然后字节码就是在玩这个栈。好处是实现简单，移植性强。坏处是指令条数比较多，数据转移次数比较多，因为每一次入栈出栈都牵涉数据的转移。</p>
+<p>基于寄存器的虚拟机，会转化成如下指令：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">add a b c; // 将b与c对应的寄存器的值相加，将结果保存在a对应的寄存器中</span><br></pre></td></tr></table></figure></p>
+<p>没有操作数栈这一概念，但是会有许多的虚拟寄存器。这类虚拟寄存器有别于 CPU 的寄存器，因为 CPU 寄存器往往是定址的(比如 DX 本身就是能存东西)，而寄存器式的虚拟机中的寄存器通常有两层含义：</p>
+<p>(1)寄存器别名(比如 lua 里的 RA、RB、RC、RBx 等)，它们往往只是起到一个地址映射的功能，它会根据指令中跟操作数相关的字段计算出操作数实际的内存地址，从而取出操作数进行计算；</p>
+<p>(2)实际寄存器，有点类似操作数栈，也是一个全局的运行时栈，只不过这个栈是跟函数走的，一个函数对应一个栈帧，栈帧里每个 slot 就是一个寄存器，第 1 步中通过别名映射后的地址就是每个 slot 的地址。</p>
+<p>好处是指令条数少，数据转移次数少。坏处是单挑指令长度较长。具体来看，lua 里的实际寄存器数组是用 TValue 结构的栈来模拟的，这个栈也是 lua 和 C 进行交互的虚拟栈。</p>
+<h1 id="lua-指令集"><a href="#lua-指令集" class="headerlink" title="lua 指令集"></a>lua 指令集</h1><p>Lua 虚拟机的指令集为定长（Fixed-width）指令集，每条指令占 4 个字节（32bits），其中操作码（OpCode）占 6bits，操作数（Operand）使用剩余的 26bits。Lua5.3 版本共有 47 条指令，按功能可分为 6 大类：常量加载指令、运算符相关指令、循环和跳转指令、函数调用相关指令、表操作指令和 Upvalue 操作指令。</p>
+<p>按编码模式分为 4 类：iABC（39）、iABx（3）、iAsBx（4）、iAx（1）</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/b3bedb46c642448bb763f5007bc52e8c?from=pc" alt><br>4 种模式中，只有 iAsBx 下的 sBx 操作数会被解释成有符号整数，其他情况下操作数均被解释为无符号整数。操作数 A 主要用来表示目标寄存器索引，其他操作数按表示信息可分为 4 种类型：OpArgN、OpArgU、OpArgR、OpArgK：</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/41326c37a2764da1bbb244964c8a6cbe?from=pc" alt></p>
+<h1 id="Lua-栈索引"><a href="#Lua-栈索引" class="headerlink" title="Lua 栈索引"></a>Lua 栈索引</h1><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/ad961bbec5824743949352c6b18db38d?from=pc" alt><br>注 1：绝对索引是从 1 开始由栈底到栈顶依次增长的；</p>
+<p>注 2：相对索引是从-1 开始由栈顶到栈底依次递减的（在 lua API 函数内部会将相对索引转换为绝对索引）；</p>
+<p>注 3：上图栈的容量为 7，栈顶绝对索引为 5，有效索引范围为：[1,5]，可接受索引范围为：[1, 7]；</p>
+<p>注 4：Lua 虚拟机指令里寄存器索引是从 0 开始的，而 Lua API 里的栈索引是从 1 开始的，因此当需要把寄存器索引当成栈索引使用时，要进行+1。</p>
+<h1 id="Lua-State"><a href="#Lua-State" class="headerlink" title="Lua State"></a>Lua State</h1><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/8e26c797ef854ec392cd5119a50ea68f?from=pc" alt></p>
+<h1 id="指令表"><a href="#指令表" class="headerlink" title="指令表"></a>指令表</h1><p>下面是 Lua 的 47 条指令详细说明：</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/c5a115b426cd4fa4ad2c9a3ebbb7c3b4?from=pc" alt><br>B:1 C A:3 MOVE</p>
+<p>把源寄存器（索引由 B 指定）里的值移动到目标寄存器（索引有 A 指定），常用于局部变量赋值和参数传递。</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/33fc9f47fed047dfa706cd0783dbe0c3?from=pc" alt><br>公式：R(A) := R(B)</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/038ce33628b848a2b821a3d48badbb70?from=pc" alt><br>Bx:2 A:4 LOADK</p>
+<p>给单个寄存器（索引由 A 指定）设置成常量（其在常量表的索引由 Bx 指定），将常量表里的某个常量加载到指定寄存器。</p>
+<p>在 lua 中，数值型、字符串型等局部变量赋初始值 （数字和字符串会放到常量表中）：</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/1a78929fa797476ab89a676a0d951ea1?from=pc" alt><br>公式：R(A) := Kst(Bx)</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/3fbbe826ecfb4bbc9244c4faa1c55274?from=pc" alt><br>Bx A:4 LOADKX</p>
+<p>Ax:585028 EXTRAARG</p>
+<p>LOADK 使用 Bx（18bits，最大无符号整数为 262143）表示常量表索引。当将 lua 作数据描述语言使用时，常量表可能会超过这个限制，为了应对这种情况，lua 提供了 LOADKX 指令。LOADKX 指令需要和 EXTRAAG 指令搭配使用，用后者的 Ax（26bits）操作数来指定常量索引。</p>
+<p>公式：R(A) := Kst(Ax)</p>
+<h1 id="指令名称类型操作码BCA"><a href="#指令名称类型操作码BCA" class="headerlink" title="指令名称类型操作码BCA"></a>指令名称类型操作码BCA</h1><p>LOADBOOLiABC0x03OpArgUOpArgU目标寄存器 idx</p>
+<p>B:0 C:1 A:2 LOADBOOL</p>
+<p>给单个寄存器（索引由 A 指定）设置布尔值（布尔值由 B 指定），如果寄存器 C 为非 0 则跳过下一条指令。</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/5d5be65bc16640e883d2dd3e0b72fa46?from=pc" alt><br>公式：</p>
+<p>R(A) := (bool)B</p>
+<p>if(C) pc++</p>
+<p>指令名称类型操作码BCA<br>LOADNILiABC0x04OpArgUOpArgN目标寄存器 idx</p>
+<p>B:4 C A:0 LOADNIL</p>
+<p>将序号[A,A+B]连续 B+1 个寄存器设置成 nil 值，用于给连续 n 个寄存器放置 nil 值。在 lua 中，局部变量的默认初始值为 nil，LOADNIL 指令常用于给连续 n 个局部变量设置初始值。</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/e9b2057255ec469689e0cb60235dbddb?from=pc" alt><br>公式：R(A), R(A+1), … ,R(A+B) := nil</p>
+<p>指令名称类型操作码BCA<br>GETUPVALiABC0x05OpArgUOpArgN目标寄存器 idx</p>
+<p>B:1 C A:3 GETUPVAL</p>
+<p>把当前闭包的某个 Upvalue 值（索引由 B 指定）拷贝到目标寄存器（索引由 A 指定）中 。</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/e8e6687f1d99407a8e62d61df2e22e39?from=pc" alt><br>公式：R(A) := Upvalue[B]</p>
+<p>指令名称类型操作码BCA<br>GETTABUPiABC0x06OpArgUOpArgK目标寄存器 idx</p>
+<p>B:0 C:0x002 A:3 GETTABUP</p>
+<p>把当前闭包的某个 Upvalue 值（索引由 B 指定）拷贝到目标寄存器（索引由 A 指定）中，与 GETUPVAL 不同的是，Upvalue 从表里取值（键由 C 指定，为寄存器或常量表索引）。</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/9e026d965cd04e9ebc6d56816b342542?from=pc" alt><br>R(A) := Upvalue[B][rk(c)]</p>
+<p>指令名称类型操作码BCA<br>GETTABLEiABC0x07OpArgROpArgK目标寄存器 idx</p>
+<p>B:0 C:0x002 A:3 GETTABLE</p>
+<p>把表中某个值拷贝到目标寄存器（索引由 A 指定）中，表所在寄存器索引由 B 指定，键由 C（为寄存器或常量表索引）指定。</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/07b7c5b03d6e456ba467b9f54bd3a0d9?from=pc" alt><br>公式：R(A) := R[B][rk(c)]</p>
+<p>指令名称类型操作码BCA<br>SETTABUPiABC0x08OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x002 C:0x003 A:0 SETTABUP</p>
+<p>设置当前闭包的某个 Upvalue 值（索引由 A 指定）为寄存器或常量表的某个值（索引由 C 指定），与 SETUPVAL 不同的是，Upvalue 从表里取值（键由 B 指定，为寄存器或常量表索引）。</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/4849926dd2c8460693c83b13cd4daa8b?from=pc" alt><br>Upvalue[A][rk(b)] := RK(C)</p>
+<p>指令名称类型操作码BCA<br>SETUPVALiABC0x09OpArgUOpArgN目标寄存器 idx</p>
+<p>B:0 C A:3 SETUPVAL</p>
+<p>设置当前闭包的某个 Upvalue 值（索引由 B 指定）为寄存器的某个值（索引由 A 指定）。</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/c0dbc0195e8e45de81fc697399d2f6ff?from=pc" alt><br>公式：Upvalue[B] := R(A)</p>
+<p>指令名称类型操作码BCA<br>SETTABLEiABC0x0AOpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x002 C:0x003 A:1 SETTABLE</p>
+<p>给寄存器中的表（索引由 A 指定）的某个键进行赋值，键和值分别由 B 和 C 指定（为寄存器或常量表索引）。</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/bab05d984ee744ba93b9146e52f061ab?from=pc" alt><br>公式：R(A)[RK(B)] := RK(C)</p>
+<h1 id="指令名称类型操作码BCA-1"><a href="#指令名称类型操作码BCA-1" class="headerlink" title="指令名称类型操作码BCA"></a>指令名称类型操作码BCA</h1><p>NEWTABLEiABC0x0BOpArgUOpArgU目标寄存器 idx</p>
+<p>B:0 C:2 A:4 NEWTABLE</p>
+<p>创建空表，并将其放入指定寄存器（索引有 A 指定），表的初始数组容量和哈希表容量分别有 B 和 C 指定。</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/2ad1d863d7d9431f905059dc840fc962?from=pc" alt><br>公式：R(A) := {} (size = B, C)</p>
+<p>指令名称类型操作码BCASELFiABC0x0COpArgROpArgK目标寄存器 idx</p>
+<p>B:1 C:0x100 A:2 SELF</p>
+<p>把寄存器中对象（索引由 B 指定）和常量表中方法（索引由 C 指定）拷贝到相邻的两个目标寄存器中，起始目标寄存器的索引由 A 指定。</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/b5f4389ccf1b421a88801be161733e35?from=pc" alt><br>公式：</p>
+<p>R(A+1) := R(B)</p>
+<p>R(A) := R(B)[RK(C)]</p>
+<p>指令名称类型操作码BCAADDiABC0x0DOpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 ADD</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行相加，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/cabba38804fc4af4b91ef3e6120cd23b?from=pc" alt><br>公式：R(A) := RK(B) + RK(C)</p>
+<p>指令名称类型操作码BCASUBiABC0x0EOpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 SUB</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行相减，并将结果放入另一个寄存器中（索引由 A 指定）</p>
+<p>公式：</p>
+<p>R(A) := RK(B) - RK(C)</p>
+<p>指令名称类型操作码BCAMULiABC0x0FOpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 MUL</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行相乘，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) * RK(C)</p>
+<p>指令名称类型操作码BCAMODiABC0x10OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 MOD</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行求摸运算，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) % RK(C)</p>
+<p>指令名称类型操作码BCAPOWiABC0x11OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 POW</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行求幂运算，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) ^ RK(C)</p>
+<p>指令名称类型操作码BCADIViABC0x12OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 DIV</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行相除，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) / RK(C)</p>
+<p>指令名称类型操作码BCAIDIViABC0x13OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 IDIV</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行相整除，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) // RK(C)</p>
+<p>指令名称类型操作码BCABANDiABC0x14OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 BAND</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行求与操作，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) &amp; RK(C)</p>
+<p>指令名称类型操作码BCABORiABC0x15OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 BOR</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行求或操作，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) | RK(C)</p>
+<p>指令名称类型操作码BCABXORiABC0x16OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 BXOR</p>
+<p>对两个寄存器或常量值（索引由 B 和 C 指定）进行求异或操作，并将结果放入另一个寄存器中（索引由 A 指定）</p>
+<p>公式：R(A) := RK(B) ~ RK(C)</p>
+<p>指令名称类型操作码BCASHLiABC0x17OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 SHL</p>
+<p>索引由 B 指定的寄存器或常量值进行左移位操作（移动位数的索引由 C 指定的寄存器或常量值），并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) &lt;&lt; RK(C)</p>
+<p>指令名称类型操作码BCASHRiABC0x18OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:4 SHR</p>
+<p>索引由 B 指定的寄存器或常量值进行右移位操作（移动位数的索引由 C 指定的寄存器或常量值），并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := RK(B) &gt;&gt; RK(C)</p>
+<p>指令名称类型操作码BCAUNMiABC0x19OpArgROpArgN目标寄存器 idx</p>
+<p>B:1 C A:3 UNM</p>
+<p>对寄存器（索引由 B 指定）进行取负数操作，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p>公式：R(A) := - R(B)</p>
+<p>指令名称类型操作码BCABNOTiABC0x1AOpArgROpArgN目标寄存器 idx</p>
+<p>B:1 C A:3 BNOT</p>
+<p>对寄存器（索引由 B 指定）进行取反操作，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/58f952d6c394479a8c68cdbaac48c2d8?from=pc" alt><br>公式：R(A) := ~ R(B)</p>
+<p>指令名称类型操作码BCANOTiABC0x1BOpArgROpArgN目标寄存器 idx</p>
+<p>B:1 C A:3 NOT</p>
+<p>对寄存器（索引由 B 指定）进行求非操作，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/b58892f4aabb4bfa9c9ea970d44726cd?from=pc" alt><br>公式：R(A) := not R(B)</p>
+<p>指令名称类型操作码BCALENiABC0x1COpArgROpArgN目标寄存器 idx</p>
+<p>B:1 C A:3 LEN</p>
+<p>对寄存器（索引由 B 指定）进行求长度操作，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/691864b1d5094529a3a0ed10dd6e7879?from=pc" alt><br>公式：R(A) := length of R(B)</p>
+<p>指令名称类型操作码BCA<br>CONCATiABC0x1DOpArgROpArgR目标寄存器 idx</p>
+<p>B:2 C:4 A:1 CONCAT</p>
+<p>将连续 n 个寄存器（起始索引和终止索引由 B 和 C 指定）里的值进行拼接，并将结果放入另一个寄存器中（索引由 A 指定）。</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/64ff9c30cc434a13abe4eed37cd7b846?from=pc" alt><br>公式：R(A) := R(B) .. … .. R(C)</p>
+<p>指令名称类型操作码sBxAJMPiAsBx0x1EOpArgR目标寄存器 idx</p>
+<p>sBx:-1 A JMP</p>
+<p>当 sBx 不为 0 时，进行无条件跳转，执行 pc = pc + sBx（sBx 为-1，表示将当前指令再执行一次 注：这将是一个死循环）</p>
+<p>sBx:0 A:0x001 JMP；</p>
+<p>当 sBx 为 0 时（继续执行后面指令，不跳转），用于闭合处于开启状态的 Upvalue（即：把即将销毁的局部变量的值复制出来，并更新到某个 Upvalue 中）。</p>
+<p>当前闭包的某个 Upvalue 值的索引由 A 指定：</p>
+<p>指令名称类型操作码BCAEQiABC0x1FOpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:1 EQ</p>
+<p>寄存器或常量表（索引由 B 指定）是否等于寄存器或常量表（索引由 C 指定），若结果等于操作数 A，则跳过下一条指令。</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/3f63cacef167451aa073da240fcb0e24?from=pc" alt><br>公式：if ((RK(B) == RK(C)) pc++</p>
+<p>指令名称类型操作码BCALTiABC0x20OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:1 LT</p>
+<p>寄存器或常量表（索引由 B 指定）是否小于寄存器或常量表（索引由 C 指定），若结果等于操作数 A，则跳过下一条指令。</p>
+<p>公式：if ((RK(B) &lt; RK(C)) pc++</p>
+<p>指令名称类型操作码BCALEiABC0x21OpArgKOpArgK目标寄存器 idx</p>
+<p>B:0x001 C:0x100 A:1 LE</p>
+<p>寄存器或常量表（索引由 B 指定）是否小于等于寄存器或常量表（索引由 C 指定），若结果等于操作数 A，则跳过下一条指令。</p>
+<p>公式：if ((RK(B) &lt;= RK(C)) pc++</p>
+<p>指令名称类型操作码BCATESTiABC0x22OpArgNOpArgU目标寄存器 idx</p>
+<p>B C:0 A:1 TEST</p>
+<p>判断寄存器（索引由 A 指定）中的值转换为 bool 值后，是否和操作数 C 表示的 bool 值一致，若结果不一致，则跳过下一条指令。</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/3a4bbb1f035b46a9a2c38866b2009982?from=pc" alt><br>公式：</p>
+<p>if not (R(A) &lt;=&gt; C) pc++</p>
+<p>注：&lt;=&gt;表示按 bool 值比较</p>
+<p>指令名称类型操作码BCA<br>TESTSETiABC0x23OpArgROpArgU目标寄存器 idx</p>
+<p>B:3 C:0 A:1 TESTSET</p>
+<p>判断寄存器（索引由 B 指定）中的值转换为 bool 值后，是否和操作数 C 表示的 bool 值一致，若结果一致，将寄存器（索引由 B 指定）中的值复制到寄存器中（索引由 A 指定），否则跳过下一条指令。</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/2b34822a093f42d78d2c6436f0f5debb?from=pc" alt><br>公式：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (R(B) \&lt;=\&gt; C)</span><br><span class="line">   R(A) := R(B)</span><br><span class="line"><span class="keyword">else</span></span><br><span class="line">   pc++</span><br></pre></td></tr></table></figure></p>
+<p>注：&lt;=&gt;表示按 bool 值比较</p>
+<p>指令名称类型操作码BCACALLiABC0x24OpArgUOpArgU目标寄存器 idx</p>
+<p>B:5 C:4 A:0 CALL</p>
+<p>被调用函数位于寄存器中（索引由 A 指定），传递给被调用函数的参数值也在寄存器中，紧挨着被调用函数，参数个数为操作数 B 指定。</p>
+<p>① B==0，接受其他函数全部返回来的参数</p>
+<p>② B&gt;0，参数个数为 B-1</p>
+<p>函数调用结束后，原先存放函数和参数值的寄存器会被返回值占据，具体多少个返回值由操作数 C 指定。</p>
+<p>① C==0，将返回值全部返回给接收者</p>
+<p>② C==1，无返回值</p>
+<p>③ C&gt;1，返回值的数量为 C-1</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/7f766e23711746bda75fe1cc76ba4aed?from=pc" alt><br>公式：R(A), … ,</p>
+<p>指令名称类型操作码BCA<br>TAILCALLiABC0x25OpArgUOpArgU目标寄存器 idx</p>
+<p>函数调用一般通过调用栈来实现。用这种方法，每调用一个函数都会产生一个调用帧。</p>
+<p>如果调用层次太深（如递归），容易导致栈溢出。尾递归优化则可以让我们发挥递归函数调用威力的同时，避免调用栈溢出。利用这种优化，被调函数可以重用主调函数的调用帧，因此可有效缓解调用栈溢出症状。不过该优化只适合某些特定情况。</p>
+<p>如：return f(args) 会被编译器优化成 TAILCALL 指令，公式：return R(A)(R(A+1), … , R(A+B-1))</p>
+<p>指令名称类型操作码BCA<br>RETURNiABC0x26OpArgUOpArgN目标寄存器 idx</p>
+<p>B:4 C A:2 RETURN</p>
+<p>把存放在连续多个寄存器里的值返回给父函数，其中第一个寄存器的索引由操作数 A 指定，寄存器数量由操作数 B 指定，操作数 C 没有使用，需要将返回值推入栈顶：</p>
+<p>① B==1，不需要返回任何值</p>
+<p>② B &gt; 1，需要返回 B-1 个值；这些值已经在寄存器中了，只用再将它们复制到栈顶即可</p>
+<p>③ B==0，一部分返回值已经在栈顶了，只需将另一部分也推入栈顶即可</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/916820bd14cd4f7fb7ba7c1fa65f6b9b?from=pc" alt><br>公式：return R(A),…,R(A+B-2)</p>
+<p>指令名称类型操作码sBxAFORLOOPiAsBx0x27OpArgR目标寄存器 idx</p>
+<p>数值 for 循环：用于按一定步长遍历某个范围内的数值 如：for i=1,100,2 do f() end // 初始值为 1，步长为 2，上限为 100</p>
+<p>该指令先给 i 加上步长，然后判断 i 是否在范围之内。若已经超出范围，则循环结束；若为超出范围，则将数值拷贝给用户定义的局部变量，然后跳转到循环体内部开始执行具体的代码块。</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/f0501b686d90434797c15e6e09102948?from=pc" alt><br>公式：</p>
+<p>R(A) += R(A+2)<br>if R(A) &lt;?= R(A+1)<br>    pc+=sBx<br>    R(A+3)=R(A)<br>注：当步长为正数时&lt;?=为&lt;=</p>
+<p>当步长为负数时&lt;?=为&gt;=</p>
+<p>指令名称类型操作码sBxAFORPREPiAsBx0x28OpArgR目标寄存器 idx</p>
+<p>数值 for 循环：用于按一定步长遍历某个范围内的数值 如：for i=1,100,2 do f() end // 初始值为 1，步长为 2，上限为 100。</p>
+<p>该指令的目的是在循环之前预先将 i 减去步长（得到-1），然后跳转到 FORLOOP 指令正式开始循环：</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/1196cd6635154accbcd594f83a6d843a?from=pc" alt><br>公式：</p>
+<p>R(A)-=R(A+2)</p>
+<p>pc+=sBx</p>
+<p>指令名称类型操作码BCA<br>TFORCALLiABC0x29OpArgNOpArgU目标寄存器 idx</p>
+<p>通用 for 循环：for k,v in pairs(t) do print(k,v) end</p>
+<p>编译器使用的第一个特殊变量(generator):f 存放的是迭代器，其他两个特殊变量(state):s、(control):var 来调用迭代器，把结果保存在用户定义的变量 k、v 中。</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/bd8e1ebd5a12455a8903ae4c26c01589?from=pc" alt><br>公式：R(A+3),…,R(A+2+C) := R(A)(R(A+1),R(A+2))</p>
+<p>指令名称类型操作码sBxATFORLOOPiAsBx0x2AOpArgR目标寄存器 idx</p>
+<p>通用 for 循环：for k,v in pairs(t) do print(k,v) end</p>
+<p>若迭代器返回的第一个值（变量 k）不是 nil，则把该值拷贝到(control):var，然后跳转到循环体；若为 nil，则循环结束。</p>
+<p><img src="https://p6-tt.byteimg.com/origin/pgc-image/0cb91e33d94e4dcabc6e8a1adcf459ab?from=pc" alt><br>公式：</p>
+<p>if R(A+1) ~= nil</p>
+<p>R(A)=R(A+1)</p>
+<p>pc+=sBx</p>
+<p>指令名称类型操作码BCA<br>SETLISTiABC0x2BOpArgUOpArgU目标寄存器 idx</p>
+<p>SETTABLE 是通用指令，每次只处理一个键值对，具体操作交给表去处理，并不关心实际写入的是表的 hash 部分还是数组部分。SETLIST 则是专门给数组准备的，用于按索引批量设置数组元素。其中数组位于寄存器中，索引由操作数 A 指定；需要写入数组的一系列值也在寄存器中，紧挨着数组，数量由操作数 B 指定；数组起始索引则由操作数 C 指定。</p>
+<p>因为 C 操作数只有 9bits，所以直接用它表示数组索引显然不够用。这里解决办法是让 C 操作数保存批次数，然后用批次数乘上批大小（FPF，默认为 50）就可以算出数组的起始索引。因此，C 操作数能表示的最大索引为 25600（50*512），当数组长度大于 25600 时，SETLIST 指令后会跟一条 EXTRAARG 指令，用其 Ax 操作数来保存批次数。</p>
+<p>综上，C&gt;0，表示的是批次数+1，否则，真正批次数存放在后续的 EXTRAARG 指令中。</p>
+<p>操作数 B 为 0 时，当表构造器的最后一个元素是函数调用或者 vararg 表达式时，Lua 会把它们产生的所有值都收集起来供 SETLIST 使用。</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/164a6a250fcc46a8918355777ffb0848?from=pc" alt><br>公式：</p>
+<p>R(A)[(C-1)*FPF+i] := R(A+i)</p>
+<p>1 &lt;= i &lt;= B</p>
+<p>指令名称类型操作码BxACLOSUREiABx0x2COpArgU目标寄存器 idx</p>
+<p>把当前 Lua 函数的子函数原型实例化为闭包，放入由操作数 A 指定的寄存器中子函数原型来自于当前函数原型的子函数原型表，索引由操作数 Bx 指定。</p>
+<p>下图为将 prototypes 表中索引为 1 的 g 子函数，放入索引为 4 的寄存器中：</p>
+<p><img src="https://p3-tt.byteimg.com/origin/pgc-image/a209d81fdebc4dbcace002a601920443?from=pc" alt><br>公式：R(A) := closure(KPROTO[Bx])</p>
+<p>指令名称类型操作码BCA<br>VARARGiABC0x2DOpArgUOpArgN目标寄存器 idx</p>
+<p>把传递给当前函数的变长参数加载到连续多个寄存器中。</p>
+<p>其中第一个寄存器的索引由操作数 A 指定，寄存器数量由操作数 B 指定，操作数 C 没有使用，操作数 B 若大于 1，表示把 B-1 个 vararg 参数复制到寄存器中，否则只能等于 0。</p>
+<p><img src="https://p1-tt.byteimg.com/origin/pgc-image/14bea5e82eca482e93f1c624fea3467c?from=pc" alt><br>公式：R(A),R(A+1),…R(A+B-2)=vararg</p>
+<p>指令名称类型操作码AxEXTRAARGiAx0x2EOpArgU</p>
+<p>Ax:67108864 EXTRAARG</p>
+<p>Ax 有 26bits，用来指定常量索引，可存放最大无符号整数为 67108864，可满足大部分情况的需要了。</p>
+<p>参考</p>
+<ul>
+<li>《自己动手实现 Lua》源代码</li>
+<li>Lua 设计与实现–虚拟机篇</li>
+<li>Lua 5.3 Bytecode Reference</li>
+<li>Lua 源码解析<br>作者：nicochen，腾讯 IEG 游戏开发工程师</li>
+</ul>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/lua/" rel="tag"> <i class="fa fa-tag"></i> lua</a>
+          
+            <a href="/tags/lua知识点/" rel="tag"> <i class="fa fa-tag"></i> lua知识点</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/lua/探索Lua52内部实现-GC3/" rel="next" title="探索Lua52内部实现:GC3">
+                <i class="fa fa-chevron-left"></i> 探索Lua52内部实现:GC3
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/lua/C4：4个函数，528行代码实现可自举的 C语言编译器/" rel="prev" title="C4：4个函数，528行代码实现可自举的 C语言编译器">
+                C4：4个函数，528行代码实现可自举的 C语言编译器 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">77</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">12</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">13</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="https://blog.csdn.net/pyf09" title="CSDN &rarr; https://blog.csdn.net/pyf09" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-book"></i>CSDN</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#头部字段："><span class="nav-number">1.</span> <span class="nav-text">头部字段：</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#嵌套的函数原型："><span class="nav-number">2.</span> <span class="nav-text">嵌套的函数原型：</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Stack-Based-VM-vs-Rigister-Based-VM"><span class="nav-number">3.</span> <span class="nav-text">Stack Based VM vs Rigister Based VM</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#lua-指令集"><span class="nav-number">4.</span> <span class="nav-text">lua 指令集</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Lua-栈索引"><span class="nav-number">5.</span> <span class="nav-text">Lua 栈索引</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Lua-State"><span class="nav-number">6.</span> <span class="nav-text">Lua State</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#指令表"><span class="nav-number">7.</span> <span class="nav-text">指令表</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#指令名称类型操作码BCA"><span class="nav-number">8.</span> <span class="nav-text">指令名称类型操作码BCA</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#指令名称类型操作码BCA-1"><span class="nav-number">9.</span> <span class="nav-text">指令名称类型操作码BCA</span></a></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>

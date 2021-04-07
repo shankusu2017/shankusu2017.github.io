@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="原文链接 前言   本章，我将深入探讨lua的upvalue机制。在写这篇博客之前，我已经自己动手实现了这个机制，并且将其提交到了github仓库dummylua上了。为了专注于upvalue机制本身的讨论，本章不会展示大量的代码细节，尽量在抽象层面来论述。 什么是Upvalue？  upvalue是让lua来模拟实现，类似c语言中，静态变量机制的一种机制。一个带上upvalue的函数，我们称之为">
+<meta name="keywords" content="lua,构建Lua解释器">
+<meta property="og:type" content="article">
+<meta property="og:title" content="构建Lua解释器Part11：Upvalue">
+<meta property="og:url" content="https://shankusu2017.github.io/lua/构建Lua解释器Part11：Upvalue/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="原文链接 前言   本章，我将深入探讨lua的upvalue机制。在写这篇博客之前，我已经自己动手实现了这个机制，并且将其提交到了github仓库dummylua上了。为了专注于upvalue机制本身的讨论，本章不会展示大量的代码细节，尽量在抽象层面来论述。 什么是Upvalue？  upvalue是让lua来模拟实现，类似c语言中，静态变量机制的一种机制。一个带上upvalue的函数，我们称之为">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/function-level.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-diagram.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-diagram-vm-code-1.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-diagram-vm-code-3.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-diagram-vm-code-4.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-relationship.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-2.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-3.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-4.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-5.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-6.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-7.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-8.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-9.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-10.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-11.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-1.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-2.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-3.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-4.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-5.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-5.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-7.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-8.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-9.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-10.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-11.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-12.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-13.png">
+<meta property="og:updated_time" content="2021-04-07T05:03:31.899Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="构建Lua解释器Part11：Upvalue">
+<meta name="twitter:description" content="原文链接 前言   本章，我将深入探讨lua的upvalue机制。在写这篇博客之前，我已经自己动手实现了这个机制，并且将其提交到了github仓库dummylua上了。为了专注于upvalue机制本身的讨论，本章不会展示大量的代码细节，尽量在抽象层面来论述。 什么是Upvalue？  upvalue是让lua来模拟实现，类似c语言中，静态变量机制的一种机制。一个带上upvalue的函数，我们称之为">
+<meta name="twitter:image" content="http://manistein.club/images/build-a-lua-interpreter/part11/function-level.png">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/lua/构建Lua解释器Part11：Upvalue/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>构建Lua解释器Part11：Upvalue | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">12</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/lua/构建Lua解释器Part11：Upvalue/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">构建Lua解释器Part11：Upvalue
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p><a href="http://manistein.club/post/program/let-us-build-a-lua-interpreter/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part11/" rel="external nofollow noopener noreferrer" target="_blank">原文链接</a></p>
+<h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>   本章，我将深入探讨lua的upvalue机制。在写这篇博客之前，我已经自己动手实现了这个机制，并且将其提交到了github仓库dummylua上了。为了专注于upvalue机制本身的讨论，本章不会展示大量的代码细节，尽量在抽象层面来论述。</p>
+<h1 id="什么是Upvalue？"><a href="#什么是Upvalue？" class="headerlink" title="什么是Upvalue？"></a>什么是Upvalue？</h1><p>  upvalue是让lua来模拟实现，类似c语言中，静态变量机制的一种机制。一个带上upvalue的函数，我们称之为闭包(closure)。一个c函数，带上upvalue的结构，我们称之为c闭包。而一个lua函数，带上upvalue，我们称之为lua闭包。我们可以看一下官方对于upvalue相关内容的阐述[1]。</p>
+<blockquote>
+<p>While the registry implements global values, the upvalue mechanism implements an equivalent of C static variables, which are visible only inside a particular function. Every time you create a new C function in Lua, you can associate with it any number of upvalues; each upvalue can hold a single Lua value. Later, when the function is called, it has free access to any of its upvalues, using pseudo-indices.<br>We call this association of a C function with its upvalues a closure. Remember that, in Lua code, a closure is a function that uses local variables from an outer function. A C closure is a C approximation to a Lua closure. One interesting fact about closures is that you can create different closures using the same function code, but with different upvalues.</p>
+</blockquote>
+<p>简单的文字，并不能给我们具象化的展示，这里通过几个例子，来直观感受一下，什么是upvalue：<br><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> upval = <span class="number">1</span></span><br><span class="line"><span class="keyword">local</span> upval2 = <span class="number">2</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">test</span><span class="params">()</span></span></span><br><span class="line">	<span class="keyword">local</span> locvar = <span class="number">3</span></span><br><span class="line">	<span class="built_in">print</span>(upval)</span><br><span class="line"></span><br><span class="line">	<span class="keyword">local</span> <span class="function"><span class="keyword">function</span> <span class="title">aaa</span><span class="params">()</span></span></span><br><span class="line">		<span class="built_in">print</span>(upval+upval2+locvar)</span><br><span class="line">	<span class="keyword">end</span></span><br><span class="line">	aaa()</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure></p>
+<p>在上面这个例子中，test函数的外层，一共有两个变量，upval和upval2。test函数内，有一行打印upval的代码，因为有这个操作，test函数需要引用到外层函数的upval这个变量，因此upval是test函数的一个upvavle。而上面这个例子，在test函数内，又定义了一个aaa函数，在aaa函数内，因为使用了upval、upval2和locvar几个变量，因此aaa函数的upvalue有upval、upval2和locvar。由于aaa是test的内层定义的函数，test是aaa的外层函数，因此test函数的upvalue也包括了，upval、upval2。现在，只是给大家一个直观的概念，其实很多读者对此已经耳熟能详了，在后面的章节内容中，我会更细致地论述这个机制的原理。</p>
+<h1 id="Lua函数探索"><a href="#Lua函数探索" class="headerlink" title="Lua函数探索"></a>Lua函数探索</h1><p>   要彻底搞明白upvalue的概念，首先，我们要捋清楚lua函数的概念，前面也提到过，带upvalue的函数就是closure（实际上每个lua函数都至少包含一个upvalue）。从类型上来看，lua一共有3种函数，分别是light c function、c closure和lua closure。关于第一种，light c function的概念，操作和调用流程，在第一章有着非常详细的阐述。至于第二种c closure，它有自己独立的数据结构，包含一个函数指针，以及一个upvalue列表，c closure实例受gc管控，c closure的创建流程，和运行流程，可以luabase.c文件里的luaB_openbase函数，以及第5章调用函数的流程里找到。现在，我将集中篇幅，来探讨lua closure。</p>
+<h1 id="Chunk的概念"><a href="#Chunk的概念" class="headerlink" title="Chunk的概念"></a>Chunk的概念</h1><p>   在开始讨论lua函数之前，我们不妨来复习一下chunk的概念，实际上在第五章，我已经论述过chunk的概念，这里为了内容完整性，我决定重新再论述一次。chunk是什么？在《Programming In Lua》里的解释是[2]：</p>
+<p>Each piece of code that Lua executes, such as a file or a single line in interactive mode, is a chunk. More specifically, a chunk is simply a sequence of statements.</p>
+<p>chunk本质是一个文件里的所有代码，或是交互模式下的一个字符串，其实质就是statement流的集合。</p>
+<p>Lua的函数层次<br>        现在，我要来论述一下Lua的函数层次了。前面已经探讨了chunk的概念，那么什么是lua的函数层次，它和chunk又有什么关系呢？现在假设，我们有个脚本test.lua，代码如下所示：<br><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>  <span class="comment">-- test.lua</span></span><br><span class="line"><span class="number">2</span>  <span class="keyword">local</span> a = <span class="number">1</span></span><br><span class="line"><span class="number">3</span>  <span class="keyword">local</span> b = <span class="number">2</span></span><br><span class="line"><span class="number">4</span>  <span class="function"><span class="keyword">function</span> <span class="title">xxx</span><span class="params">()</span></span></span><br><span class="line"><span class="number">5</span>  		<span class="built_in">print</span>(a + b)</span><br><span class="line"><span class="number">6</span>  <span class="keyword">end</span></span><br></pre></td></tr></table></figure></p>
+<p>chunk是什么？chunk就是test.lua文件内的所有代码(第1~第6行)，它和函数层次有什么关系呢？实际上，一个chunk（上面例子中的第1~第6行代码）实际上就是一个lua函数，只是它没有函数名，不需要通过function关键字来修饰，这个chunk所代表的函数，被称之为top-level function，也是level 1函数。而xxx函数是在top-level function里定义的，因此它是level 2函数(top-level function是level1)，如果函数xxx内，如果还有定义其他函数，那么这个函数的level就是3，以此类推。实际上，level的级别，代表了函数定义嵌套的层次。最关键的还是top-level function和chunk的关系。函数的层次关系，对于后续理解upvalue机制，非常重要。<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/function-level.png" alt><br>图1展示了上面例子中，函数的层次关系。除去top-level function，其他层次的函数，在定义上实际上可以有多重表示含义，比如我们的xxx函数的定义，其实质可以替换为如下所示的形式：<br><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">xxx = <span class="function"><span class="keyword">function</span><span class="params">()</span></span></span><br><span class="line">	<span class="built_in">print</span>(a + b)</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure></p>
+<p>因为在lua中，function是first-class类型，因此函数本身就是一种变量类型，因此这样的语法是成立且合理的。</p>
+<h1 id="Lua-Closure的数据结构"><a href="#Lua-Closure的数据结构" class="headerlink" title="Lua Closure的数据结构"></a>Lua Closure的数据结构</h1><p>   我在第8章，详细论述了函数体编译的流程，对lua函数的数据结构也有非常详细的论述，因此过多的细节，在这里不再赘述，只在抽象层面复习一下它的数据结构。我们前面提过，什么是闭包(Closure)了，不管是c函数还是lua函数，只要带有upvalue的就是闭包，实际上，每个lua函数，至少带有一个upvalue，我将在后面的内容中，着重阐述这一点。先来回顾一下LClosure的数据结构：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luaobject.h</span></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> CommonHeader struct GCObject* next; lu_byte tt_; lu_byte marked</span></span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line"><span class="comment">// Closure</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> ClosureHeader CommonHeader; int nupvalues; struct GCObject* gclist</span></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">LClosure</span> &#123;</span></span><br><span class="line">    ClosureHeader;</span><br><span class="line">    Proto* p;</span><br><span class="line">    UpVal* upvals[<span class="number">1</span>];</span><br><span class="line">&#125; LClosure;</span><br></pre></td></tr></table></figure></p>
+<p>CommonHeader是需要被gc的类型的公共头部，LClosure还包含了一个变量，nupvalues。这个变量记录着Upvals列表的实际大小。Proto结构，前面章节也详细论述过，它是存放lua函数编译结果的结构体。我们现在通过图2，来感受一下：<br>image图2<br>如图2所示，xxx函数的LClosure，包含两个主要的部分，一个是proto部分，还有一个是upvalue部分，xxx函数，就是整个函数编译的结果，upvalue列表指向了外层函数的变量a和b。现在，我们还没法直观感受到，xxx函数，在虚拟机层面，如何引用到自己的upvalue，还是通过上面的例子来感知一下，当xxx函数完成编译后，虚拟机指令会存在proto结构的code列表中，我们可以通过图3来表示：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-diagram.png" alt><br>我们现在通过执行列表中的指令，来感受一下，xxx函数是如何使用自己的upvalue的。先看第一步：<img src="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-diagram-vm-code-1.png" alt><br>此时执行的指令是使用红色标记的指令，它实际表达的含义，可以归纳为：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">R(A) := UpValue[B][RK( C )]</span><br></pre></td></tr></table></figure></p>
+<p>这里的UpValue的含义，就是LClosure实例中，upval列表。B代表，取UpValue列表里的哪个值，RK[C]的含义，之前的章节也有提到过，当C的值&lt;256的时候，它需要到栈上查找。当C的值&gt;=256的时候，它直接到Proto结构变量，k中查找，取出k[C-256]的变量，在本例中是k[0]。而此时，代表我们寄存器的值R(A)中，A的值为0，这代表了，我们要将k[0]，要存储的位置，R(A)的位置，就是base+A的位置，因为A为0，因此，存放目标位置，就是base所指向的位置。于是，我们的推导就变成了：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">R(A) := UpValue[B][RK[C]]</span><br><span class="line">==&gt;</span><br><span class="line">R(0) := UpValue[0][k[0]]</span><br><span class="line">==&gt;</span><br><span class="line">R(0) := UpValue[0][<span class="string">"print"</span>]</span><br><span class="line">==&gt;</span><br><span class="line">base := _ENV[<span class="string">"print"</span>]</span><br><span class="line">==&gt;</span><br><span class="line">base := _G[<span class="string">"print"</span>]</span><br></pre></td></tr></table></figure></p>
+<p>任何一个lua函数，都至少有一个upvalue，而这个upvalue就是以_ENV为upvalue名称的table，它默认指向了_G。接下来，虚拟机就执行第二和第三个步骤，它直接将UpValue[1]和UpValue[2]的值（分别是top-level函数中，变量a和变量b），分别赋值到了base+1，和base+2的位置上，于是我们得到了图5的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-diagram-vm-code-3.png" alt><br>接下来执行OP_ADD指令，得到图6的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-diagram-vm-code-4.png" alt><br>最后就是执行OP_CALL指令，调用base位置的函数print，最后输出3。<br>   这里稍微用了一点篇幅，来论述xxx函数如何调用upvalue的流程，需要注意的是，xxx函数在完成编译以后，所有的指令都是int型变量，因此指令是不可能带有任何非数值类型的信息的，因此，虚拟机只能根据不同的指令，去到不同的位置（常量表k、upvalue表等）根据指令中的数值信息，去里面找到对应的值。这也是为什么，我们的proto结构，需要一个code列表去存储指令信息，用一个k列表去存储常量，lua closure实例，需要有一个upval列表去存储upvalue，目的是在虚拟机运行的过程中，虚拟机随时可以根据指令中包含的索引，到这些列表中，找到他们的值，最后再进行逻辑处理。如果读者需要了解整个编译过程，可以回顾第5~第8章的内容。</p>
+<h1 id="Upvalue的生成"><a href="#Upvalue的生成" class="headerlink" title="Upvalue的生成"></a>Upvalue的生成</h1><p>   章节前面的内容，我们已经了解到了upvalue的定义。本节，就是要在概念层面，论述清楚，upvalue是如何生成的。</p>
+<h1 id="首个upvalue"><a href="#首个upvalue" class="headerlink" title="首个upvalue"></a>首个upvalue</h1><p>   每个lua函数，都至少拥有一个upvalue，这个upvalue就是位于第0个位置的那个upvalue，这个upvalue的名称是_ENV，我们现在通过一个例子来观察一下：<br><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">-- test.lua</span><br><span class="line">local a = 1</span><br><span class="line">local b = 2</span><br><span class="line">function xxx()</span><br><span class="line">	local c = 3</span><br><span class="line">	local d = 4</span><br><span class="line">	print(a + b)</span><br><span class="line"></span><br><span class="line">	function yyy()</span><br><span class="line">		print(c + d)</span><br><span class="line">	end </span><br><span class="line">end</span><br></pre></td></tr></table></figure></p>
+<p>上面这个例子的upvalue关系图，可以通过图7来展示：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/upvalue-relationship.png" alt><br>我们可以看到，每个lua函数，都有一个upvalue列表，并且他们首个upvalue，都是一个名为_ENV的upvalue，内层lua函数的_ENV指向外层lua函数的_ENV，而最外层的top-level函数，则将值指向了全局表_G。为什么lua要用这种组织方式？将_ENV作为每个lua函数的第0个upvalue呢？我认为，这是为了效率，同时也能是的逻辑更为清晰，lua函数去查找一个变量的方式，如下所示：</p>
+<ul>
+<li>lua函数查找一个变量v，首先会在自己的local变量中查找，如果找到就直接获取它的值，找不到则进入下一步</li>
+<li>查找upvalue列表，有没有一个名为v的upvalue，有则获取它的值，没有则进入下一步</li>
+<li>到_ENV里去查找一个名为v的值<br>在虚拟机运行层面，查找一个变量要简单的多。每个函数，只要在自己lclosure实例中，包含的变量集合（local列表，upvalue列表，_ENV）中查找即可，不需要直接到外层函数去查找，逻辑清晰。我们现在还是以上面的例子为例，yyy函数的逻辑很简单，就是去打印c+d的值，首先yyy函数要获取的是一个名为print的函数，它首先会尝试去查找，是否有一个名为print的local变量，因为没找到，所以去upvalue列表中查找。由于在yyy函数的upvalue列表中，找不到一个名为print的变量，所以就去_ENV[“print”]中查找，因为_ENV默认指向_G所以，从全局表_G中获取了print函数，并压入lua栈中。接下来就是以同样的方式，去获取c和d的值，因为c和d是外层函数xxx的local变量，因此他们被当做upvalue，存在了yyy函数的upvalue列表中了，最后通过print函数，打印了c+d的值。</li>
+</ul>
+<h1 id="upvalue生成过程"><a href="#upvalue生成过程" class="headerlink" title="upvalue生成过程"></a>upvalue生成过程</h1><p>   通过前面的内容，其实我们已经可以了解到，upvalue是什么？它们存放的位置在哪里，以及怎么去获取他们的值。本节的主要任务，就是要搞清楚，upvalue具体是怎么生成的。实际上，查阅了源码后，不难发现，upvalue实际上是在编译时确定（位置信息，和外层函数的关联等），在运行时生成，什么意思呢？意思就是，在编译脚本阶段，就要确定lua函数的upvalue有哪些，在哪里。在虚拟机运行阶段，再去生成对应的upvalue。实际上，用来表示upvalue的有两个数据结构，一个是编译时期，存储upvalue信息的Upvaldesc（这个结构并不存储upvalue的实际值，只是用来标记upvalue的位置信息），还有一个是在运行期，实际存储upvalue值的UpVal结构。它们的结构定义如下所示：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luaobject.h</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">Upvaldesc</span> &#123;</span></span><br><span class="line">    <span class="keyword">int</span> in_stack; 	<span class="comment">// 本函数的upvalue，是否指向外层函数的栈(不是则指向外层函数的某个upvalue值)</span></span><br><span class="line">    <span class="keyword">int</span> idx;  		<span class="comment">// upvalue在外层函数中的位置(栈的位置或upval列表中的位置，根据in_stack确定)</span></span><br><span class="line">    TString* name;  <span class="comment">// upvalue的名称</span></span><br><span class="line">&#125; Upvaldesc;</span><br><span class="line"></span><br><span class="line"><span class="comment">// luafunc.h</span></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">UpVal</span> &#123;</span></span><br><span class="line">	TValue* v;  <span class="comment">// 指向外层函数的local变量(open upvalue)，或者指向自己(upvalue关闭时)</span></span><br><span class="line">	<span class="keyword">int</span> refcount; <span class="comment">// UpVal实例，被引用的次数</span></span><br><span class="line">	<span class="keyword">union</span> &#123;</span><br><span class="line">		<span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">			<span class="class"><span class="keyword">struct</span> <span class="title">UpVal</span>* <span class="title">next</span>;</span> <span class="comment">// next open upvalue</span></span><br><span class="line">			<span class="keyword">int</span> touched;</span><br><span class="line">		&#125; <span class="built_in">open</span>;</span><br><span class="line">		TValue value;		<span class="comment">// its value (when closed)</span></span><br><span class="line">	&#125; u;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure></p>
+<p>Upvaldesc的每一个字段，都很清晰，也比较容易理解，只是UpVal结构就要复杂得多了，我会慢慢来解释，我相信通过这篇文章，读者能够彻底搞清楚upvalue到底是什么。写到这里，我们不得不回顾一下，Proto的数据结构了：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luaobject.h</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">Proto</span> &#123;</span></span><br><span class="line">    CommonHeader;</span><br><span class="line">	<span class="keyword">int</span>* <span class="built_in">line</span>;</span><br><span class="line">	<span class="keyword">int</span> sizeline;</span><br><span class="line">    <span class="keyword">int</span> is_vararg;</span><br><span class="line">    <span class="keyword">int</span> nparam;</span><br><span class="line">    Instruction* code;  <span class="comment">// array of opcodes</span></span><br><span class="line">    <span class="keyword">int</span> sizecode;</span><br><span class="line">    TValue* k;</span><br><span class="line">    <span class="keyword">int</span> sizek;</span><br><span class="line">    LocVar* locvars;</span><br><span class="line">    <span class="keyword">int</span> sizelocvar;</span><br><span class="line">    Upvaldesc* upvalues;  <span class="comment">// upvaluedesc列表</span></span><br><span class="line">    <span class="keyword">int</span> sizeupvalues;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">Proto</span>** <span class="title">p</span>;</span></span><br><span class="line">    <span class="keyword">int</span> sizep;</span><br><span class="line">    TString* source;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">gclist</span>;</span></span><br><span class="line">	<span class="keyword">int</span> maxstacksize;</span><br><span class="line">&#125; Proto;</span><br></pre></td></tr></table></figure></p>
+<p>由于前面章节，已经详细介绍过Proto的结构了，之类不再赘述，本章只关注Proto和Upvalue之间的关系。我们都知道，lua脚本的编译信息，会被存储到Proto结构实例之中，当一个lua函数的某个变量，不是local变量时，我们希望获取它的值，实际上就是要查找这个变量的位置，如果local列表中找不到，则进入到如下流程：</p>
+<ul>
+<li>到自己的upvaldesc列表中，根据变量名查找，是否存在某个upvalue存在，如果存在则使用它，否则进入下一步</li>
+<li>到外层函数，查找local变量，如果找到，那么将它作为自己的upvalue，否则查找它的upvaldesc表，找到就将其生成为自己的upvalue，否则进入外层函数，重复这一步</li>
+<li>如果一直到top-level函数都找不到，那么表示这个upvalue不存在，此时需要去_ENV中查找<br>这里，我们需要通过一个例子，来理解这个流程，需要注意的是，这个过程，是在lua脚本的编译阶段进行的：<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- test.lua</span></span><br><span class="line"><span class="keyword">local</span> a = <span class="number">1</span></span><br><span class="line"><span class="keyword">local</span> b = <span class="number">2</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">xxx</span><span class="params">()</span></span></span><br><span class="line">	<span class="keyword">local</span> c = <span class="number">3</span></span><br><span class="line">	<span class="built_in">print</span>(a)</span><br><span class="line">	<span class="function"><span class="keyword">function</span> <span class="title">yyy</span><span class="params">()</span></span></span><br><span class="line">		<span class="built_in">print</span>(a + b + c)</span><br><span class="line">	<span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+</li>
+</ul>
+<p>上面这个例子，我们可以通过图8来展示：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue.png" alt><br>当我们的解释器，对这个脚本进行编译时，首先会从top-level function开始。本章我们只关注upvalue的编译流程和结果，所以中间会略过大量的细节。在top-level function中，变量a和b均是它的local变量。按照它们定义的顺序，在虚拟机运行期间，a会在栈中第0个位置，而b则在第1个位置。对脚本的编译开始之后，编译器首先会对top-level函数，会往自己的upvaldesc列表的第0个位置，填充_ENV的信息，得到图9的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-2.png" alt><br>我们可以观察到，top-level函数的第一个upvalue信息，已经被填充了，这里可以观察到，in_stack的值为1，idx的值为0，name为_ENV，由于top-level函数，已经是最外层的函数了，因此它没有外层函数，因此这里可以忽略掉in_stack和idx所表示的值，编译器会在脚本完成编译时，将_G赋值到UpVal[0]的位置，这个后面会论述。接下来，则会对xxx函数进行编译，在xxx函数中，c是它的local变量，因此变量c将在xxx函数栈中的第0个位置。我们也可以观察到，xxx函数引用了外层函数的一个变量a，编译器首先会为xxx函数，填充第0个upvalue的编译信息，然后再生成它的第1个upvalue a的信息，得到图10的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-3.png" alt><br>我们可以观察一下，xxx函数的upvalue描述信息，第0个仍然是_ENV，它的in_stack的值为0，表示它引用的是外层函数的upvalue值，idx为0，表示该值位于lclosure-&gt;upval[0]的位置，name为_ENV表示它的名称是_ENV。它的第1个upvalue的信息中，in_stack的值为1，表示，这个upvalue的值，在外层函数的栈上，idx为0，表示upvalue的值是外层函数栈上，第0个位置的值，在这里指代外层函数local变量a的值1，name的值为a，表示它引用外层函数的变量名为a。再往下，就开始编译函数yyy了。由于在yyy函数内，a、b和c的值，均不是它的local变量，因此这里触发生成upvalue的逻辑。<br>   yyy函数首先要处理的变量是a，由于a不是它的local变量，所以去它的upvaluedesc列表中查找，由于upvaluedesc列表中，没有名为a的upvalue，因此要去外层函数找，在开始找之前，它会将_ENV的信息，填写到upvaluedesc列表的第0个位置上。接下来，yyy函数，会去它的外层函数xxx中，查找名为a的local变量，很显然xxx没有定义名为a的local变量，所以它就去xxx的upvalue列表里查找，最后它在第1个upvalue那里找到这个值，于是得到图11的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-4.png" alt><br>我们可以看到，yyy函数生成_ENV的upvalue的方式，和xxx函数是一致的，因此这里不再赘述，而生成upvalue a，则在外层函数xxx的upvaluedesc列表中找到了，因此这个变量不在栈上，所以in_stack=0，并且idx=1（a在xxx函数upvaluedesc列表上的位置）。接下来，则进入到了，生成upvalue b的流程之中了。同样的，yyy函数内部没有定义过变量b，所以要到外层函数xxx中查找，因为xxx没有定义b这个变量，自己的upvaluedesc列表中也没有，所以，此时要到xxx函数的外层函数去查找，并且在top-level函数中，找到了一个local变量b，此时xxx函数首先要将其生成为自己的upvalue，于是得到图12的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-5.png" alt><br>name为b，in_stack=1，表示upvalue b，在top-level函数的栈上，前面也说过了，在运行阶段，变量b会在top-level函数栈上的第1个位置（第0个位置是a），所以idx的值，此时为1。接下来，轮到yyy去生成这个upvalue了，因为upvalue b，位于xxx函数，upvaluedesc列表中的第2个位置，因此，它得到如图13的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-6.png" alt><br>这个生成过程，需要读者自己再去梳理领会一下。接下来，就到了upvalue c的生成流程了，首先yyy函数内找不到c的定义，因此去yyy函数的外层函数，xxx函数中查找，xxx函数中，真的有一个变量名为c的local变量，因此，直接生成图14的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-7.png" alt><br>因为c是xxx函数的第1个local变量，因此在运行阶段，它在xxx函数栈上的第0个位置，所以，upvalue c在yyy函数upvaluedesc列表中的值为，in_stack=1（它是外层函数的一个局部变量），idx=0（在外层函数栈上的第0个位置），名称name为c。当编译器完成这个脚本的编译时，会给top-level函数的第0个upvalue赋值_G，得到图15的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-8.png" alt><br>   前面的论述，主要在集中论述脚本编译期间，upvalue的位置信息生成。现在我们来在概念层面，观察一下，运行期间如何生成虚拟机运行过程中，真实被用到的upvalue值。还是用上面的例子，假设前面的top-level函数开始执行，首先会执行两个赋值操作，于是得到图16的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-9.png" alt><br>两个local变量的定义和初始化操作，虚拟机会将它们放入栈中，接下来往下执行，我们前面也提到过，在lua中，函数是first-class类型，因此它本身也是一种变量类型，所以前面的例子，其实质等价于如下形式：<br><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- test.lua</span></span><br><span class="line"><span class="keyword">local</span> a = <span class="number">1</span></span><br><span class="line"><span class="keyword">local</span> b = <span class="number">2</span></span><br><span class="line"></span><br><span class="line">xxx = <span class="function"><span class="keyword">function</span><span class="params">()</span></span></span><br><span class="line">	<span class="keyword">local</span> c = <span class="number">3</span></span><br><span class="line">	<span class="built_in">print</span>(a)</span><br><span class="line">	yyy = <span class="function"><span class="keyword">function</span><span class="params">()</span></span></span><br><span class="line">		<span class="built_in">print</span>(a + b + c)</span><br><span class="line">	<span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure></p>
+<p>所以逻辑接着往下执行，是对一个名为xxx的变量，赋值一个函数变量。要完成这个操作，首先要创建一个函数实例，并填充它的upvalue值信息，最后再赋值给变量xxx，于是得到图17的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-10.png" alt><br>我们可以看到，此时，已经开始往xxx函数的upval列表填充信息了，首先它的第一个变量是_ENV，这里不包含任何upvalue名称，而是直接将upval的指针，指向了外层函数的第一个upval。回顾一下图7，他们实际上是同一个UpVal* 实例。接下来，它会创建一个UpVal实例，并且upval-&gt;v指向了外层函数的local变量a，然后是local变量b。执行到这里，这个逻辑流程就结束了。可能有读者会问，那yyy函数没做处理吗？答案是是的，因为我们没有调用xxx函数，因此yyy变量的赋值操作，也就不会进行，并且该LClosure实例也不会被创建，xxx函数会被创建，是因为它是在top-level函数里定义的，大家可以回顾一下上面替换成等式的例子。如果，我们在top-level函数里，调用xxx函数，那么，xxx函数里的逻辑也会被创建，yyy函数被创建的逻辑，也会被执行到，于是得到图18的结果。<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/find-upvalue-11.png" alt><br>xxx函数被调时，它会被压入栈中，同时局部变量也会被压入栈中。这里有一个非常有意思的现象，就是一个函数的upvalue，一直溯源下去，最终的源头，要么是某个外层函数的local变量，要么就是最外层函数的_ENV。<br>   本节，我精心挑选了一个例子，基本把upvalue生成的几种情况都涵盖到了。这里需要注意的是，上面示例图里的LClosure图集，只是为了展示一个关系层次，并不是在编译阶段，就会创建LClosure实例，编译阶段，只会生成Proto实例，并将编译结果存到这个结构中。只有执行脚本逻辑阶段，才会将LClosure实例创建。</p>
+<h1 id="Open-Upvalue和Closed-Upvalue"><a href="#Open-Upvalue和Closed-Upvalue" class="headerlink" title="Open Upvalue和Closed Upvalue"></a>Open Upvalue和Closed Upvalue</h1><p>   我们已经完成了upvalue生成流程的讨论了，现在来关注一下open upvalue和closed upvalue。可能很多读者，对这两个概念非常陌生，但是理解它，对于解释一些和upvalue有关的现象，是非常有帮助的。open upvalue和closed upvalue这两个概念，是针对一个函数的upvalue是外层函数local变量的情况。关于upvalue的使用，最难理解的也是这个部分。接下来，我将通过两个例子来说明这个概念，先看例1：<br><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> var1 = <span class="number">1</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">aaa</span><span class="params">()</span></span></span><br><span class="line">	<span class="keyword">local</span> var2 = <span class="number">1</span></span><br><span class="line">	<span class="function"><span class="keyword">function</span> <span class="title">bbb</span><span class="params">()</span></span></span><br><span class="line">		var1 = var1 + <span class="number">1</span></span><br><span class="line">		var2 = var2 + <span class="number">1</span></span><br><span class="line">		<span class="built_in">print</span>(<span class="string">"bbb:"</span>, var1, var2)</span><br><span class="line">	<span class="keyword">end</span> </span><br><span class="line"></span><br><span class="line">	<span class="function"><span class="keyword">function</span> <span class="title">ccc</span><span class="params">()</span></span></span><br><span class="line">		var1 = var1 + <span class="number">1</span></span><br><span class="line">		var2 = var2 + <span class="number">1</span></span><br><span class="line">		<span class="built_in">print</span>(<span class="string">"ccc:"</span>, var1, var2)</span><br><span class="line">	<span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">	bbb()</span><br><span class="line">	<span class="built_in">print</span>(<span class="string">"hahaha"</span>)</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">aaa()</span><br><span class="line">bbb()</span><br><span class="line">bbb()</span><br><span class="line">ccc()</span><br><span class="line">ccc()</span><br></pre></td></tr></table></figure></p>
+<p>例1<br>例1的输出结果如下所示：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">bbb:	2	2</span><br><span class="line">hahaha</span><br><span class="line">bbb:	3	3</span><br><span class="line">bbb:	4	4</span><br><span class="line">ccc:	5	5</span><br><span class="line">ccc:	6	6</span><br></pre></td></tr></table></figure></p>
+<p>这个例子中，函数bbb和函数ccc是在aaa里定义的，也就是说，只有调用执行了函数aaa，bbb和ccc两个函数才会被创建。我们现在来看一下，执行这段脚本时的情况，图19是该脚本完成编译时的状态：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-1.png" alt><br>这里的upvalue生成，前面已经花费了相当篇幅去论述了，因此这里留给读者自己去推导，这里不再赘述。接下来，我们就进入到了执行环节，先从top-level函数的第一行代码开始，于是得到图20的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-2.png" alt><br>接下来，就进入到了，创建函数aaa的流程，得到图21的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-3.png" alt><br>创建函数aaa，的时期，并不会执行函数aaa内的逻辑，但是会为其创建一个函数实例，并且完成UpVal列表的填充。接下来，就会执行函数aaa()，得到图22的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-4.png" alt><br>这里我们可以看到，执行aaa函数之后，它的内部逻辑会创建函数bbb和函数ccc（创建LClosure实例），并且初始化它们的upvalue列表。这里需要注意的是，函数bbb和函数ccc的第2个（var2 upvalue）UpVal<em> 指针指向了同一个UpVal</em> 实例。图22中所示的，包含的值，指向LuaStack中的两个Upvalue，此时是Open Upvalue。当我们的逻辑继续往下走，执行到调用第一个bbb函数的时候，此时结果如图23所示：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-5.png" alt><br>此时，aaa函数已经执行完毕，因此它的局部变量需要从栈中清退，而在执行aaa函数的过程中，已经将函数对象（LClosure实例），bbb和ccc创建，他们的var2变量，共享同一个UpVal<em>实例。在aaa函数执行完毕时，他们的UpVal</em>实例，会进行close操作，什么意思呢，就是原来的upval-&gt;v指向栈的某个位置，现在这个关联将被破除，并且upval-&gt;v的值，赋值为upval-&gt;u.value的地址，同时，upval-&gt;v原来指向的值，会被赋值到upval-&gt;u.value上。为什么此时，填入upval-&gt;u.value内的值是2呢？因为aaa函数内调用了一次bbb函数，因此，此时我们的控制台会输出如下结果：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bbb:	2	2</span><br><span class="line">hahaha</span><br></pre></td></tr></table></figure></p>
+<p>而接下来，要执行的函数，就是图23中，黑色箭头所指的函数调用，此时调用的函数是bbb函数。这个函数，会分别将var1和var2的值加1，最后再打印他们，我们可以看到，var1仍然在栈上，因此var1的值会变成3，而var2的值，指向了一个UpVal* 实例，而其原来的值是2，自增1后，就变成了3，此时得到的输出结果为：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">bbb:	2	2</span><br><span class="line">hahaha</span><br><span class="line">bbb:	3	3</span><br></pre></td></tr></table></figure></p>
+<p>而与结果相对应的图，如图24所示：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-5.png" alt><br>接下来，执行第二个bbb函数的调用，var1的值仍然在栈上，var2的值，仍然在那个UpVal*实例里，于是得到如下的结果：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bbb:	2	2</span><br><span class="line">hahaha</span><br><span class="line">bbb:	3	3</span><br><span class="line">bbb:	4	4</span><br></pre></td></tr></table></figure></p>
+<p><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-7.png" alt><br>接下来，则是执行第一个ccc函数，通过观察ccc函数的upvalue列表，我们可以看到，不论是var1还是var2，他们引用的都是同一个UpVal*实例，因此bbb函数的执行结果，会影响到ccc。第一个ccc函数执行完以后，得到如下的结果：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">bbb:	2	2</span><br><span class="line">hahaha</span><br><span class="line">bbb:	3	3</span><br><span class="line">bbb:	4	4</span><br><span class="line">ccc:	5	5</span><br></pre></td></tr></table></figure></p>
+<p>执行完第二个ccc函数得到的结果，则如下所示：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">bbb:	2	2</span><br><span class="line">hahaha</span><br><span class="line">bbb:	3	3</span><br><span class="line">bbb:	4	4</span><br><span class="line">ccc:	5	5</span><br><span class="line">ccc:	6	6</span><br></pre></td></tr></table></figure></p>
+<p>到现在为止，我就完成了例1的论述了，读者通过这个例子，可以理解到，在运行阶段，不同的函数，引用到了同一个Upvalue，那他们upvalue列表里对应的实例，实际上是共享的。读者可以通过多次阅读上面的例子，来感受一下open upvalue变为closed upvalue的流程。接下来，我们要看的是例2。<br>   例1展示的是，两个同级函数，引用了同一个外层函数local变量，并且经历从open upvalue到closed upvalue转变的流程。我们现在要看的是第二个例子：<br><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> var1 = <span class="number">1</span></span><br><span class="line"><span class="keyword">local</span> <span class="function"><span class="keyword">function</span> <span class="title">aaa</span><span class="params">()</span></span></span><br><span class="line">	<span class="keyword">local</span> var2 = <span class="number">1</span></span><br><span class="line">	<span class="keyword">return</span> <span class="function"><span class="keyword">function</span><span class="params">()</span></span></span><br><span class="line">		var1 = var1 + <span class="number">1</span></span><br><span class="line">		var2 = var2 + <span class="number">1</span></span><br><span class="line"></span><br><span class="line">		<span class="built_in">print</span>(var1, var2)</span><br><span class="line">	<span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">local</span> f1 = aaa()</span><br><span class="line"><span class="keyword">local</span> f2 = aaa()</span><br><span class="line"></span><br><span class="line">f1()</span><br><span class="line">f2()</span><br></pre></td></tr></table></figure></p>
+<p>例2<br>现在我们通过图文的方式，来展现这个逻辑流程，首先执行脚本的第一行逻辑，得到图26的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-8.png" alt><br>接下来，就会执行函数aaa的创建逻辑，此时我们会创建一个LClosure实例，并存放在local变量aaa中，得到图27的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-9.png" alt><br>程序执行流继续往下走，开始执行local f1 = aaa()函数的逻辑了。首先程序要进入到aaa函数的内部，执行它的逻辑，先来看一下执行了第一个赋值操作之后的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-10.png" alt><br>接下来，aaa函数，会往下执行逻辑，它会创建一个匿名的function实例（LClosure实例），得到图29结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-11.png" alt><br>我们可以看到，橙色线框的部分，就是被创建出来的匿名函数实例，此时，aaa函数要结束了，因此aaa函数的栈信息会被清退，此时匿名函数中的var2，引用的是外层函数aaa的local变量，在aaa函数完成调用之前，它是open upvalue，而aaa函数结束时，它要转变成closed upvalue，于是得到图30的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-12.png" alt><br>我们可以看到，var2的upvalue中，upval-&gt;v指针，从之前指向栈上，专向了指向自身的结构之中，并且将原来栈上的值，赋值给了它。与此同时，局部变量f1也被压入栈中，它的值，就是从aaa函数中创建并返回的函数实例（LClosure实例）。接下来，黑色箭头会继续往下走，此时会重复上面的逻辑，于是得到图31的结果：<br><img src="http://manistein.club/images/build-a-lua-interpreter/part11/open-closed-upvalue-13.png" alt><br>我们可以观察到，aaa函数，又重新创建了一个新的函数实例，并且赋值到local变量f2中，f1和f2的var1 upvalue，引用了同一个UpVal<em>实例，而var2这个upvalue，则是每个都独立一份，这里需要和例1的情况进行区别，例1的upvalue var2是共享的，因为调用aaa函数时，在同一次调用时创建的，而例2的情况则是，分两次调用创建，因此UpVal</em>实例是各自独立一份。接下来，例2的代码会继续往下执行，分别执行了f1和f2两个函数，于是得到如下的输出。<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">2	2</span><br><span class="line">3	2</span><br></pre></td></tr></table></figure></p>
+<p>因为var1是共享的，所以f2执行的时候，输出3，但是var2是f1和f2各自独立有一个UpVal*实例的，因此，f1和f2调用的结果都是2。</p>
+<h1 id="结束语"><a href="#结束语" class="headerlink" title="结束语"></a>结束语</h1><pre><code>到这里，我就完成了整个upvalue的论述了，后面还有几个重要章节，它们分别是weektable、coroutine和require机制，我将在接下来的几个月内完成这个系列。
+</code></pre>
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/lua/" rel="tag"> <i class="fa fa-tag"></i> lua</a>
+          
+            <a href="/tags/构建Lua解释器/" rel="tag"> <i class="fa fa-tag"></i> 构建Lua解释器</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/lua/C4：4个函数，528行代码实现可自举的 C语言编译器/" rel="next" title="C4：4个函数，528行代码实现可自举的 C语言编译器">
+                <i class="fa fa-chevron-left"></i> C4：4个函数，528行代码实现可自举的 C语言编译器
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">77</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">12</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">13</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="https://blog.csdn.net/pyf09" title="CSDN &rarr; https://blog.csdn.net/pyf09" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-book"></i>CSDN</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#前言"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#什么是Upvalue？"><span class="nav-number">2.</span> <span class="nav-text">什么是Upvalue？</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Lua函数探索"><span class="nav-number">3.</span> <span class="nav-text">Lua函数探索</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Chunk的概念"><span class="nav-number">4.</span> <span class="nav-text">Chunk的概念</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Lua-Closure的数据结构"><span class="nav-number">5.</span> <span class="nav-text">Lua Closure的数据结构</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Upvalue的生成"><span class="nav-number">6.</span> <span class="nav-text">Upvalue的生成</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#首个upvalue"><span class="nav-number">7.</span> <span class="nav-text">首个upvalue</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#upvalue生成过程"><span class="nav-number">8.</span> <span class="nav-text">upvalue生成过程</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Open-Upvalue和Closed-Upvalue"><span class="nav-number">9.</span> <span class="nav-text">Open Upvalue和Closed Upvalue</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#结束语"><span class="nav-number">10.</span> <span class="nav-text">结束语</span></a></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
