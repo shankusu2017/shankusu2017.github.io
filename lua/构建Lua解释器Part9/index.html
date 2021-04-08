@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="本文转载自Manistein’s Blog 构建Lua解释器Part9：metatable Posted on December 8, 2020 前言​    本章，我们将进入到metatable的探索之中。由于这块本身比较简单，而且我也不打算罗列代码细节，因此本章的篇幅不会很大。只是对一些我认为比较关键的部分，进行说明。首先，本章的主要任务，首先是简要介绍metatable是做什么的，然后简要说">
+<meta name="keywords" content="lua,构建Lua解释器">
+<meta property="og:type" content="article">
+<meta property="og:title" content="构建Lua解释器Part9：metatable">
+<meta property="og:url" content="https://shankusu2017.github.io/lua/构建Lua解释器Part9/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="本文转载自Manistein’s Blog 构建Lua解释器Part9：metatable Posted on December 8, 2020 前言​    本章，我们将进入到metatable的探索之中。由于这块本身比较简单，而且我也不打算罗列代码细节，因此本章的篇幅不会很大。只是对一些我认为比较关键的部分，进行说明。首先，本章的主要任务，首先是简要介绍metatable是做什么的，然后简要说">
+<meta property="og:locale" content="en">
+<meta property="og:updated_time" content="2021-04-08T15:29:22.481Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="构建Lua解释器Part9：metatable">
+<meta name="twitter:description" content="本文转载自Manistein’s Blog 构建Lua解释器Part9：metatable Posted on December 8, 2020 前言​    本章，我们将进入到metatable的探索之中。由于这块本身比较简单，而且我也不打算罗列代码细节，因此本章的篇幅不会很大。只是对一些我认为比较关键的部分，进行说明。首先，本章的主要任务，首先是简要介绍metatable是做什么的，然后简要说">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/lua/构建Lua解释器Part9/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>构建Lua解释器Part9：metatable | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">12</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/lua/构建Lua解释器Part9/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">构建Lua解释器Part9：metatable
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p><a href="http://manistein.club/" rel="external nofollow noopener noreferrer" target="_blank">本文转载自Manistein’s Blog</a></p>
+<h1 id="构建Lua解释器Part9：metatable"><a href="#构建Lua解释器Part9：metatable" class="headerlink" title="构建Lua解释器Part9：metatable"></a>构建Lua解释器Part9：metatable</h1><p> <em>Posted on December 8, 2020</em></p>
+<h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>​    本章，我们将进入到metatable的探索之中。由于这块本身比较简单，而且我也不打算罗列代码细节，因此本章的篇幅不会很大。只是对一些我认为比较关键的部分，进行说明。首先，本章的主要任务，首先是简要介绍metatable是做什么的，然后简要说明一下，它如何被设置，接着介绍metatable的访问域，双目运算操作域、单目运算操作域等。最后会告诉读者，本章的实现逻辑位于dummylua工程的哪些部位。</p>
+<h1 id="什么是metatable？"><a href="#什么是metatable？" class="headerlink" title="什么是metatable？"></a>什么是metatable？</h1><p>​    metatable是什么？它的中文译名是元表。简单的来说，它是一种改变table行为的机制。如果没有这种机制，我们无法对两个table进行加减乘除运算，无法对table进行比较运算。而metatable机制的存在，则为这种提供了可行性。此外，metatable为不同的table，提供了公共域，这个是lua实现面向对象机制的基础。我们为一个table设置metatable的方式也非常简单，如下所示：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> tbl = <span class="built_in">setmetatable</span>(&#123;&#125;, &#123; <span class="built_in">__index</span> = <span class="function"><span class="keyword">function</span><span class="params">(t, k)</span></span> <span class="built_in">print</span>(<span class="string">"hello world"</span>) <span class="keyword">end</span> &#125;)</span><br></pre></td></tr></table></figure>
+<p>上面的例子中，table的metatable，则是setmetatable的第二个参数。而如何获取一个metatable呢？如下例子得以展示：</p>
+<figure class="highlight lisp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">local mt = getmetable(<span class="name">tbl</span>)</span><br></pre></td></tr></table></figure>
+<p>在lua53的中文文档中[1]，是这么来解释metatable和tag method的：</p>
+<blockquote>
+<p>Lua 中的每个值都可以有一个 元表。 这个 元表 就是一个普通的 Lua 表， 它用于定义原始值在特定操作下的行为。 如果你想改变一个值在特定操作下的行为，你可以在它的元表中设置对应域。 例如，当你对非数字值做加操作时， Lua 会检查该值的元表中的 “<strong> add” 域下的函数。 如果能找到，Lua 则调用这个函数来完成加这个操作。 在元表中事件的键值是一个双下划线（</strong> ）加事件名的字符串； 键关联的那些值被称为 元方法。 在上一个例子中，__add 就是键值， 对应的元方法是执行加操作的函数。</p>
+</blockquote>
+<p>你可以使用 setmetatable 来替换一张表的元表。在 Lua 中，你不可以改变表以外其它类型的值的元表 （除非你使用调试库）； 若想改变这些非表类型的值的元表，请使用 C API。</p>
+<h1 id="metable的-index和-newindex域"><a href="#metable的-index和-newindex域" class="headerlink" title="metable的 index和 newindex域"></a>metable的<strong> index和</strong> newindex域</h1><p>​    metatable中有两个重要的域，它们分别是以<strong> index和</strong> newindex作为key的域。我们通过一些例子，来理解这两个机制。首先我们来看看__ index的情况：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> tbl = <span class="built_in">setmetatable</span>(&#123;&#125;, &#123; <span class="built_in">__index</span> = <span class="function"><span class="keyword">function</span><span class="params">(t, k)</span></span> <span class="built_in">print</span>(<span class="string">"hello world"</span>) <span class="keyword">end</span> &#125;)</span><br><span class="line"><span class="built_in">print</span>(tbl.hello)</span><br></pre></td></tr></table></figure>
+<p>例1<br>这是一个会使用到metatable的__ index域的例子，在开始正式讨论之前，我们首先要对例子本身作一些说明。</p>
+<ul>
+<li>我们的local变量tbl，实质就是setmetatable函数的第一个参数</li>
+<li>tbl被设置了一个metatable，它就是setmetatable的第二个参数</li>
+<li>tbl的metatable存在__ index域</li>
+<li>print(tbl.hello)这个语句中，hello是tbl不存在的key</li>
+<li>__ index所指向的是一个函数，它有两个参数t和k，其中，t表示tbl这个表，而k则表示tbl的缺省域hello</li>
+</ul>
+<p>当我们的一个table，通过一个key，访问一个value时，虚拟机会做哪些操作呢？我们先来看上面这个例子，它是__ index所指的是function的情况：</p>
+<ol>
+<li>判断tbl中，是否存在被访问的key：hello，并且value不为nil。如果存在，则返回tbl.hello，否则进入下一步</li>
+<li>判断tbl是否设置了metatable，如果没有设置，则tbl.hello这个操作，返回的结果是nil。否则进入下一步</li>
+<li>判断tbl的metatable是否存在__ index域，如果不存在，tbl.hello这个操作，返回的结果是nil。否则进入下一步</li>
+<li>调用__ index所指向的函数，并执行，如果函数有返回值，或者在函数内有对tbl.hello赋值，那么tbl.hello的结果为这个返回值，或者是被赋予的值</li>
+<li>调用结束</li>
+</ol>
+<p>在例1中，print(tbl.hello)的结果为nil，并且输出了“hello world”，其结果如下所示：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">hello world</span><br><span class="line"><span class="literal">nil</span></span><br></pre></td></tr></table></figure>
+<p>例1展示了一个简单的例子，我们现在来看一下例2：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> mt = <span class="built_in">setmetatable</span>(&#123;&#125;, &#123; <span class="built_in">__index</span> = <span class="function"><span class="keyword">function</span><span class="params">(t, k)</span></span> <span class="built_in">print</span>(<span class="string">"1111"</span>) <span class="keyword">end</span> &#125;)</span><br><span class="line">mt.<span class="built_in">__index</span> = <span class="function"><span class="keyword">function</span><span class="params">(t, k)</span></span> <span class="built_in">print</span>(<span class="string">"2222"</span>) <span class="keyword">end</span></span><br><span class="line"><span class="keyword">local</span> tbl = <span class="built_in">setmetatable</span>(&#123;&#125;, mt)</span><br><span class="line"><span class="built_in">print</span>(tbl.hello)</span><br></pre></td></tr></table></figure>
+<p>例2<br>上面这个例子，输出的结果为：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">2222</span></span><br><span class="line"><span class="literal">nil</span></span><br></pre></td></tr></table></figure>
+<p>因为tbl的metatable是mt，且mt的<strong> index域是个函数，且hello在tbl中并不存在，所以直接调用了mt.</strong> index函数。在访问一个table的缺省域的时候，如果该table有metatable，并且<strong> index域是个函数，那么直接调用它。这里不管tbl的metatable的metatable是否存在，存在的话</strong> index域是什么，它都只调用tbl的metatable的<strong> index函数。<br>    我们通过两个例子，讨论了metatable的</strong> index域是函数的情况，现在我们来看看metatable的__ index域是table的情况。</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> mt0 = &#123; hello = <span class="string">"hello world"</span> &#125;</span><br><span class="line"><span class="keyword">local</span> mt1 = <span class="built_in">setmetatable</span>(&#123;&#125;, &#123;<span class="built_in">__index</span> = mt0&#125;)</span><br><span class="line">mt1.key2 = <span class="string">"key2"</span></span><br><span class="line"><span class="keyword">local</span> tbl = <span class="built_in">setmetatable</span>(&#123;&#125;, &#123;<span class="built_in">__index</span> = mt1&#125;)</span><br><span class="line"><span class="built_in">print</span>(tbl.hello)</span><br><span class="line"><span class="built_in">print</span>(tbl.key)</span><br><span class="line"><span class="built_in">print</span>(tbl.key2)</span><br></pre></td></tr></table></figure>
+<p>例3<br>例3的输出结果为：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">hello world</span><br><span class="line"><span class="literal">nil</span></span><br><span class="line">key2</span><br></pre></td></tr></table></figure>
+<p>hello是tbl的缺省域，因为tbl中找不到hello，所以要到tbl的metatable中查找<strong> index域，这里的</strong> index域指向一个table mt1，因此会到mt1中查找mt1.hello，又因为mt1中不存在key为hello的域，因此要到mt1的metatable中查找，而mt1的metatable的__ index域指向了mt0，因此将mt0.hello返回。同样的，tbl.key的访问逻辑，也执行类似的操作，只是因为mt0没有设置metatable，所以最终tbl.key的值为nil。而对于tbl.key2，操作逻辑也是类似的，只是因为mt1中存在key2这个域，因此直接返回该值，而不继续到metatable中查找。</p>
+<p>​    在完成了<strong> index域的论述以后，我们接下来看看</strong> newindex域。我们还是要通过几个例子，对它进行说明，首先来看看例4：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> tbl = <span class="built_in">setmetatable</span>(&#123;&#125;, &#123; <span class="built_in">__newindex</span> = <span class="function"><span class="keyword">function</span><span class="params">(t, k, v)</span></span> <span class="built_in">print</span>(t, k, v) <span class="keyword">end</span> &#125;)</span><br><span class="line">tbl.key = <span class="string">"key"</span></span><br><span class="line"><span class="built_in">print</span>(tbl.key)</span><br></pre></td></tr></table></figure>
+<p>例4<br>例4中，key原本不存在于tbl中，由于tbl设置了一个metatable，并且<strong> newindex域有设置一个函数，因此例4中的赋值操作，会触发元方法</strong> newindex，但是赋值操作并不会生效（也就是调用了<strong> newindex函数以后，tbl.key仍然是nil值）。而我们的</strong> newindex函数有3个参数，分别是t、k和v，他们分别代表tbl，key和“key”。如果我们的tbl原本就有tbl.key这个域的时候，对tbl.key重新赋值，并不会触发元方法。例4的输出结果如下所示：</p>
+<figure class="highlight gams"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">table</span>: 0x12b88c0	<span class="comment">key</span>	<span class="comment">key</span></span><br><span class="line">nil</span><br></pre></td></tr></table></figure>
+<p>当需要触发<strong> newindex的元方法的时候，不论metatable是否还有metatable，只要其有</strong> newindex，并且是个函数，那么就会执行它，并终止流程。接下来来看一下__ newindex是table的情况，我们来看看例5：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> mt0 = &#123;&#125;</span><br><span class="line"><span class="keyword">local</span> mt1 = <span class="built_in">setmetatable</span>(&#123;&#125;, &#123; <span class="built_in">__newindex</span> = mt0 &#125;)</span><br><span class="line"><span class="keyword">local</span> mt2 = <span class="built_in">setmetatable</span>(&#123; key1 = <span class="string">"111"</span>&#125;, &#123; <span class="built_in">__newindex</span> = mt1 &#125;)</span><br><span class="line"><span class="keyword">local</span> tbl = <span class="built_in">setmetatable</span>(&#123;&#125;, &#123; <span class="built_in">__newindex</span> = mt2 &#125;)</span><br><span class="line">tbl.key = <span class="string">"key"</span></span><br><span class="line">tbl.key1 = <span class="string">"222"</span></span><br><span class="line"><span class="built_in">print</span>(tbl.key)</span><br><span class="line"><span class="built_in">print</span>(mt0.key)</span><br><span class="line"><span class="built_in">print</span>(mt2.key1)</span><br></pre></td></tr></table></figure>
+<p>例5<br>上面例子输出的结果为：</p>
+<figure class="highlight lsl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">nil</span><br><span class="line"><span class="type">key</span></span><br><span class="line"><span class="number">222</span></span><br></pre></td></tr></table></figure>
+<p>这个例子说明了几个内容：</p>
+<ul>
+<li>为表tbl从来不存在的key域赋值，tbl.key = “key”这个操作会触发元方法</li>
+<li>tbl会到其元表中的__ newindex域mt2，查找是否存在key，因为没找到，因此需要去mt1中查找</li>
+<li>mt1中也没找到key，所以要去mt1的元表的__ newindex域中去查找，也就是mt0中。</li>
+<li>mt0中也没找到key，但是mt0已经没有metatable，所以直接将”key”的值，赋值到mt0.key中，但是tbl.key并没有被赋值</li>
+</ul>
+<p>从上面的论述可以看出，当一个table有设置metatable，并且<strong> newindex方法有被设置，因此当给这个table添加新域的时候，会触发元方法</strong> newindex，如果<strong> newindex是个表，则会尝试从中去查找新设置操作的key值，如果找到则直接设置新值，如果找不到则需要继续触发metatable的元方法</strong> newindex。如果没找到元表，则直接将结果设置到该table中。读者可以观察一下tbl.key1 = “222”以及例子打印结果的情况。</p>
+<h1 id="双目运算事件"><a href="#双目运算事件" class="headerlink" title="双目运算事件"></a>双目运算事件</h1><p>​    上面一节中，我对<strong> index和</strong> newindex进行了简要的说明，大概介绍清楚了这两个元访问事件的运作机制，现在要对双目运算事件进行简要的说明。lua层的setmetatable，只支持对table赋值metatable的操作，而如果要对其他类型进行metatable的设置操作，需要借助C的API。我们的双目运算，如四则运算，如字符串拼接运算，是有默认的支持类型的，比如四则运算，只支持数值类型的数据运算，而字符串拼接，默认类型则是字符串类型。我们的metatable机制，可以用来实现面向对象的设计方法，限于篇幅，本章不对这些内容进行详细的讨论。使用元表来实现面向对象的机制时，table不可避免地要作为对象存在。那么对象之间如果有双目运算，那怎么处理呢？以加法为例，+操作符，默认只支持数值类型的运算，table是不支持的，除非你为__ add域设置了元方法，如例6所示：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">local</span> tbl1 = <span class="built_in">setmetatable</span>(&#123; value = <span class="number">1</span> &#125;, &#123;<span class="built_in">__add</span> = <span class="function"><span class="keyword">function</span><span class="params">(lhs, rhs)</span></span> <span class="keyword">return</span> lhs.value + rhs.value &#125;)</span><br><span class="line"><span class="keyword">local</span> tbl2 = &#123; value = <span class="number">2</span> &#125;</span><br><span class="line"><span class="keyword">local</span> ret = tbl1 + tbl2</span><br><span class="line"><span class="built_in">print</span>(ret)</span><br></pre></td></tr></table></figure>
+<p>例6<br>其输出结果为：</p>
+<figure class="highlight lsl"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">3</span></span><br></pre></td></tr></table></figure>
+<p>因为tbl1设置了<strong> add域的元方法，因此虚拟机在进行加法运算的时候，当操作数不都是数值类型时，就触发tbl1的</strong> add域元方法。现在假设另一种情况，如果tbl1没有设置__ add域的元方法，而是把这个元方法在tbl2设置了，那么结果仍然是一致的。因为虚拟机首先会找左操作数是否有对应的元方法，如果没有则会去右操作数去查找，如果都没有则抛错。其他情况留给读者去推导。lua除了双目元方法，还有单目的，这里就不一一列举了，引用lua53中文文档的一些内容，供读者查阅：</p>
+<blockquote>
+<p><strong> add: + 操作。 如果任何不是数字的值（包括不能转换为数字的字符串）做加法， Lua 就会尝试调用元方法。 首先、Lua 检查第一个操作数（即使它是合法的）， 如果这个操作数没有为 “</strong>add” 事件定义元方法， Lua 就会接着检查第二个操作数。 一旦 Lua 找到了元方法， 它将把两个操作数作为参数传入元方法， 元方法的结果（调整为单个值）作为这个操作的结果。 如果找不到元方法，将抛出一个错误。<br><strong>sub: - 操作。 行为和 “add” 操作类似。
+</strong>mul: * 操作。 行为和 “add” 操作类似。<br><strong>div: / 操作。 行为和 “add” 操作类似。
+</strong>mod: % 操作。 行为和 “add” 操作类似。<br><strong>pow: ^ （次方）操作。 行为和 “add” 操作类似。
+</strong>unm: - （取负）操作。 行为和 “add” 操作类似。<br><strong>idiv: // （向下取整除法）操作。 行为和 “add” 操作类似。
+</strong>band: &amp; （按位与）操作。 行为和 “add” 操作类似， 不同的是 Lua 会在任何一个操作数无法转换为整数时 （参见 §3.4.3）尝试取元方法。<br><strong>bor: | （按位或）操作。 行为和 “band” 操作类似。
+</strong>bxor: ~ （按位异或）操作。 行为和 “band” 操作类似。<br><strong>bnot: ~ （按位非）操作。 行为和 “band” 操作类似。
+</strong>shl: &lt;&lt; （左移）操作。 行为和 “band” 操作类似。<br><strong>shr: &gt;&gt; （右移）操作。 行为和 “band” 操作类似。
+</strong>concat: .. （连接）操作。 行为和 “add” 操作类似， 不同的是 Lua 在任何操作数即不是一个字符串 也不是数字（数字总能转换为对应的字符串）的情况下尝试元方法。<br><strong>len: # （取长度）操作。 如果对象不是字符串，Lua 会尝试它的元方法。 如果有元方法，则调用它并将对象以参数形式传入， 而返回值（被调整为单个）则作为结果。 如果对象是一张表且没有元方法， Lua 使用表的取长度操作（参见 §3.4.7）。 其它情况，均抛出错误。
+</strong>eq: == （等于）操作。 和 “add” 操作行为类似， 不同的是 Lua 仅在两个值都是表或都是完全用户数据 且它们不是同一个对象时才尝试元方法。 调用的结果总会被转换为布尔量。<br><strong>lt: &lt; （小于）操作。 和 “add” 操作行为类似， 不同的是 Lua 仅在两个值不全为整数也不全为字符串时才尝试元方法。 调用的结果总会被转换为布尔量。
+</strong> le: &lt;= （小于等于）操作。 和其它操作不同， 小于等于操作可能用到两个不同的事件。 首先，像 “lt” 操作的行为那样，Lua 在两个操作数中查找 “<strong>le” 元方法。 如果一个元方法都找不到，就会再次查找 “</strong>lt” 事件， 它会假设 a &lt;= b 等价于 not (b &lt; a)。 而其它比较操作符类似，其结果会被转换为布尔量。<br><strong>index: 索引 table[key]。 当 table 不是表或是表 table 中不存在 key 这个键时，这个事件被触发。 此时，会读出 table 相应的元方法。<br>尽管名字取成这样， 这个事件的元方法其实可以是一个函数也可以是一张表。 如果它是一个函数，则以 table 和 key 作为参数调用它。 如果它是一张表，最终的结果就是以 key 取索引这张表的结果。 （这个索引过程是走常规的流程，而不是直接索引， 所以这次索引有可能引发另一次元方法。）
+</strong>newindex: 索引赋值 table[key] = value 。 和索引事件类似，它发生在 table 不是表或是表 table 中不存在 key 这个键的时候。 此时，会读出 table 相应的元方法。 同索引过程那样， 这个事件的元方法即可以是函数，也可以是一张表。 如果是一个函数， 则以 table、 key、以及 value 为参数传入。 如果是一张表， Lua 对这张表做索引赋值操作。 （这个索引过程是走常规的流程，而不是直接索引赋值， 所以这次索引赋值有可能引发另一次元方法。）<br>一旦有了 “newindex” 元方法， Lua 就不再做最初的赋值操作。 （如果有必要，在元方法内部可以调用 rawset 来做赋值。）<br>__call: 函数调用操作 func(args)。 当 Lua 尝试调用一个非函数的值的时候会触发这个事件 （即 func 不是一个函数）。 查找 func 的元方法， 如果找得到，就调用这个元方法， func 作为第一个参数传入，原来调用的参数（args）后依次排在后面。</p>
+</blockquote>
+<h1 id="dummylua的metatable实现"><a href="#dummylua的metatable实现" class="headerlink" title="dummylua的metatable实现"></a>dummylua的metatable实现</h1><p>​    dummylua新增了luatm.h|c文件，主要用于元表模块的初始化，元表设置和获取的操作，同时在global_State中添加了对应的数据结构（存放基础类型的元表的结构、元方法键值字符串存放结构等），在luavm.h|c中添加了luaV_finishset和luaV_finishset的逻辑，主要是用来执行元方法访问的一些逻辑操作，读者可以直接到阅读这些逻辑。</p>
+<h1 id="结束语"><a href="#结束语" class="headerlink" title="结束语"></a>结束语</h1><p>​    本章的篇幅很小，没有对元表实现太多的着墨，重点讲了元表访问操作的一些逻辑，metatable这块，我没有花费很大的篇幅着墨，很大原因是因为它相对来说较为简单，并且大家也比较熟悉，所以这里采取了速战速决的策略。本章作为lua语言特性讲解的第一章，后面将陆续介绍，userdata、upvalue、weektable、coroutine和require机制等。</p>
+<h1 id="Reference"><a href="#Reference" class="headerlink" title="Reference"></a>Reference</h1><p>[1] <a href="http://cloudwu.github.io/lua53doc/manual.html#2.4" rel="external nofollow noopener noreferrer" target="_blank">元表及元方法</a></p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/lua/" rel="tag"> <i class="fa fa-tag"></i> lua</a>
+          
+            <a href="/tags/构建Lua解释器/" rel="tag"> <i class="fa fa-tag"></i> 构建Lua解释器</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/lua/构建Lua解释器Part8/" rel="next" title="构建Lua解释器Part8：构建完整的语法分析器(下)">
+                <i class="fa fa-chevron-left"></i> 构建Lua解释器Part8：构建完整的语法分析器(下)
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/lua/构建Lua解释器Part10/" rel="prev" title="构建Lua解释器Part10：userdata">
+                构建Lua解释器Part10：userdata <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">87</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">12</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">13</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="https://blog.csdn.net/pyf09" title="CSDN &rarr; https://blog.csdn.net/pyf09" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-book"></i>CSDN</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#构建Lua解释器Part9：metatable"><span class="nav-number">1.</span> <span class="nav-text">构建Lua解释器Part9：metatable</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#前言"><span class="nav-number">2.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#什么是metatable？"><span class="nav-number">3.</span> <span class="nav-text">什么是metatable？</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#metable的-index和-newindex域"><span class="nav-number">4.</span> <span class="nav-text">metable的 index和 newindex域</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#双目运算事件"><span class="nav-number">5.</span> <span class="nav-text">双目运算事件</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#dummylua的metatable实现"><span class="nav-number">6.</span> <span class="nav-text">dummylua的metatable实现</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#结束语"><span class="nav-number">7.</span> <span class="nav-text">结束语</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Reference"><span class="nav-number">8.</span> <span class="nav-text">Reference</span></a></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
