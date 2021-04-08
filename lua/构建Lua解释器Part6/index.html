@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="Manistein’s Blog 前言​    构建Lua解释器Part5，对Lua解释器进行了整体介绍，并且以一个hello world程序为例子，给读者一个初步的概念。通过那一篇，我们知道了编译器至少要包括词法分析其和语法分析器，而本篇，我将集中时间和精力，用来介绍和讲解Lua词法分析器的设计与实现，实际上，它是对Part5词法分析器部分的一个补充。本文所指的词法分析器，是参照Lua-5.3这">
+<meta name="keywords" content="lua,构建Lua解释器">
+<meta property="og:type" content="article">
+<meta property="og:title" content="构建Lua解释器Part6：脚本运行基础架构的设计与实现">
+<meta property="og:url" content="https://shankusu2017.github.io/lua/构建Lua解释器Part6/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="Manistein’s Blog 前言​    构建Lua解释器Part5，对Lua解释器进行了整体介绍，并且以一个hello world程序为例子，给读者一个初步的概念。通过那一篇，我们知道了编译器至少要包括词法分析其和语法分析器，而本篇，我将集中时间和精力，用来介绍和讲解Lua词法分析器的设计与实现，实际上，它是对Part5词法分析器部分的一个补充。本文所指的词法分析器，是参照Lua-5.3这">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part6/zio.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part6/zio02.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part6/zio03.png">
+<meta property="og:image" content="http://manistein.club/images/build-a-lua-interpreter/part6/zio04.png">
+<meta property="og:updated_time" content="2021-04-08T06:43:35.166Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="构建Lua解释器Part6：脚本运行基础架构的设计与实现">
+<meta name="twitter:description" content="Manistein’s Blog 前言​    构建Lua解释器Part5，对Lua解释器进行了整体介绍，并且以一个hello world程序为例子，给读者一个初步的概念。通过那一篇，我们知道了编译器至少要包括词法分析其和语法分析器，而本篇，我将集中时间和精力，用来介绍和讲解Lua词法分析器的设计与实现，实际上，它是对Part5词法分析器部分的一个补充。本文所指的词法分析器，是参照Lua-5.3这">
+<meta name="twitter:image" content="http://manistein.club/images/build-a-lua-interpreter/part6/zio.png">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/lua/构建Lua解释器Part6/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>构建Lua解释器Part6：脚本运行基础架构的设计与实现 | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">12</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/lua/构建Lua解释器Part6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">构建Lua解释器Part6：脚本运行基础架构的设计与实现
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p><a href="http://manistein.club/post/program/let-us-build-a-lua-interpreter/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part6/" rel="external nofollow noopener noreferrer" target="_blank">Manistein’s Blog</a></p>
+<h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>​    构建Lua解释器Part5，对Lua解释器进行了整体介绍，并且以一个hello world程序为例子，给读者一个初步的概念。通过那一篇，我们知道了编译器至少要包括词法分析其和语法分析器，而本篇，我将集中时间和精力，用来介绍和讲解Lua词法分析器的设计与实现，实际上，它是对Part5词法分析器部分的一个补充。本文所指的词法分析器，是参照Lua-5.3这个版本的源码，并且亲自动手实现和测试过，它也已经被整合到<a href="https://github.com/Manistein/dummylua-tutorial" rel="external nofollow noopener noreferrer" target="_blank">dummylua</a>这个工程中，欢迎大家star。由于整个词法分析是我自己重新实现，因此不会在所有的细节上和官方lua保持一致，最后由于本人水平有限，如有写的不正确的地方，欢迎大家批评指正。此外，我已经建了一个qq群(QQ:185017593)，有兴趣参与技术讨论的同学可以加进来。</p>
+<h1 id="词法分析器简介"><a href="#词法分析器简介" class="headerlink" title="词法分析器简介"></a>词法分析器简介</h1><p>​    首先我要对词法分析器作一个简短的介绍，所谓的词法分析器，其实就是对输入的内容(文本、字符串等)进行词法分析的模块。英文维基百科对词法分析的解释如下[1]：</p>
+<blockquote>
+<p>In computer science, lexical analysis, lexing or tokenization is the process of converting a sequence of characters (such as in a computer program or web page) into a sequence of tokens (strings with an assigned and thus identified meaning). A program that performs lexical analysis may be termed a lexer, tokenizer,[1] or scanner, although scanner is also a term for the first stage of a lexer. A lexer is generally combined with a parser, which together analyze the syntax of programming languages, web pages, and so forth.</p>
+</blockquote>
+<p>总而言之，词法分析就是将一串字符，转化为一串token，而词法分析器就是执行这一过程的逻辑模块。<br>    在编译器中，什么是token？token是一门语言中，能够被识别的最小单元。现在来看一个例子，假设我么有一个文件，其内部的内容如下所示：</p>
+<figure class="highlight applescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">name</span>  <span class="string">"hello"</span>  <span class="number">2020.</span></span><br></pre></td></tr></table></figure>
+<p>现在要对这个文本进行词法分析，首先我们要做的是，将文本字符加载到词法分析器的缓存中。在完成文本加载以后，我们需要从中，一个一个地获取有效token，而获取token的操作，是通过词法分析器里的一个函数来实现，我们可以假设它叫next函数。我们通过调用next函数若干次，得到以下结果</p>
+<ul>
+<li>我们通过调用next函数，词法分析器返回第一个有效被识别的token，这个token就是name，它是一个标识符，能够表示变量。</li>
+<li>然后我们再次调用next函数时，能够获取第二个token，这个token是一个字符串“hello”。</li>
+<li>当我们第三次调用next函数时，则获取了第三个token，这个token是个数值。</li>
+<li>当我们第四次调用next函数时，获取一个ASCII符号”.”</li>
+<li>当我们第五次调用next函数时，获取文本文书标志EOF</li>
+</ul>
+<p>从上面的例子中，我们可以看到一些有效的信息。首先是，词法分析需要和文本或者字符串打交道，如果我们的代码是存放在文本中的，那么词法分析器首先要将文本中的代码，加载到内存中。被加载到内存的文本内容，实际上就是一个字符序列。词法分析器需要对这个字符序列进行进一步的提取工作。我们一次只能获取一个有效的token，获取这个token的函数由词法分析器提供，比如例子里的next函数。其次是，我们所称的token，其实能够表示的内容非常丰富，它可以表示标志符，可以表示字符串，可以表是ASCII字符，可以是表示文本结束的EOF标识。正因为token能够表示的内容相当丰富，因此我们需要对token进行分类。实际上，我们一个token，既要表明它是什么类型的，还要表明自己包含的内容是什么，它的结构，在逻辑上如下所示：</p>
+<figure class="highlight asciidoc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Token</span><br><span class="line"><span class="code">+--------+</span>--------+</span><br><span class="line">|  Type  |  Data  |</span><br><span class="line"><span class="code">+--------+</span>--------+</span><br></pre></td></tr></table></figure>
+<p>有些token，只是说明类型是不够的，它还需要存储token的内容，比如我们的标识符，需要将组成标识符的内容的字符串存入token的data域中，接下来，我们通过&lt; Type, Data &gt;的方式来表示一个token，那么我们持续调用next函数，并将其打印，则获得如下内容（Type使用lua中使用的定义）：</p>
+<figure class="highlight dts"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="params">&lt;TK_NAME, "name"&gt;</span>    <span class="comment">// TK_NAME表示它是标识符类型</span></span><br><span class="line"><span class="params">&lt;TK_STRING, "hello"&gt;</span></span><br><span class="line"><span class="params">&lt;TK_INT, <span class="number">2020</span>&gt;</span></span><br><span class="line"><span class="params">&lt;., null&gt;</span></span><br><span class="line"><span class="params">&lt;TK_EOS, null&gt;</span></span><br></pre></td></tr></table></figure>
+<p>从上面的例子中，我们可以感知，token能够表示的内容丰富，有些token通过type就能表示，有些还需要存储其内容在data域，以供词法分析器使用。<br>    本节对词法分析器的简介，就到此结束，后面将展开lua词法分析器的设计与实现的论述。</p>
+<h1 id="词法分析器基本数据结构"><a href="#词法分析器基本数据结构" class="headerlink" title="词法分析器基本数据结构"></a>词法分析器基本数据结构</h1><p>​    本节开始介绍<a href="https://github.com/Manistein/dummylua-tutorial" rel="external nofollow noopener noreferrer" target="_blank">dummylua</a>词法分析器的基本数据结构，dummylua的词法分析器，基本参照lua-5.3.5的设计与实现。首先，我来介绍一下lua的Token数据结构：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.h</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="keyword">union</span> Seminfo &#123;</span><br><span class="line">    lua_Number r;</span><br><span class="line">    lua_Integer i;</span><br><span class="line">    TString* s; </span><br><span class="line">&#125; Seminfo;</span><br><span class="line"></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">Token</span> &#123;</span></span><br><span class="line">    <span class="keyword">int</span> token;          <span class="comment">// token enum value</span></span><br><span class="line">    Seminfo seminfo;    <span class="comment">// token info</span></span><br><span class="line">&#125; Token;</span><br></pre></td></tr></table></figure>
+<p>Token结构中，包含一个int变量token，还有一个Seminfo结构的变量seminfo。其中token字段代表Token实例的类型，而seminfo则用来保存token对应类型的实际值。<br>    lua的token类型，一部分是直接使用ASCII值，一部分是定义在一个枚举类型中。我们现在来看一下，token一共有哪些类型，我们现在来看一下分类：</p>
+<ul>
+<li>EOF：文件结束符，表示文件结束，意为End Of File，使用单独的枚举值TK_EOS</li>
+<li>算数：+,-,*,/,%,^,~,&amp;,|,&lt;&lt;,&gt;&gt;。由于&lt;&lt;和&gt;&gt;无法使用单独的字符来表示token的类型，因此他们使用单独的枚举值，TK_SHL和TK_SHR</li>
+<li>括号：(,),[,],{,}</li>
+<li>赋值：=</li>
+<li>比较：&gt;,&lt;,&gt;=,&lt;=,~=,==。由于&gt;=,&lt;=,~=,==无法单独使用，因此他们要使用单独的枚举值，TK_GREATEQ,TK_LESSEQ,TK_NOTEQUAL,TK_EQUAL</li>
+<li>分隔：,和;</li>
+<li>字符串：’string’和”string”，字符串类型使用TK_STRING</li>
+<li>连接符：..，因为单个字符无法表示，因此它也是用单独的枚举值TK_CONCAT</li>
+<li>数字：数值分为浮点数和整数，浮点数使用TK_FLOAT，而整数使用TK_INT</li>
+<li>标识符：就是我们常说的identity，通常用来表示变量，这种类型在lua中，统称为TK_NAME</li>
+<li>保留字：local,nil,true,false,end,then,if,elseif,not,and,or,function等，每个保留字，都是一个token类型，比如local是TK_LOCAL类型，而NIL则是TK_NIL，依次类推</li>
+</ul>
+<p>此外，词法分析器，遇到空格，换行符\r\n、\n\r，制表符\t、\v等，是直接跳过，直至获取下一个不需要跳过的字符为止。在dummylua中，对Token的类型定义主要分为两个部分，第一部分是直接通过ASCII值来表示，比如’&gt;‘, ‘&lt;‘, ‘.‘和’,‘等，还有一部分通过枚举值来定义，我们现在来看一下枚举值的定义有哪些：</p>
+<figure class="highlight autohotkey"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line">// lualexer.h</span><br><span class="line">// <span class="number">1</span>~<span class="number">256</span> should reserve for ASCII character token</span><br><span class="line">enum RESERVED &#123;</span><br><span class="line">	<span class="comment">/* terminal token donated by reserved word */</span></span><br><span class="line">	TK_LOCAL = FIRST_REVERSED,</span><br><span class="line"><span class="built_in">	TK_NIL,</span></span><br><span class="line"><span class="built_in">	TK_TRUE,</span></span><br><span class="line"><span class="built_in">	TK_FALSE,</span></span><br><span class="line"><span class="built_in">	TK_END,</span></span><br><span class="line"><span class="built_in">	TK_THEN,</span></span><br><span class="line"><span class="built_in">	TK_IF,</span></span><br><span class="line"><span class="built_in">	TK_ELSEIF,</span></span><br><span class="line"><span class="built_in">	TK_NOT,</span></span><br><span class="line"><span class="built_in">	TK_AND,</span></span><br><span class="line"><span class="built_in">	TK_OR,</span></span><br><span class="line"><span class="built_in">	TK_FUNCTION,</span></span><br><span class="line"></span><br><span class="line">	<span class="comment">/* other token */</span></span><br><span class="line"><span class="built_in">	TK_STRING,</span></span><br><span class="line"><span class="built_in">	TK_NAME,</span></span><br><span class="line"><span class="built_in">	TK_FLOAT,</span></span><br><span class="line"><span class="built_in">	TK_INT,</span></span><br><span class="line"><span class="built_in">	TK_NOTEQUAL,</span></span><br><span class="line"><span class="built_in">	TK_EQUAL,</span></span><br><span class="line"><span class="built_in">	TK_GREATEREQUAL,</span></span><br><span class="line"><span class="built_in">	TK_LESSEQUAL,</span></span><br><span class="line"><span class="built_in">	TK_SHL,</span></span><br><span class="line"><span class="built_in">	TK_SHR,</span></span><br><span class="line"><span class="built_in">	TK_MOD,</span></span><br><span class="line"><span class="built_in">	TK_DOT,</span></span><br><span class="line"><span class="built_in">	TK_VARARG,</span></span><br><span class="line"><span class="built_in">	TK_CONCAT,</span></span><br><span class="line"><span class="built_in">	TK_EOS,</span></span><br><span class="line">&#125;<span class="comment">;</span></span><br></pre></td></tr></table></figure>
+<p>FIRST_REVERSED的值是257，为什么取257开始呢？由于我们有很多token类型（主要是单个字符就能表示的token）是直接通过ASCII值来表示，为了避免和ASCII的值冲突，因此这里直接从257开始。在众多的类型中，只有几种需要保存值到token实例中，他们分别是TK_NAME、TK_FLOAT、TK_INT和TK_STRING，于是我们的Seminfo结构就派上用场了。Seminfo结构是一个union类型，它包含三个域，一个是lua_Number类型，用于存放浮点型数据，一个是lua_Integer类型，用于存放整型数据，一个是TString用于存放标识符和字符串的值。<br>    现在我们对token结构有了一个初步的认识，接下来要介绍则是词法分析器里要用到的最重要的数据结构，它就是LexState结构，其定义如下所示：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">LexState</span> &#123;</span></span><br><span class="line">	Zio* zio;				<span class="comment">// 负责从文件中读取、缓存字符，并提供字符的模块</span></span><br><span class="line">    <span class="keyword">int</span> current;			<span class="comment">// 从zio实例中，获取的当前需要使用的字符</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">MBuffer</span>* <span class="title">buff</span>;</span>	<span class="comment">// 保留字本身以及TK_STRING、TK_NAME、TK_FLOAT和TK_INT的值，</span></span><br><span class="line">							<span class="comment">// 由于不止一个字符组成，因此token在被完全识别之前，读取出来</span></span><br><span class="line">							<span class="comment">// 的字符，应当存在buff结构中，当词法分析器攒够一个完整的token</span></span><br><span class="line">							<span class="comment">// 时，则将其拷贝到Seminfo.s（TK_NAME、TK_STRING类型和保留字）</span></span><br><span class="line">							<span class="comment">// Seminfo.r（TK_FLOAT类型，string转换成浮点型数值）或Seminfo.i</span></span><br><span class="line">							<span class="comment">// （TK_INT类型，string转换成整型数值）中</span></span><br><span class="line">	Token t;				<span class="comment">// current token</span></span><br><span class="line">	Token lookahead;        <span class="comment">// 提前获取的token，如果它存在（不为TK_EOS），那么词法分析器调用</span></span><br><span class="line">							<span class="comment">// next函数时，它的值直接被获取。</span></span><br><span class="line">	<span class="keyword">int</span> linenumber;			<span class="comment">// 代码的行号</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">Dyndata</span>* <span class="title">dyd</span>;</span>    <span class="comment">// 语法分析过程中，存放local变量信息的结构</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">FuncState</span>* <span class="title">fs</span>;</span>   <span class="comment">// 语法分析器数据实例</span></span><br><span class="line">	lua_State* L;			<span class="comment">// lua vm实例</span></span><br><span class="line">	TString* source;        <span class="comment">// 正在进行编译的源码文件名称</span></span><br><span class="line">	TString* env;           <span class="comment">// 一般是_ENV</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">Table</span>* <span class="title">h</span>;</span>       	<span class="comment">// 常量缓存表，用于缓存lua代码中的常量，加快编译时的常量查找</span></span><br><span class="line">&#125; LexState;</span><br></pre></td></tr></table></figure>
+<p>当我们的编译模块，要对一个文本里的代码进行编译时，首先会创建一个LexState的数据实例。词法分析器的工作，首先是要将代码文件，加载到内存中，被加载到内存中的代码，是一个字符串。词法分析器要做的第二个工作，就是将被加载到内存中的字符串里的字符，一个一个获取出来，并组成合适的token，如果不能组成，则抛出异常。<br>    正如前面所说，词法分析器第一个工作，就是要将代码加载到内存中，作为官方lua-5.3的仿制品，dummylua的词法分析器和官方lua一样，采用一个叫做Zio的结构，负责存放从磁盘中加载出来的代码，其结构如下所示：</p>
+<figure class="highlight arduino"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luazio.h</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="keyword">char</span>* (*lua_Reader)(struct lua_State* L, <span class="keyword">void</span>* data, <span class="keyword">size_t</span>* <span class="built_in">size</span>);</span><br><span class="line"></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">LoadF</span> &#123;</span></span><br><span class="line">    FILE* f;</span><br><span class="line">    <span class="keyword">char</span> buff[BUFSIZE]; <span class="comment">// read the file stream into buff</span></span><br><span class="line">	<span class="keyword">int</span> n;		       <span class="comment">// how many char you have read</span></span><br><span class="line">&#125; LoadF;</span><br><span class="line"></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">Zio</span> &#123;</span></span><br><span class="line">	lua_Reader reader;		<span class="comment">// read buffer to p</span></span><br><span class="line">	<span class="keyword">int</span> n;					<span class="comment">// the number of unused bytes</span></span><br><span class="line">	<span class="keyword">char</span>* p;				<span class="comment">// the pointer to buffer</span></span><br><span class="line">	<span class="keyword">void</span>* data;				<span class="comment">// structure which holds FILE handler</span></span><br><span class="line">	<span class="class"><span class="keyword">struct</span> <span class="title">lua_State</span>* <span class="title">L</span>;</span></span><br><span class="line">&#125; Zio;</span><br></pre></td></tr></table></figure>
+<p>与官方lua一样，dummylua的Zio结构，并没有限制使用者，用哪种方式来加载代码到内存中。而具体操作的函数，则是函数指针reader指向的函数，我们只要自定义的函数，符合这个签名，就能够被词法分析器调用，另外Zio的data指针，是作为reader函数的重要参数存在的，它同样可以由用户自己定义。不过lua提供了一个默认的LoadF结构，以及一个getF函数，用于将文件里的代码，加载到内存中，我将在接下来的内容中详细讨论。<br>    现在我们抛开具体的代码实现，通过一个实例，将整个流程串联起来，如图1所示，我们现在要将一个文件里的字节流读出，并识别里面的token。<br><img src="http://manistein.club/images/build-a-lua-interpreter/part6/zio.png" alt="image">图1<br>识别token的流程，也是需要将源码文件里的字符，一个一个获取出来，第一个被获取的字符，将决定它进入哪个token类型的处理分支之中，事实上lua是通过一个叫做zget的宏，获取字符的，这个宏如下所示：</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luazio.h</span></span><br><span class="line">#<span class="function"><span class="title">define</span> zget(z) (((z)-&gt;</span><span class="function"><span class="title">n</span>--) &gt; 0 ? (*(z)-&gt;</span>p++) : luaZ_fill(z))</span><br></pre></td></tr></table></figure>
+<p>传入这个宏的，是一个Zio结构的数据实例。事实上，我们识别token的逻辑是在一个叫做llex的函数内进行的，这个函数会不断读取新的字符，并且判断应该生成哪个token，下面的伪代码展示了这一点：</p>
+<figure class="highlight mel"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.c</span></span><br><span class="line">static <span class="keyword">int</span> llex(LexState* <span class="keyword">ls</span>, Seminfo* s) &#123;</span><br><span class="line">	...</span><br><span class="line">	<span class="keyword">ls</span>-&gt;current = zget(<span class="keyword">ls</span>-&gt;z);</span><br><span class="line">	<span class="keyword">switch</span>(<span class="keyword">ls</span>-&gt;current) &#123;</span><br><span class="line">	...</span><br><span class="line">	<span class="keyword">case</span> <span class="string">'\''</span>: <span class="keyword">case</span> <span class="string">'\"'</span>: &#123;</span><br><span class="line">		<span class="keyword">return</span> readstring(<span class="keyword">ls</span>, s);</span><br><span class="line">	&#125; <span class="keyword">break</span>;</span><br><span class="line">	<span class="keyword">case</span> <span class="string">'0'</span>: <span class="keyword">case</span> <span class="string">'1'</span>: <span class="keyword">case</span> <span class="string">'2'</span>: <span class="keyword">case</span> <span class="string">'3'</span>: <span class="keyword">case</span> <span class="string">'4'</span>:</span><br><span class="line">	<span class="keyword">case</span> <span class="string">'5'</span>: <span class="keyword">case</span> <span class="string">'6'</span>: <span class="keyword">case</span> <span class="string">'7'</span>: <span class="keyword">case</span> <span class="string">'8'</span>: <span class="keyword">case</span> <span class="string">'9'</span>: &#123;</span><br><span class="line">		<span class="keyword">return</span> readnumber(<span class="keyword">ls</span>, s);</span><br><span class="line">	&#125; <span class="keyword">break</span>;</span><br><span class="line">	...</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>从上面的伪代码我们可以看到，词法分析器识别一个token，需要不断从源码文件中，一个一个读取字符，然后判断它可能是哪种类型的token，最后作相应的处理，比如readstring和readnumber操作，就是把有效字符串识和数值别出来，最后存储在LexState结构的Token类型变量t中。readstring函数和readnumber函数内部也会多次调用zget函数，不断获取新的字符，最后生成token。<br>    回到图1的例子，在词法分析器数据结构实例LexState完成初始化的伊始，我们刚完成初始化的Zio结构实例，会关联一个已经打开的文件，这个文件就是LoadF结构中的FILE<em>指针f指定，正如图所示，LoadF类型变量的n值为0，这意味着我们未读取buff中任何一个字符。而buff此时也未存储任何一个文件源码中的字符。现在回头来看看Zio数据实例本身，其void</em>指针，data指向了我们刚刚讨论过的LoadF类型实例，Zio的变量n表示，LoadF结构的buff中，还剩下多少个未读取的字符，char*指针p，应当指向LoadF结构中buff的某个位置，但是现在还是初始化状态，因此它是NULL，至于Zio中的reader函数，主要用于处理从文件中读取字符到LoadF结构的buff中的情况。<br>    回顾一下zget这个宏，当我们第一次调用zget这个宏的时候，它会首先调用一个叫做luaZ_fill的函数来处理，我们先忽略它的具体实现，通过一个情景展示来观察它的逻辑流程。这段逻辑的本质是，因为没有未被读取的字符，因此需要重新到文件里加载。以图1为例，假设BUFFSIZ的值为8，现在我们来看看它的执行步骤：</p>
+<ul>
+<li>从文件中读取8个字符，到LoadF结构实例中的buff中，此时LoadF中的n值仍然是。</li>
+<li>Zio结构中的n值被赋值为8，指针p被赋值为buff的地址，如图2所示：<img src="http://manistein.club/images/build-a-lua-interpreter/part6/zio02.png" alt="image">图2</li>
+<li>返回p所指向的字符</li>
+<li>p指针自增1，移动到下一个地址，结果如图3所示：<img src="http://manistein.club/images/build-a-lua-interpreter/part6/zio03.png" alt="image">图3</li>
+</ul>
+<p>在这个阶段之后，每次我们调用zget这个宏，就会返回Zio的变量p所指向的字符，并且自增，同时Zio的变量n自减1，LoadF的n自增1。当Zio的变量n为0时，此时如果再调用zget宏，那么说明LoadF中的buff的字符已经被取完了，因此需要重新从磁盘获取BUFFSIZ个字符，得到图4的结果。<br><img src="http://manistein.club/images/build-a-lua-interpreter/part6/zio04.png" alt="image">图4<br>然后和前面概述的一样，返回p所指向的字符，并且p指针自增，LoadF的n值加1，Zio的n值减1。<br>    现在我们来看一下luaZ_fill函数的实现：</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luazio.c</span></span><br><span class="line">int luaZ_fill(Zio* z) &#123;</span><br><span class="line">	int c = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">	size_t read_size = <span class="number">0</span>;</span><br><span class="line">	<span class="function"><span class="title">z</span>-&gt;</span><span class="function"><span class="title">p</span> = (void*)z-&gt;</span><span class="function"><span class="title">reader</span>(z-&gt;</span>L, <span class="function"><span class="title">z</span>-&gt;</span><span class="keyword">data</span>, &amp;read_size);</span><br><span class="line">	</span><br><span class="line">	<span class="keyword">if</span> (read_size &gt; <span class="number">0</span>) &#123;</span><br><span class="line">		<span class="function"><span class="title">z</span>-&gt;</span>n = (int)read_size;</span><br><span class="line">		<span class="function"><span class="title">c</span> = (int)(*z-&gt;</span>p);</span><br><span class="line"></span><br><span class="line">		<span class="function"><span class="title">z</span>-&gt;</span>p++;</span><br><span class="line">		<span class="function"><span class="title">z</span>-&gt;</span>n--;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">else</span> &#123;</span><br><span class="line">		c = EOF;</span><br><span class="line">	&#125;</span><br><span class="line">	</span><br><span class="line">	return c;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>而这里的reader函数，在是在luaaux.c文件里，名称为getF函数：</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luaaux.c</span></span><br><span class="line">static char* getF(struct lua_State* L, void* <span class="keyword">data</span>, size_t* sz) &#123;</span><br><span class="line">	LoadF* lf = (LoadF*)<span class="keyword">data</span>;</span><br><span class="line">	<span class="function"><span class="title">if</span> (lf-&gt;</span>n &gt; <span class="number">0</span>) &#123;</span><br><span class="line">		*<span class="function"><span class="title">sz</span> = lf-&gt;</span>n;</span><br><span class="line">		<span class="function"><span class="title">lf</span>-&gt;</span>n = <span class="number">0</span>;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">else</span> &#123;</span><br><span class="line">		*<span class="function"><span class="title">sz</span> = fread(lf-&gt;</span><span class="function"><span class="title">buff</span>, sizeof(char), BUFSIZE, lf-&gt;</span>f);</span><br><span class="line">		<span class="function"><span class="title">lf</span>-&gt;</span>n = <span class="number">0</span>;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="function"><span class="title">return</span> lf-&gt;</span>buff;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这里的逻辑非常清晰，每当Zio结构里，字符被取完的时候，就需要调用luaZ_fill函数，该函数会通过reader函数，获取新的字符缓存，以及缓存的字符数量，然后返回p指针所指向的字符，最后p指针向前移动一位，n变量减1。这里的reader函数，实际上就是getF函数。结合上面描述的流程，要读懂这两段代码并不难。<br>    我们之所以要用到Zio这样的结构，主要的原因是词法分析器，需要从源码文件中，一个一个获取字符，如果每次都要走io，那么效率将会非常低，但是如果每次都将所有的代码加载进来，并且缓存，如果代码中，某个block有词法错误，整个词法分析的流程就会中断，如果文本较大，且位于开头的token识别起来就有问题，那么花费时间在io处理上就是极大的浪费，因此这里采用的策略就是，一部分一部分地加载到代码缓存中。<br>    到目前为止，我就完成了lua词法分析器的基本数据结构的说明了，接下来将会对lua词法分析器的常用接口，初始化流程，和token识别流程进行说明。</p>
+<h1 id="词法分析器的接口"><a href="#词法分析器的接口" class="headerlink" title="词法分析器的接口"></a>词法分析器的接口</h1><p>​    在了解了词法分析器的数据结构以后，我们现在来看看，词法分析器一共有哪些主要的接口，现在将接口展示如下所示：</p>
+<figure class="highlight cs"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 模块初始化</span></span><br><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">luaX_init</span>(<span class="params"><span class="keyword">struct</span> lua_State* L</span>)</span>;</span><br><span class="line"><span class="comment">// 词法分析器实例初始化</span></span><br><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">luaX_setinput</span>(<span class="params"><span class="keyword">struct</span> lua_State* L, LexState* ls, Zio* z, <span class="keyword">struct</span> MBuffer* buffer, </span></span></span><br><span class="line"><span class="function"><span class="params">	<span class="keyword">struct</span> Dyndata* dyd, TString* source, TString* env</span>)</span>;</span><br><span class="line"><span class="comment">// 提前获取下一个token的信息，并暂存</span></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">luaX_lookahead</span>(<span class="params"><span class="keyword">struct</span> lua_State* L, LexState* ls</span>)</span>;</span><br><span class="line"><span class="comment">// 获取下一个token，如果有lookahead暂存的token，就直接获取，否则通过</span></span><br><span class="line"><span class="comment">// llex函数获取下一个token</span></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">luaX_next</span>(<span class="params"><span class="keyword">struct</span> lua_State* L, LexState* ls</span>)</span>;</span><br><span class="line"><span class="comment">// 抛出词法分析错误</span></span><br><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">luaX_syntaxerror</span>(<span class="params"><span class="keyword">struct</span> lua_State* L, LexState* ls, <span class="keyword">const</span> <span class="keyword">char</span>* error_text</span>)</span>;</span><br></pre></td></tr></table></figure>
+<p>接口非常简洁，无非就是初始化和获取下一个token的接口。</p>
+<h1 id="初始化流程"><a href="#初始化流程" class="headerlink" title="初始化流程"></a>初始化流程</h1><p>​    在完成了lua词法分析器的讨论以后，我们现在来看一下词法分析器的初始化操作。词法分析器首要要做的初始化处理，即是对保留字进行内部化处理，由于保留字全部是短字符串，因此TString实例的extra字段不为0，并且值为对应token类型的枚举值。这样做的目的是，由于我们经过内部化的短字符串会被缓存起来，因此当我们识别到保留字的token的时候，会从缓存中直接获取字符串TString实例，通过这个TString实例的extra字段，我们可以直接获得其token类别的枚举值，方便我们在语法分析时的处理。<br>​    我们现在来看一下，lua词法分析器的初始化逻辑：</p>
+<figure class="highlight cs"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.c</span></span><br><span class="line"><span class="comment">// the sequence must be the same as enum RESERVED</span></span><br><span class="line"><span class="keyword">const</span> <span class="keyword">char</span>* luaX_tokens[] = &#123;</span><br><span class="line">	<span class="string">"local"</span>, <span class="string">"nil"</span>, <span class="string">"true"</span>, <span class="string">"false"</span>, <span class="string">"end"</span>, <span class="string">"then"</span>, <span class="string">"if"</span>, <span class="string">"elseif"</span>, <span class="string">"not"</span>, <span class="string">"and"</span>, <span class="string">"or"</span>, <span class="string">"function"</span></span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">luaX_init</span>(<span class="params"><span class="keyword">struct</span> lua_State* L</span>)</span> &#123;</span><br><span class="line">	TString* env = luaS_newliteral(L, LUA_ENV);</span><br><span class="line">	luaC_fix(L, obj2gco(env));</span><br><span class="line"></span><br><span class="line">	<span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; NUM_RESERVED; i++) &#123;</span><br><span class="line">		TString* reserved = luaS_newliteral(L, luaX_tokens[i]);</span><br><span class="line">		luaC_fix(L, obj2gco(reserved));</span><br><span class="line">		reserved-&gt;extra = i + FIRST_REVERSED;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>我们可以看到，初始化阶段，会创建保留字的字符串，由于保留字的字符数均少于40字节，因此他们属于短字符串，并且能够内部化。init函数对这些字符串，进行了脱离gc管理的操作，其本质就是从allgc列表中，移到fixgc列表中，避免这些保留字字符串被gc掉。回顾一下Part3，我们可以知道，当TString为短字符串时，extra字段不为0，则表示不能被gc，并且这个值现在被赋值为保留字类型的枚举值。我们的词法分析器初始化操作，主要是在创建lua_State实例的函数lua_newstate里调用的。<br>    我们在加载一段lua代码，并且开始编译的时候，需要创建一个LexState的结构，并且初始化它，初始化它的操作，在luaY_parser函数中，这个函数主要用来编译lua代码的：</p>
+<figure class="highlight rust"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luaparser.c</span></span><br><span class="line">LClosure* luaY_parser(<span class="class"><span class="keyword">struct</span> <span class="title">lua_State</span></span>* L, Zio* zio, MBuffer* buffer, Dyndata* dyd, <span class="keyword">const</span> <span class="built_in">char</span>* name) &#123;</span><br><span class="line">	FuncState fs;</span><br><span class="line">	LexState ls;</span><br><span class="line">	luaX_setinput(L, &amp;ls, zio, buffer, dyd, luaS_newliteral(L, name), luaS_newliteral(L, LUA_ENV));</span><br><span class="line">	ls.current = zget(ls.zio);</span><br><span class="line">	</span><br><span class="line">	LClosure* closure = luaF_newLclosure(L, <span class="number">1</span>);</span><br><span class="line">	closure-&gt;p = fs.p = luaF_newproto(L);</span><br><span class="line"></span><br><span class="line">	setlclvalue(L-&gt;top, closure);</span><br><span class="line">	increase_top(L);</span><br><span class="line">	ptrdiff_t save_top = savestack(L, L-&gt;top);</span><br><span class="line"></span><br><span class="line">	ls.h = luaH_new(L);</span><br><span class="line">	setgco(L-&gt;top, obj2gco(ls.h));</span><br><span class="line">	increase_top(L);</span><br><span class="line"></span><br><span class="line">	mainfunc(L, &amp;ls, &amp;fs);</span><br><span class="line">	L-&gt;top = restorestack(L, save_top);</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> closure;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上面调用luaX_setinput函数，则是对词法分析器实例进行初始化操作：</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.c</span></span><br><span class="line">void luaX_setinput(struct lua_State* L, </span><br><span class="line">	LexState* ls, Zio* z, struct MBuffer* buffer, struct Dyndata* dyd, TString* source, TString* env) &#123;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>L = L;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>source = source;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>env = env;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>current = <span class="number">0</span>;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>buff = buffer;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>dyd = dyd;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>env = env;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>fs = NULL;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>linenumber = <span class="number">1</span>;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>t.token = <span class="number">0</span>;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>t.seminfo.i = <span class="number">0</span>;</span><br><span class="line">	<span class="function"><span class="title">ls</span>-&gt;</span>zio = z;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这里的初始化操作很简单，主要是做一些赋值操作，前面介绍数据结构的时候，有对LexState结构进行说明，这里不再赘述。</p>
+<h1 id="Token识别流程"><a href="#Token识别流程" class="headerlink" title="Token识别流程"></a>Token识别流程</h1><p>​    词法分析器，将在语法分析器内被使用，语法分析器要调用一个新的token，需要调用luaX_next来实现，我们现在来看看luaX_next函数的定义：</p>
+<figure class="highlight stata"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.c</span></span><br><span class="line">int luaX_next(struct lua_State* <span class="keyword">L</span>, LexState* <span class="keyword">ls</span>) &#123;</span><br><span class="line">	<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;lookahead.<span class="keyword">token</span> != TK_EOS) &#123;</span><br><span class="line">		<span class="keyword">ls</span>-&gt;t.<span class="keyword">token</span> = <span class="keyword">ls</span>-&gt;lookahead.<span class="keyword">token</span>;</span><br><span class="line">		<span class="keyword">ls</span>-&gt;lookahead.<span class="keyword">token</span> = TK_EOS;</span><br><span class="line">		<span class="keyword">return</span> <span class="keyword">ls</span>-&gt;t.<span class="keyword">token</span>;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">ls</span>-&gt;t.<span class="keyword">token</span> = llex(<span class="keyword">ls</span>, &amp;<span class="keyword">ls</span>-&gt;t.seminfo);</span><br><span class="line">	<span class="keyword">return</span> <span class="keyword">ls</span>-&gt;t.<span class="keyword">token</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>我们可以看到，如果lookhead里有存token的信息，那么就直接返回给LexState的token变量t，否则直接调用llex函数来识别新的token：</p>
+<figure class="highlight mel"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br><span class="line">180</span><br><span class="line">181</span><br><span class="line">182</span><br><span class="line">183</span><br><span class="line">184</span><br><span class="line">185</span><br><span class="line">186</span><br><span class="line">187</span><br><span class="line">188</span><br><span class="line">189</span><br><span class="line">190</span><br><span class="line">191</span><br><span class="line">192</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.h</span></span><br><span class="line">#define next(<span class="keyword">ls</span>) (<span class="keyword">ls</span>-&gt;current = zget(<span class="keyword">ls</span>-&gt;zio))</span><br><span class="line"></span><br><span class="line"><span class="comment">// lualexer.c</span></span><br><span class="line">static <span class="keyword">int</span> llex(LexState* <span class="keyword">ls</span>, Seminfo* seminfo) &#123;</span><br><span class="line">	<span class="keyword">for</span> (;;) &#123;</span><br><span class="line">		luaZ_resetbuffer(<span class="keyword">ls</span>);</span><br><span class="line">		<span class="keyword">switch</span> (<span class="keyword">ls</span>-&gt;current)</span><br><span class="line">		&#123;</span><br><span class="line">		<span class="comment">// new line</span></span><br><span class="line">		<span class="keyword">case</span> <span class="string">'\n'</span>: <span class="keyword">case</span> <span class="string">'\r'</span>: &#123;</span><br><span class="line">			inclinenumber(<span class="keyword">ls</span>);</span><br><span class="line">		&#125; <span class="keyword">break</span>;</span><br><span class="line">		<span class="comment">// skip spaces</span></span><br><span class="line">		<span class="keyword">case</span> <span class="string">' '</span>: <span class="keyword">case</span> <span class="string">'\t'</span>: <span class="keyword">case</span> <span class="string">'\v'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">		&#125; <span class="keyword">break</span>;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'-'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="comment">// this line is comment</span></span><br><span class="line">			<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'-'</span>) &#123;</span><br><span class="line">				<span class="keyword">while</span> (!currIsNewLine(<span class="keyword">ls</span>) &amp;&amp; <span class="keyword">ls</span>-&gt;current != EOF)</span><br><span class="line">					next(<span class="keyword">ls</span>);</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> &#123;</span><br><span class="line">				<span class="keyword">return</span> <span class="string">'-'</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125; <span class="keyword">break</span>;</span><br><span class="line">		<span class="keyword">case</span> EOF:&#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> TK_EOS;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'+'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">'+'</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'*'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">'*'</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'/'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">'/'</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'~'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="comment">// not equal</span></span><br><span class="line">			<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'='</span>) &#123;</span><br><span class="line">				next(<span class="keyword">ls</span>);</span><br><span class="line">				<span class="keyword">return</span> TK_NOTEQUAL;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> &#123;</span><br><span class="line">				<span class="keyword">return</span> <span class="string">'~'</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'%'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> TK_MOD;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'.'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">if</span> (isdigit(<span class="keyword">ls</span>-&gt;current)) &#123;</span><br><span class="line">				<span class="keyword">return</span> str2number(<span class="keyword">ls</span>, true);</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> <span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'.'</span>) &#123;</span><br><span class="line">				next(<span class="keyword">ls</span>);</span><br><span class="line">				<span class="comment">// the '...' means vararg </span></span><br><span class="line">				<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'.'</span>) &#123;</span><br><span class="line">					next(<span class="keyword">ls</span>);</span><br><span class="line">					<span class="keyword">return</span> TK_VARARG;</span><br><span class="line">				&#125;</span><br><span class="line">				<span class="comment">// the '..' means concat</span></span><br><span class="line">				<span class="keyword">else</span> &#123;</span><br><span class="line">					<span class="keyword">return</span> TK_CONCAT;</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> &#123;</span><br><span class="line">				<span class="keyword">return</span> <span class="string">'.'</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'"'</span>: <span class="keyword">case</span> <span class="string">'\''</span>: &#123; <span class="comment">// process string</span></span><br><span class="line">			<span class="keyword">return</span> read_string(<span class="keyword">ls</span>, <span class="keyword">ls</span>-&gt;current, &amp;<span class="keyword">ls</span>-&gt;t.seminfo);</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'('</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">'('</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">')'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">')'</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'['</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">'['</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">']'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">']'</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'&#123;'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">'&#123;'</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'&#125;'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">'&#125;'</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'&gt;'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'='</span>) &#123;</span><br><span class="line">				next(<span class="keyword">ls</span>);</span><br><span class="line">				<span class="keyword">return</span> TK_GREATEREQUAL;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> <span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'&gt;'</span>) &#123;</span><br><span class="line">				next(<span class="keyword">ls</span>);</span><br><span class="line">				<span class="keyword">return</span> TK_SHR;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> &#123;</span><br><span class="line">				<span class="keyword">return</span> <span class="string">'&gt;'</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'&lt;'</span>:&#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'='</span>) &#123;</span><br><span class="line">				next(<span class="keyword">ls</span>);</span><br><span class="line">				<span class="keyword">return</span> TK_LESSEQUAL;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> <span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'&lt;'</span>)</span><br><span class="line">			&#123;</span><br><span class="line">				next(<span class="keyword">ls</span>);</span><br><span class="line">				<span class="keyword">return</span> TK_SHL;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> &#123;</span><br><span class="line">				<span class="keyword">return</span> <span class="string">'&lt;'</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'='</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'='</span>) &#123;</span><br><span class="line">				next(<span class="keyword">ls</span>);</span><br><span class="line">				<span class="keyword">return</span> TK_EQUAL;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> &#123;</span><br><span class="line">				<span class="keyword">return</span> <span class="string">'='</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">','</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">return</span> <span class="string">','</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'0'</span>: <span class="keyword">case</span> <span class="string">'1'</span>: <span class="keyword">case</span> <span class="string">'2'</span>: <span class="keyword">case</span> <span class="string">'3'</span>: <span class="keyword">case</span> <span class="string">'4'</span>:</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'5'</span>: <span class="keyword">case</span> <span class="string">'6'</span>: <span class="keyword">case</span> <span class="string">'7'</span>: <span class="keyword">case</span> <span class="string">'8'</span>: <span class="keyword">case</span> <span class="string">'9'</span>: &#123;</span><br><span class="line">			<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'0'</span>) &#123;</span><br><span class="line">				save_and_next(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, <span class="keyword">ls</span>-&gt;current);</span><br><span class="line">				<span class="keyword">if</span> (<span class="keyword">ls</span>-&gt;current == <span class="string">'x'</span> || <span class="keyword">ls</span>-&gt;current == <span class="string">'X'</span>) &#123;</span><br><span class="line">					save_and_next(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, <span class="keyword">ls</span>-&gt;current);</span><br><span class="line">					<span class="keyword">return</span> str2hex(<span class="keyword">ls</span>);</span><br><span class="line">				&#125;</span><br><span class="line">				<span class="keyword">else</span> &#123;</span><br><span class="line">					<span class="keyword">return</span> str2number(<span class="keyword">ls</span>, false);</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">return</span> str2number(<span class="keyword">ls</span>, false);</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">default</span>: &#123;</span><br><span class="line">			<span class="comment">// TK_NAME or reserved name</span></span><br><span class="line">			<span class="keyword">if</span> (isalpha(<span class="keyword">ls</span>-&gt;current) || <span class="keyword">ls</span>-&gt;current == <span class="string">'_'</span>) &#123;</span><br><span class="line">				<span class="keyword">while</span> (isalpha(<span class="keyword">ls</span>-&gt;current) || <span class="keyword">ls</span>-&gt;current == <span class="string">'_'</span> || isdigit(<span class="keyword">ls</span>-&gt;current)) &#123;</span><br><span class="line">					save_and_next(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, <span class="keyword">ls</span>-&gt;current);</span><br><span class="line">				&#125;</span><br><span class="line">				save(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, <span class="string">'\0'</span>);</span><br><span class="line">				</span><br><span class="line">				TString* s = luaS_newlstr(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>-&gt;buff-&gt;buffer, strlen(<span class="keyword">ls</span>-&gt;buff-&gt;buffer));</span><br><span class="line">				<span class="keyword">if</span> (s-&gt;extra &gt; <span class="number">0</span>) &#123;</span><br><span class="line">					<span class="keyword">return</span> s-&gt;extra;</span><br><span class="line">				&#125;</span><br><span class="line">				<span class="keyword">else</span> &#123;</span><br><span class="line">					<span class="keyword">ls</span>-&gt;t.seminfo.s = s;</span><br><span class="line">					<span class="keyword">return</span> TK_NAME;</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line">			<span class="keyword">else</span> &#123; <span class="comment">// single char</span></span><br><span class="line">				<span class="keyword">int</span> c = <span class="keyword">ls</span>-&gt;current;</span><br><span class="line">				next(<span class="keyword">ls</span>);</span><br><span class="line">				<span class="keyword">return</span> c;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> TK_EOS;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>从上面的代码中，我们不难看出，对于单个ASCII字符就能表示的token，llex函数基本上是直接返回的，对于那些需要多个字符组成的token，llex函数，则是返回在枚举类型里定义的枚举值，比如TK_LESSEQUAL，TK_GREATEREQ等。这些都比较简单，不过需要进行特殊处理的类型，则是TK_INT，TK_FLOAT，TK_STRING和TK_NAME。<br>    如果token首字母是0~9，那么判定分支则走入识别数值的分支之中，紧接着判断第二个字母是否是x或者是X，如果是，那么判定它是十六进制的数值，我们通过str2hex函数来进行处理：</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.c</span></span><br><span class="line"><span class="number">1</span>  #<span class="function"><span class="title">define</span> save_and_next(L, ls, c) save(L, ls, c); ls-&gt;</span>current = next(ls)</span><br><span class="line"><span class="number">2</span> #<span class="function"><span class="title">define</span> currIsNewLine(ls) (ls-&gt;</span><span class="function"><span class="title">current</span> == '\n' || ls-&gt;</span>current == <span class="string">'\r'</span>)</span><br><span class="line"></span><br><span class="line"><span class="number">3</span>  static int str2hex(LexState* ls) &#123;</span><br><span class="line"><span class="number">4</span>  	int num_part_count = <span class="number">0</span>;</span><br><span class="line"><span class="number">5</span>  	<span class="function"><span class="title">while</span> (is_hex_digit(ls-&gt;</span>current)) &#123;</span><br><span class="line"><span class="number">6</span>  		<span class="function"><span class="title">save_and_next</span>(ls-&gt;</span>L, <span class="function"><span class="title">ls</span>, ls-&gt;</span>current);</span><br><span class="line"><span class="number">7</span>  		num_part_count++;</span><br><span class="line"><span class="number">8</span>  	&#125;</span><br><span class="line"><span class="number">9</span>  	<span class="function"><span class="title">save</span>(ls-&gt;</span>L, ls, <span class="string">'\0'</span>);</span><br><span class="line"><span class="number">10</span></span><br><span class="line"><span class="number">11</span>  <span class="keyword">if</span> (num_part_count &lt;= <span class="number">0</span>) &#123;</span><br><span class="line"><span class="number">12</span>		LUA_ERROR(<span class="function"><span class="title">ls</span>-&gt;</span>L, <span class="string">"malformed number near '0x'"</span>);</span><br><span class="line"><span class="number">13</span>		<span class="function"><span class="title">luaD_throw</span>(ls-&gt;</span>L, LUA_ERRLEXER);</span><br><span class="line"><span class="number">14</span>	&#125;</span><br><span class="line"><span class="number">15</span></span><br><span class="line"><span class="number">16</span>	<span class="function"><span class="title">ls</span>-&gt;</span><span class="function"><span class="title">t</span>.seminfo.i = strtoll(ls-&gt;</span><span class="function"><span class="title">buff</span>-&gt;</span>buffer, NULL, <span class="number">0</span>);</span><br><span class="line"><span class="number">17</span>	return TK_INT;</span><br><span class="line"><span class="number">18</span> &#125;</span><br></pre></td></tr></table></figure>
+<p>上述代码的save操作，则是将ls-&gt;current所存储的字符，存入到LexState结构MBuffer类型的buff缓存中。词法分析器会不断调next(内部调用了zget宏)函数，并判断它是不是16进制的字符，如果是，则存储到buff缓存中，直到第一个不是16进制字符为止，我们则需将buff缓存里存储的字符，通过strtoll函数，转化为一个整型变量，并存储在ls-&gt;t这个表示当前token的变量之中，同时它的类型被设置为TK_INT。<br>    如果token首字母是0~9，并且紧随其后的第二个字符不是’x‘或者’X‘时，那么我们则进入到识别整型数值或者浮点型数值的逻辑之中了，此时调用str2number函数来进行操作：</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.c</span></span><br><span class="line">static int str2number(LexState* ls, bool has_dot) &#123;</span><br><span class="line">	<span class="keyword">if</span> (has_dot) &#123;</span><br><span class="line">		<span class="function"><span class="title">save</span>(ls-&gt;</span>L, ls, <span class="string">'0'</span>);</span><br><span class="line">		<span class="function"><span class="title">save</span>(ls-&gt;</span>L, ls, <span class="string">'.'</span>);</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">	<span class="function"><span class="title">while</span> (isdigit(ls-&gt;</span><span class="function"><span class="title">current</span>) || ls-&gt;</span>current == <span class="string">'.'</span>) &#123;</span><br><span class="line">		<span class="function"><span class="title">if</span> (ls-&gt;</span>current == <span class="string">'.'</span>) &#123;</span><br><span class="line">			<span class="keyword">if</span> (has_dot) &#123;</span><br><span class="line">				LUA_ERROR(<span class="function"><span class="title">ls</span>-&gt;</span>L, <span class="string">"unknow number"</span>);</span><br><span class="line">				<span class="function"><span class="title">luaD_throw</span>(ls-&gt;</span>L, LUA_ERRLEXER);</span><br><span class="line">			&#125;</span><br><span class="line">			has_dot = <span class="literal">true</span>;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="function"><span class="title">save_and_next</span>(ls-&gt;</span>L, <span class="function"><span class="title">ls</span>, ls-&gt;</span>current);</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="function"><span class="title">save</span>(ls-&gt;</span>L, ls, <span class="string">'\0'</span>);</span><br><span class="line"></span><br><span class="line">	<span class="keyword">if</span> (has_dot) &#123;</span><br><span class="line">		<span class="function"><span class="title">ls</span>-&gt;</span><span class="function"><span class="title">t</span>.seminfo.r = atof(ls-&gt;</span><span class="function"><span class="title">buff</span>-&gt;</span>buffer);</span><br><span class="line">		return TK_FLOAT;</span><br><span class="line">	&#125;</span><br><span class="line">	<span class="keyword">else</span> &#123;</span><br><span class="line">		<span class="function"><span class="title">ls</span>-&gt;</span><span class="function"><span class="title">t</span>.seminfo.i = atoll(ls-&gt;</span><span class="function"><span class="title">buff</span>-&gt;</span>buffer);</span><br><span class="line">		return TK_INT;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这里同样会不断将字符存储到MBuffer类型的buff变量中，直至有一个字符不是0~9的字符或者’.‘为止，而后会进入到讲buff中的字符串转为数值的操作。函数会判断buff中是否包含’.‘，如果有且只有1个，那么转化为数值的操作则是将字符串转化为浮点型数据，如果没有，则进入到将字符串转化为整型数据的操作。<br>    识别字符串则简单得多，如果首字母是’\‘‘或者’\“‘，那么则进入到字符串识别流程之中，这些操作则由read_string函数来执行：</p>
+<figure class="highlight mel"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// lualexer.c</span></span><br><span class="line">static <span class="keyword">int</span> read_string(LexState* <span class="keyword">ls</span>, <span class="keyword">int</span> delimiter, Seminfo* seminfo) &#123;</span><br><span class="line">	next(<span class="keyword">ls</span>);</span><br><span class="line">	<span class="keyword">while</span> (<span class="keyword">ls</span>-&gt;current != delimiter) &#123;</span><br><span class="line">		<span class="keyword">int</span> c = <span class="number">0</span>;</span><br><span class="line">		<span class="keyword">switch</span> (<span class="keyword">ls</span>-&gt;current)</span><br><span class="line">		&#123;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'\n'</span>: <span class="keyword">case</span> <span class="string">'\r'</span>: <span class="keyword">case</span> EOF: &#123;</span><br><span class="line">			LUA_ERROR(<span class="keyword">ls</span>-&gt;L, <span class="string">"uncomplete string"</span>);</span><br><span class="line">			luaD_throw(<span class="keyword">ls</span>-&gt;L, LUA_ERRLEXER);</span><br><span class="line">		&#125; <span class="keyword">break</span>;</span><br><span class="line">		<span class="keyword">case</span> <span class="string">'\\'</span>: &#123;</span><br><span class="line">			next(<span class="keyword">ls</span>);</span><br><span class="line">			<span class="keyword">switch</span> (<span class="keyword">ls</span>-&gt;current)</span><br><span class="line">			&#123;</span><br><span class="line">			<span class="keyword">case</span> <span class="string">'t'</span>:&#123; c = <span class="string">'\t'</span>; goto save_escape_sequence; &#125;</span><br><span class="line">			<span class="keyword">case</span> <span class="string">'v'</span>:&#123; c = <span class="string">'\v'</span>; goto save_escape_sequence; &#125;</span><br><span class="line">			<span class="keyword">case</span> <span class="string">'a'</span>:&#123; c = <span class="string">'\a'</span>; goto save_escape_sequence; &#125;</span><br><span class="line">			<span class="keyword">case</span> <span class="string">'b'</span>:&#123; c = <span class="string">'\b'</span>; goto save_escape_sequence; &#125;</span><br><span class="line">			<span class="keyword">case</span> <span class="string">'f'</span>:&#123; c = <span class="string">'\f'</span>; goto save_escape_sequence; &#125;</span><br><span class="line">			<span class="keyword">case</span> <span class="string">'n'</span>:&#123; c = <span class="string">'\n'</span>; goto save_escape_sequence; &#125;</span><br><span class="line">			<span class="keyword">case</span> <span class="string">'r'</span>: &#123;</span><br><span class="line">				c = <span class="string">'\r'</span>;</span><br><span class="line">			save_escape_sequence:</span><br><span class="line">				save_and_next(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, c);</span><br><span class="line">			&#125; <span class="keyword">break</span>;</span><br><span class="line">			<span class="keyword">default</span>: &#123;</span><br><span class="line">				save(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, <span class="string">'\\'</span>);</span><br><span class="line">				save_and_next(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, <span class="keyword">ls</span>-&gt;current);</span><br><span class="line">			&#125; <span class="keyword">break</span>;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		<span class="keyword">default</span>: &#123;</span><br><span class="line">			save_and_next(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, <span class="keyword">ls</span>-&gt;current);</span><br><span class="line">		&#125; <span class="keyword">break</span>;</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">	save(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>, <span class="string">'\0'</span>);</span><br><span class="line">	next(<span class="keyword">ls</span>);</span><br><span class="line"></span><br><span class="line">	seminfo-&gt;s = luaS_newliteral(<span class="keyword">ls</span>-&gt;L, <span class="keyword">ls</span>-&gt;buff-&gt;buffer);</span><br><span class="line"></span><br><span class="line">	<span class="keyword">return</span> TK_STRING;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>整个逻辑也很简单，只要没有遇到delimiter字符（’\‘‘或者’\“‘），除了一些转义字符会做特殊处理（两个字符合成一个字符），其他的字符都会直接存到MBuffer类型的buff数组中，直至遇到delimiter字符，此时会根据buff中的字符串，去生成一个TString类型的字符串，并存到token的seminfo变量中，这里需要注意的是，delimiter字符本身不存入buff中。<br>    识别标识符(identify)也是简单的多，其开头必须是alphabet字符，或者是’_‘，然后接下来的字符，只要是alphabet、下划线或者数字的其中一种，它都会被存储到MBuffer类型的buff变量中，直至条件不成立，此时会将buff传入luaS_newlstr函数中去生成一个TString类型的字符串，如果字符串是个保留字，那么返回extra字段的值，这表示它的token类型的值，由于保留字是特定的，因此我们只需要extra所代表的值（token类型的枚举值）即可。如果字符串不是保留字，那么新生成的TString字符串则会被保存到seminfo变量中，并且token类型为TK_NAME。</p>
+<h1 id="一个测试用例"><a href="#一个测试用例" class="headerlink" title="一个测试用例"></a>一个测试用例</h1><p>​    在文章的最后，我通过一个测试用例来展现词法分析器的分析结果，对part06.lua脚本中的代码，进行解析，获得的打印，则在下方展示。测试代码在p6_test.c中。</p>
+<figure class="highlight maxima"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">-- part06.lua</span><br><span class="line"><span class="built_in">local</span> function print_test()</span><br><span class="line">	<span class="built_in">local</span> str = <span class="string">"hello world"</span></span><br><span class="line">	<span class="built_in">print</span>(<span class="string">"hello world"</span>)</span><br><span class="line">end</span><br><span class="line"></span><br><span class="line">print_test()</span><br><span class="line"></span><br><span class="line">	 <span class="built_in">local</span> number = <span class="number">0.123</span></span><br><span class="line">	 <span class="built_in">local</span> number2 = .<span class="number">456</span></span><br><span class="line"><span class="built_in">local</span> tbl = &#123;&#125;</span><br><span class="line">tbl[<span class="string">"key"</span>] = <span class="string">"value"</span> .. <span class="string">"value2"</span></span><br><span class="line"></span><br><span class="line">function print_r(...)</span><br><span class="line">	<span class="built_in">return</span> ...</span><br><span class="line">end</span><br><span class="line"></span><br><span class="line">tbl.<span class="built_in">key</span></span><br><span class="line"></span><br><span class="line">-- This <span class="built_in">is</span> comment</span><br><span class="line">tbl.<span class="built_in">sum</span> = <span class="number">100</span> + <span class="number">200.0</span> - <span class="number">10</span> * <span class="number">12</span> / <span class="number">13</span> <span class="symbol">%</span> (<span class="number">1</span>+<span class="number">2</span>)</span><br><span class="line"><span class="keyword">if</span> tbl.<span class="built_in">sum</span> ~= <span class="number">100</span> <span class="keyword">then</span></span><br><span class="line">	tbl.<span class="built_in">sum</span> = tbl.<span class="built_in">sum</span> &lt;&lt; <span class="number">2</span></span><br><span class="line"><span class="keyword">elseif</span> tbl.<span class="built_in">sum</span> == <span class="number">200</span> <span class="keyword">then</span></span><br><span class="line">	tbl.<span class="built_in">sum</span> = tbl.<span class="built_in">sum</span> &gt;&gt; <span class="number">2</span></span><br><span class="line"><span class="keyword">elseif</span> tbl.<span class="built_in">sum</span> &gt; <span class="number">1</span> <span class="keyword">then</span> </span><br><span class="line"><span class="keyword">elseif</span> tbl.<span class="built_in">sum</span> &lt; <span class="number">2</span> <span class="keyword">then</span></span><br><span class="line"><span class="keyword">elseif</span> tbl.<span class="built_in">sum</span> &gt;= <span class="number">3</span> <span class="keyword">then</span> </span><br><span class="line"><span class="keyword">elseif</span> tbl.<span class="built_in">sum</span> &lt;= <span class="number">4</span> <span class="keyword">then</span> </span><br><span class="line">	tbl.<span class="built_in">sum</span> = nil</span><br><span class="line">end</span><br><span class="line"></span><br><span class="line">tbl.<span class="literal">true</span> = <span class="literal">true</span></span><br><span class="line">tbl.<span class="literal">false</span> = <span class="literal">false</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">local</span> a, b = <span class="number">11</span>, <span class="number">22</span></span><br></pre></td></tr></table></figure>
+<p>保留字会在开头加上”RESERVED:“的开头，而单个ASCII字符就能展示的token，则是直接打印，其他的会打印枚举定义。</p>
+<figure class="highlight excel"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br></pre></td><td class="code"><pre><span class="line">?</span><br><span class="line">REVERS<span class="symbol">ED:</span> local</span><br><span class="line">REVERS<span class="symbol">ED:</span> function</span><br><span class="line">TK_NAME print_test</span><br><span class="line">(</span><br><span class="line">)</span><br><span class="line">REVERS<span class="symbol">ED:</span> local</span><br><span class="line">TK_NAME str</span><br><span class="line">=</span><br><span class="line">TK_STRING hello world</span><br><span class="line">TK_NAME print</span><br><span class="line">(</span><br><span class="line">TK_STRING hello world</span><br><span class="line">)</span><br><span class="line">REVERS<span class="symbol">ED:</span> end</span><br><span class="line">TK_NAME print_test</span><br><span class="line">(</span><br><span class="line">)</span><br><span class="line">REVERS<span class="symbol">ED:</span> local</span><br><span class="line">TK_NAME number</span><br><span class="line">=</span><br><span class="line">TK_FLOAT <span class="number">0.123000</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> local</span><br><span class="line">TK_NAME number2</span><br><span class="line">=</span><br><span class="line">TK_FLOAT <span class="number">0.456000</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> local</span><br><span class="line">TK_NAME tbl</span><br><span class="line">=</span><br><span class="line">&#123;</span><br><span class="line">&#125;</span><br><span class="line">TK_NAME tbl</span><br><span class="line">[</span><br><span class="line">TK_STRING key</span><br><span class="line">]</span><br><span class="line">=</span><br><span class="line">TK_STRING <span class="built_in">value</span></span><br><span class="line">TK_CONCAT ..</span><br><span class="line">TK_STRING value2</span><br><span class="line">REVERS<span class="symbol">ED:</span> function</span><br><span class="line">TK_NAME print_r</span><br><span class="line">(</span><br><span class="line">TK_VARARG ...</span><br><span class="line">)</span><br><span class="line">TK_NAME return</span><br><span class="line">TK_VARARG ...</span><br><span class="line">REVERS<span class="symbol">ED:</span> end</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME key</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">=</span><br><span class="line">TK_INT <span class="number">100</span></span><br><span class="line">+</span><br><span class="line">TK_FLOAT <span class="number">200.000000</span></span><br><span class="line">-</span><br><span class="line">TK_INT <span class="number">10</span></span><br><span class="line">*</span><br><span class="line">TK_INT <span class="number">12</span></span><br><span class="line">/</span><br><span class="line">TK_INT <span class="number">13</span></span><br><span class="line">TK_MOD %</span><br><span class="line">(</span><br><span class="line">TK_INT <span class="number">1</span></span><br><span class="line">+</span><br><span class="line">TK_INT <span class="number">2</span></span><br><span class="line">)</span><br><span class="line">REVERS<span class="symbol">ED:</span> <span class="built_in">if</span></span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">TK_NOEQUAL ~=</span><br><span class="line">TK_INT <span class="number">100</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> then</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">=</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">TK_SHL &lt;&lt;</span><br><span class="line">TK_INT <span class="number">2</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> elseif</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">TK_EQUAL ==</span><br><span class="line">TK_INT <span class="number">200</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> then</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">=</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">TK_SHR &gt;&gt;</span><br><span class="line">TK_INT <span class="number">2</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> elseif</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">&gt;</span><br><span class="line">TK_INT <span class="number">1</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> then</span><br><span class="line">REVERS<span class="symbol">ED:</span> elseif</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">&lt;</span><br><span class="line">TK_INT <span class="number">2</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> then</span><br><span class="line">REVERS<span class="symbol">ED:</span> elseif</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">TK_GREATEREQUAL &gt;=</span><br><span class="line">TK_INT <span class="number">3</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> then</span><br><span class="line">REVERS<span class="symbol">ED:</span> elseif</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">TK_LESSEQUAL &lt;=</span><br><span class="line">TK_INT <span class="number">4</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> then</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">TK_NAME <span class="built_in">sum</span></span><br><span class="line">=</span><br><span class="line">REVERS<span class="symbol">ED:</span> nil</span><br><span class="line">REVERS<span class="symbol">ED:</span> end</span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">REVERS<span class="symbol">ED:</span> <span class="built_in">true</span></span><br><span class="line">=</span><br><span class="line">REVERS<span class="symbol">ED:</span> <span class="built_in">true</span></span><br><span class="line">TK_NAME tbl</span><br><span class="line">.</span><br><span class="line">REVERS<span class="symbol">ED:</span> <span class="built_in">false</span></span><br><span class="line">=</span><br><span class="line">REVERS<span class="symbol">ED:</span> <span class="built_in">false</span></span><br><span class="line">REVERS<span class="symbol">ED:</span> local</span><br><span class="line">TK_NAME a</span><br><span class="line">,</span><br><span class="line">TK_NAME b</span><br><span class="line">=</span><br><span class="line">TK_INT <span class="number">11</span></span><br><span class="line">,</span><br><span class="line">TK_INT <span class="number">22</span></span><br><span class="line">total linenumber = <span class="number">35</span>请按任意键继续. . .</span><br></pre></td></tr></table></figure>
+<h1 id="结束语"><a href="#结束语" class="headerlink" title="结束语"></a>结束语</h1><p>​    本章节，我用一些篇幅讨论了词法分析器的设计与实现，实际上part5已经有对词法分析器进行一些必要的概述了，我这里是对part5进行一些补充，目的是为了能够让读者对lua的词法分析器有更深刻的认识。下一篇开始，我将开始论述lua语法分析器的设计与实现。</p>
+<h1 id="Reference"><a href="#Reference" class="headerlink" title="Reference"></a>Reference</h1><p>[1] <a href="https://en.wikipedia.org/wiki/Lexical_analysis" rel="external nofollow noopener noreferrer" target="_blank">Lexical analysis</a></p>
+<p><a href="http://manistein.club//tags/let-us-build-a-lua-interpreter/" rel="external nofollow noopener noreferrer" target="_blank">let us build a lua interpreter</a> </p>
+<ul>
+<li><a href="http://manistein.club/post/server/skynet/skynet网络机制/" rel="external nofollow noopener noreferrer" target="_blank">← PREVIOUS POST</a></li>
+<li><p><a href="http://manistein.club/post/program/let-us-build-a-lua-interpreter/构建lua解释器part7/" rel="external nofollow noopener noreferrer" target="_blank">NEXT POST →</a></p>
+</li>
+<li></li>
+<li></li>
+<li></li>
+<li></li>
+<li></li>
+</ul>
+<p><a href="https://manistein.github.io/blog/" rel="external nofollow noopener noreferrer" target="_blank">Manistein</a> • 2021  • <a href="http://manistein.club/" rel="external nofollow noopener noreferrer" target="_blank">Manistein’s Blog</a></p>
+<p><a href="http://gohugo.io/" rel="external nofollow noopener noreferrer" target="_blank">Hugo v0.36</a> powered  • Theme by <a href="http://deanattali.com/beautiful-jekyll/" rel="external nofollow noopener noreferrer" target="_blank">Beautiful Jekyll</a> adapted to <a href="https://github.com/halogenica/beautifulhugo" rel="external nofollow noopener noreferrer" target="_blank">Beautiful Hugo</a></p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/lua/" rel="tag"> <i class="fa fa-tag"></i> lua</a>
+          
+            <a href="/tags/构建Lua解释器/" rel="tag"> <i class="fa fa-tag"></i> 构建Lua解释器</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/lua/构建Lua解释器Part5/" rel="next" title="构建Lua解释器Part5：脚本运行基础架构的设计与实现">
+                <i class="fa fa-chevron-left"></i> 构建Lua解释器Part5：脚本运行基础架构的设计与实现
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">83</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">12</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">13</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="https://blog.csdn.net/pyf09" title="CSDN &rarr; https://blog.csdn.net/pyf09" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-book"></i>CSDN</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#前言"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#词法分析器简介"><span class="nav-number">2.</span> <span class="nav-text">词法分析器简介</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#词法分析器基本数据结构"><span class="nav-number">3.</span> <span class="nav-text">词法分析器基本数据结构</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#词法分析器的接口"><span class="nav-number">4.</span> <span class="nav-text">词法分析器的接口</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#初始化流程"><span class="nav-number">5.</span> <span class="nav-text">初始化流程</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Token识别流程"><span class="nav-number">6.</span> <span class="nav-text">Token识别流程</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#一个测试用例"><span class="nav-number">7.</span> <span class="nav-text">一个测试用例</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#结束语"><span class="nav-number">8.</span> <span class="nav-text">结束语</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Reference"><span class="nav-number">9.</span> <span class="nav-text">Reference</span></a></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
