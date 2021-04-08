@@ -1,0 +1,1368 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="原文链接 前言   上一篇我已经设计和实现了Lua解释器最基础的基本数据结构，实现了纯C函数在栈中的调用流程，以及保护模式调用函数等内容，今天要介绍的则是Lua解释器的GC基础架构。Garbage Collection机制，可能是让人们听之不寒而栗的机制，都说GC很复杂，需要花费大量时间去消化和理解，那为什么要在本系列的第2篇就早早引入？做这个决定并非一时冲动之举，而是经过思考后而决定的。之前在阅">
+<meta name="keywords" content="lua,构建Lua解释器">
+<meta property="og:type" content="article">
+<meta property="og:title" content="构建Lua解释器Part2：Garbage Collection基础架构">
+<meta property="og:url" content="https://shankusu2017.github.io/lua/构建Lua解释器Part2/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="原文链接 前言   上一篇我已经设计和实现了Lua解释器最基础的基本数据结构，实现了纯C函数在栈中的调用流程，以及保护模式调用函数等内容，今天要介绍的则是Lua解释器的GC基础架构。Garbage Collection机制，可能是让人们听之不寒而栗的机制，都说GC很复杂，需要花费大量时间去消化和理解，那为什么要在本系列的第2篇就早早引入？做这个决定并非一时冲动之举，而是经过思考后而决定的。之前在阅">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="https://shankusu2017.github.io/lua/构建Lua解释器Part2/naive%20mark%20and%20sweep%2001.png">
+<meta property="og:image" content="https://shankusu2017.github.io/lua/构建Lua解释器Part2/naive%20mark%20and%20sweep%2002.png">
+<meta property="og:image" content="https://shankusu2017.github.io/lua/构建Lua解释器Part2/naive%20mark%20and%20sweep%2003.png">
+<meta property="og:image" content="https://shankusu2017.github.io/lua/构建Lua解释器Part2/naive%20mark%20and%20sweep%2004.png">
+<meta property="og:image" content="https://shankusu2017.github.io/lua/构建Lua解释器Part2/330px-Animation_of_the_Naive_Mark_and_Sweep_Garbage_Collector_Algorithm.gif">
+<meta property="og:image" content="https://shankusu2017.github.io/lua/构建Lua解释器Part2/gc_test_result.png">
+<meta property="og:updated_time" content="2021-04-08T03:35:13.751Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="构建Lua解释器Part2：Garbage Collection基础架构">
+<meta name="twitter:description" content="原文链接 前言   上一篇我已经设计和实现了Lua解释器最基础的基本数据结构，实现了纯C函数在栈中的调用流程，以及保护模式调用函数等内容，今天要介绍的则是Lua解释器的GC基础架构。Garbage Collection机制，可能是让人们听之不寒而栗的机制，都说GC很复杂，需要花费大量时间去消化和理解，那为什么要在本系列的第2篇就早早引入？做这个决定并非一时冲动之举，而是经过思考后而决定的。之前在阅">
+<meta name="twitter:image" content="https://shankusu2017.github.io/lua/构建Lua解释器Part2/naive%20mark%20and%20sweep%2001.png">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/lua/构建Lua解释器Part2/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>构建Lua解释器Part2：Garbage Collection基础架构 | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">12</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/lua/构建Lua解释器Part2/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">构建Lua解释器Part2：Garbage Collection基础架构
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p><a href="http://manistein.club/post/program/let-us-build-a-lua-interpreter/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part2/" rel="external nofollow noopener noreferrer" target="_blank">原文链接</a></p>
+<h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>   上一篇我已经设计和实现了Lua解释器最基础的基本数据结构，实现了纯C函数在栈中的调用流程，以及保护模式调用函数等内容，今天要介绍的则是Lua解释器的GC基础架构。Garbage Collection机制，可能是让人们听之不寒而栗的机制，都说GC很复杂，需要花费大量时间去消化和理解，那为什么要在本系列的第2篇就早早引入？做这个决定并非一时冲动之举，而是经过思考后而决定的。之前在阅读了云风大神翻译的《编程之魂》第7章[1]，这篇关于对Lua设计者的访谈记录中，作者有这么说过：</p>
+<blockquote>
+<p>Roberto：Lua 从第一天开始，就一直使用垃圾收集器。我想说，对于一种解释型语言来讲，垃圾收集器可以比引用计数更加紧凑和健壮，更不用说它没有把垃圾丢得到处都是。考虑到解释型语言通常已经有自描述数据（通过给值加上标签之类的东西），一个简单的标记清除（mark-and-sweep）收集器实现起来极其简单，而且几乎对解释器其余的部分不会产生什么影响。</p>
+</blockquote>
+<p>从作者的话语中，可以大约了解到，GC机制不是后来加进去的，而是在设计之初，就通盘考虑进去的。而且mark and sweep算法并不是一个很难的算法，甚至可以说的上是比较简单的，它的难在于和lua本身的其他部分结合。事实上gc机制可以单独剥离，在不和lua那些复杂的数据结构（如TString和Table等）结合的情况下，单独设计出来，并且测试，一套基于Incremental Mark and Sweep算法的Garbage Collection基础架构也只有短短300多行，只包含基础功能和设计的gc机制，有利于我阐述解释和说明，因此在这个阶段引入gc机制是最好不过的了，后面在设计和实现其他功能模块的时候，会逐步在今天建立的gc框架下不断完善相关细节。今天所做的则是对搭建这样一套基础gc框架的梳理总结，项目源码地址在这里，欢迎大家star。</p>
+<p>   本篇将从传统的最简单的Naive Mark and Sweep算法开始介绍，然后介绍其改进版Incremental Mark and Sweep算法，最后介绍gc基础架构的代码实现和测试用例。</p>
+<h1 id="Naive-Mark-and-Sweep算法"><a href="#Naive-Mark-and-Sweep算法" class="headerlink" title="Naive Mark and Sweep算法"></a>Naive Mark and Sweep算法</h1><h2 id="原理探索"><a href="#原理探索" class="headerlink" title="原理探索"></a>原理探索</h2><p>   现在我们进入到Mark and Sweep最初原型的探索阶段，在了解该算法的阶段，我参阅了很多资料，其中言简意赅的则是维基百科的Tracing garbage collection词条[2]。在开始阐述具体算法流程之前，首先我们要先梳理若干个点：</p>
+<ul>
+<li>所有新创建的对象，都要被放入一个单向链表中(我们姑且称之为allgc链表)，新创建的对象实例，直接放置于列表头部。</li>
+<li>所有被创建的实例，均分为可达和不可达状态，可达意味着它正在被使用，或者有潜在被使用的可能，那么global变量，在栈中的变量以及在寄存器中的变量以及被这些变量引用的变量则被视为可达的[3]。</li>
+<li><p>GC则是以全局变量，栈和寄存器作为起点开始标记的。<br>为了方便探索算法的本质，我们就以栈作为标记的起点，来探索Mark and Sweep算法：</p>
+</li>
+<li><p>GC开始前，新创建的对象均放置于allgc链表中</p>
+</li>
+<li>GC开始，进入标记阶段，从起始点（如栈）开始，标记所有被关联到的对象</li>
+<li><p>标记结束后，进入清除阶段，所有未被标记的实例将被释放，而被标记的对象则清除标记，本次gc结束<br>流程很简单，不过需要注意的是，以上步骤只能一步到位执行完，如果步骤可拆分，那么在标记阶段结束之后，新创建的实例，在本轮gc中将无法继续被标记，因此在清除阶段，这个新创建而可能会被使用到的对象将被清除掉，导致不可挽回的bug。</p>
+<p> 虽然算法本身并不复杂，这里还是希望通过一个图文举例说明，以使我们的表述更加直观：</p>
+</li>
+<li><p>如图1所示，在gc开始之前，我们现在创建5个object，他们全部被放在allgc列表中，其中object3被object1引用到，object4被global table引用到，object1、object2、object4和object5均被入栈。<br><img src="naive mark and sweep 01.png" alt></p>
+</li>
+<li>在GC开始之前，object5和object4被出栈，于是得到如图2的结果：<br><img src="naive mark and sweep 02.png" alt></li>
+<li>GC开始，进入标记阶段，以stack和global table作为起始点，被标记的对象用蓝色边框表示，其中object1和object2直接被引用，则它们需要被标记，object3虽然既不在stack中，也不在global table中，但是它被object1引用，因此也会被标记，而object4因为被global table引用，所以也会被标记，只有object5既不在stack中，也不在global table中，也没有在被标记的object引用它，因此它不会被标记，这一切都展示在图3中：<br><img src="naive mark and sweep 03.png" alt></li>
+<li>在标记阶段结束后，则进入清除阶段，Mark and Sweep算法会遍历allgc列表，如果链表中的object被标记，则清除标记，否则释放它，在本例中，object5被清除。最终我们得到如图4所示的结果：<br><img src="naive mark and sweep 04.png" alt><br>现在通过wikipedia上的一张gif图，动态展示这个流程<br><img src="330px-Animation_of_the_Naive_Mark_and_Sweep_Garbage_Collector_Algorithm.gif" alt><br><a href="https://en.wikipedia.org/wiki/Tracing_garbage_collection" rel="external nofollow noopener noreferrer" target="_blank">https://en.wikipedia.org/wiki/Tracing_garbage_collection</a></li>
+</ul>
+<h2 id="优点与缺点"><a href="#优点与缺点" class="headerlink" title="优点与缺点"></a>优点与缺点</h2><p>   我们已经详细探讨了Mark and Sweep基本算法的原理，他的优点和缺点都很明显。优点是足够简单，易于理解，缺点则是它必须一步到位执行完，本质就是stop the world的gc机制，至于为什么需要stop the world，前面也有提到过，这里不再赘述。总的来说，如果一门语言，要作为独立的编程语言，这种算法显得too young，too simple，有时还naive。为了解决这个问题，一种新的改进版的Mark and Sweep机制应运而生，他就是Incremental Mark and Sweep机制。</p>
+<h1 id="Incremental-Mark-and-Sweep算法"><a href="#Incremental-Mark-and-Sweep算法" class="headerlink" title="Incremental Mark and Sweep算法"></a>Incremental Mark and Sweep算法</h1><p>  Naive Mark and Sweep算法的劣势在于，一步到位的执行，会在瞬时极大影响程序运行的性能，为了解决这个问题，就必须要允许gc能够分n次执行，每次只执行其中的一小部分，将gc的性能开销均摊掉。基于这样的现实需求，传统的Mark and Sweep算法，只对对象标记表示不可清除，不标记表示可清除这种方式就显得不合时宜了，如果gc要分步骤执行，我们需要一种方式去记录标记的进度，需要一种方式灵活处理不断变化的对象之间的引用关系，为此，Incremental Mark and Sweep算法增加了几种颜色，以及一些新的列表来处理这样的情况，本节首先会介绍颜色的概念，然后再通过伪代码展示gc处理的过程，最后再通过图文例子，直观展示这样一个流程是怎样运作的。<br>  首先我们要介绍的是几种颜色，在Incremental Mark and Sweep算法中，每一轮gc处理中一共有3种颜色参与处理，分别是白色，灰色和黑色。每个新创建的对象，将被标记为白色，而几乎所有的对象，gc的过程中大致要经历被标记和扫描两个阶段，标记阶段会将对象从白色标记为灰色，并放入一个专门放灰色对象的单向链表–gray列表中，这相当于记录了当前gc扫描的进度。然后就是gc对gray链表中的对象，一个一个进行扫描，扫描的过程就是将原本被标记为灰色的对象，标记为黑色，并遍历其所有引用的对象，将它们标记为灰色，并放入gray列表中，以等待下一次扫描。如此循环往复，当gray链表为空时，意味着本轮gc标记阶段结束，此时仍然为白色的实例，意味着它已经不可达，需要被清理，而黑色的则意味对象可达，不能被清除。<br>  这里需要注意的一点是，虽然多数对象，经历标记阶段的时候，是从白色标记为灰色，但对于那种不可能引用其他对象的数据类型（如lua的string类型）是被直接被标记为黑色的。此外lua5.3中的gc，白色有两种，一种是白色，还有一种是另一种白（otherwhite），这两种白色用于不同gc轮回之间的乒乓切换，比如，如果当前gc轮是white0作为白色标记，那么在扫描阶段结束后，新创建的对象就会以white1标记，这样在清除阶段的时候，就只清除被标记为white0的白色对象，而下一轮gc则刚好反过来。<br>  在介绍完gc的基本颜色以后，我们现在来看看gc过程的伪代码：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">function <span class="title">single_step</span><span class="params">()</span></span></span><br><span class="line"><span class="function">    <span class="title">switch</span><span class="params">(gcstate)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">case</span> restart: &#123;</span><br><span class="line">            white2gray(mainthread);      <span class="comment">// mainthread是lua的主线程变量，他本质是一个lua_State类型的变量，</span></span><br><span class="line">                                         <span class="comment">// gc的起始点stack也包含在这个结构里</span></span><br><span class="line">            push mainthread to gray;</span><br><span class="line">            white2gray(global_table);</span><br><span class="line">            push global_table to gray;</span><br><span class="line">            gcstate = propagate;</span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> propagate: &#123;</span><br><span class="line">            traverse_bytes = <span class="number">0</span>;</span><br><span class="line">            <span class="keyword">while</span> (<span class="literal">true</span>) &#123;</span><br><span class="line">                <span class="keyword">if</span> (gray is empty) &#123;</span><br><span class="line">                    gcstate = atomic;</span><br><span class="line">                    <span class="keyword">break</span>;</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                object = pop from gray;</span><br><span class="line">                gray2black(object);</span><br><span class="line">                </span><br><span class="line">                foreach (ref in object) &#123;</span><br><span class="line">                    white2gray(ref);</span><br><span class="line">                    push ref to gray;</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                traverse_bytes += object sizes;</span><br><span class="line">                <span class="keyword">if</span> (traverse_bytes &gt;= per <span class="built_in">step</span> <span class="built_in">max</span> traverse bytes) &#123;</span><br><span class="line">                    <span class="keyword">break</span>;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125; </span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> atomic: &#123;</span><br><span class="line">            foreach(object in grayagain) &#123;</span><br><span class="line">                gray2black(object);</span><br><span class="line">                foreach(ref in object) &#123;</span><br><span class="line">                    white2gray(ref);</span><br><span class="line">                    push ref to gray;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line"></span><br><span class="line">            <span class="keyword">while</span> (gray is <span class="keyword">not</span> empty) &#123;</span><br><span class="line">                object = pop from gray;</span><br><span class="line">                gray2black(object);</span><br><span class="line">                </span><br><span class="line">                foreach(ref in object) &#123;</span><br><span class="line">                    white2gray(ref);</span><br><span class="line">                    push ref to gray;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line"></span><br><span class="line">            change white to otherwhite;         <span class="comment">// 将白色切换为另一种白</span></span><br><span class="line">            sweepgco = head of allgc;</span><br><span class="line">            gcstate = sweepgc;</span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> sweep: &#123;</span><br><span class="line">            count = <span class="number">0</span>;</span><br><span class="line">            foreach(sweepgco is exist) &#123;</span><br><span class="line">                next_gc_object = sweepgco-&gt;next;</span><br><span class="line">                <span class="keyword">if</span> (sweepgco is dead) &#123;          <span class="comment">// 只有白色为本次gc标记的白色，才算是dead，otherwhite是下次gc用的白色</span></span><br><span class="line">                    <span class="built_in">free</span> sweepgco </span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">else</span> &#123;</span><br><span class="line">                    <span class="built_in">set</span> sweepgco to white;</span><br><span class="line">                &#125;</span><br><span class="line"></span><br><span class="line">                sweepgco = next_gc_object;</span><br><span class="line">                count ++;</span><br><span class="line">                <span class="keyword">if</span> (count &gt;= per <span class="built_in">step</span> foreach count) &#123;</span><br><span class="line">                    <span class="keyword">break</span>;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line"></span><br><span class="line">            <span class="keyword">if</span> (sweepgco is <span class="keyword">not</span> exist) &#123;</span><br><span class="line">                gcstate = restart;</span><br><span class="line">            &#125; </span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">default</span>: <span class="keyword">break</span>;</span><br><span class="line">    &#125;</span><br><span class="line"><span class="built_in">end</span></span><br></pre></td></tr></table></figure></p>
+<p>上面这段伪代码，是每次执行gc时，会执行的主要流程，这里先展示伪代码的目的，是为了让大家先建立直观的感觉，然后再辅以文字说明，能够达到更好的效果。<br>   从上述伪代码，我们可以知道，整个gc执行的过程中，大致要经历几个阶段（实际编码时，状态并不止这些，但是为了捋清gc机制的主要流程，这些步骤基本是最核心的步骤了），他们分别是restart阶段、propagate阶段、atomic阶段和sweep阶段，现在分别对这些不同的阶段进行说明：</p>
+<ul>
+<li>restart阶段：在lua中，包含stack变量的mainthread和global_table都是要被gc关注的对象，我们已经讨论过，gc的起始点是globals、stack和register，register在lua的gc中，并没有特别的意义，因为所有的操作都是在stack上进行的。因为mainthread和global_table包含gc起始点，因此他们要先push入gray列表中。并且标记他们为灰色，这些操作结束后，就进入到了propagate阶段。</li>
+<li><p>propagate阶段：从伪代码我们可以看到，propagate阶段所做的事情，就是不断从gray列表中pop出object，然后把它从灰色变为黑色，再遍历它所有引用的对象，并将其push到gray列表中。同时我们也要注意到，每次将一个从gray列表中pop出来的object，标记为黑色后，需要累计这个object的字节大小，当这一次gc，propagate(也就是扫描)的对象累计超过一定的字节数时，本轮gc会被暂停，等待下一次gc开始后，继续propagate gray列表中的对象。到这里，我们可以初步感受到，什么是步进式地进行gc处理，其实就是每次处理一部分，将gc处理的瞬时开销，均摊开来。当我们的gray列表为空时，意味着所有的gray列表均已propagate完毕，然后进入atomic阶段。</p>
+</li>
+<li><p>atomic阶段：和propagate阶段不同，atomic阶段是需要被原子执行的，也就是说进入到这个阶段，就得不中断地重头执行到阶段结束。之所以要这么做，需要花费一些功夫来进行解释和说明。<br><strong> 首先，因为我们的gc在propagate阶段是可以被中断的，也就是说，在中断的过程中，可能会有新的对象被创建，并且被已经被标记为黑色的对象引用，这种gc算法，是不能将黑色的对象，直接引用白色的对象的，因为黑色的对象已经标记和扫描完毕，本轮gc不会再进行扫描，这样被其引用的白色对象也不会被标记和扫描到，到了sweep阶段，因为新创建的对象未被标记和扫描，因此会被当做不可达的对象被清除掉，造成不可挽回的后果。
+</strong> 为此，我们需要为这种情况下，为新创建的对象设置barrier。barrier分为两种，一种是向前设置barrier，也就是直接将新创建的对象设置为灰色，并放入gray列表；还有一种则是向后设置barrier，这种是将黑色对象设置为灰色，然后放入grayagain列表。向前barrier的情况，适用于已被标记为黑色的对象类型，为不会频繁改变引用关系的数据类型，如lua的proto结构。而向后barrier的情况，适合被标记为黑色的对象类型，为会出现频繁改变引用关系情况的数据类型，如lua的table结构，也就是说，在两次调用gc功能的过程中，table中的同一个key，可能被赋值多个value，如果把这些value对象均标记为灰色，并放入gray列表，那么将会造成许多无谓的标记和扫描操作，因为这些value很可能不再被引用，需要被回收，因此，只要把已经被标记为黑色的table，重新设置为灰色，是避开这个性能问题的良好方式。<br><strong> 而如果我们直接把从黑色重新标记为灰色的table对象，放入gray列表的话，如上所述，table的key和value的引用关系变化频繁，这个table很可能在黑色和灰色之间来回切换，进行很多重复的扫描，为了提高效率，则将他放在grayagain列表中，在atomic阶段，一次性标记和扫描完。
+</strong> 为什么要原子执行atomic阶段？如果atomic阶段不能原子执行，那么就和propagate阶段没有区别了，table从黑色被标记为灰色，放入grayagain列表也失去了意义，因为如果不能原子执行，那么该table对象很可能前脚刚在grayagain列表中pop出来，由灰色变黑色，后脚又有新的对象被它引用，又将它从黑色变为灰色，因此避免不了一些table实例，在黑色和灰色之间来回切换，反复标记和扫描，浪费性能，很可能导致gc在标记和扫描阶段所处的时间过长，甚至无法进入sweep阶段，因此刚脆在atomic阶段设置为不可中断执行，一次完成所有的标记和扫描操作。这样，一个能够被频繁改变引用关系的table对象，最多在progapate阶段的时候被标记和扫描一次，在atomic阶段又被扫描一次，一共两次。<br>** 上述几个点，详细阐述了我们为什么需要有一个grayagain列表，为什么atomic阶段必须要原子执行，到现在为止我们梳理了来龙去脉，在atomic阶段结束以后，标记对象的白色会切换成另一种白，同时我们就进入到了sweep阶段。</p>
+</li>
+<li>sweep阶段：sweep阶段则很简单，每次我们执行这个流程，取出若干个对象，如果它已经是本轮gc要被清除的白色，那么它会被清除，如果不是，则标记为另一种白，以供下一次gc使用，当本轮gc涉及到的所有的对象清理和重置完毕后，进入下一轮gc。<br> 整段伪代码和上述的文字，已经对Incremental Mark and Sweep算法进行了较为彻底的解释和说明了，为此在本小节的最后，附上维基百科词条上找的图片，动态演示这个过程：<br><a href="Animation_of_tri-color_garbage_collection.gif"></a><br><a href="https://en.wikipedia.org/wiki/Tracing_garbage_collection" rel="external nofollow noopener noreferrer" target="_blank">wiki</a></li>
+</ul>
+<h1 id="Garbage-Collection基础架构逻辑实现"><a href="#Garbage-Collection基础架构逻辑实现" class="headerlink" title="Garbage Collection基础架构逻辑实现"></a>Garbage Collection基础架构逻辑实现</h1><p>   终于到了实现环节了，我们已经介绍了gc机制的原理，现在先从实现层面来看待gc接口的使用。对于外部而言，我们最希望的还是在创建对象以后，仅仅通过调用一个接口，就能使得gc运作，而不用关心它内部的逻辑实现，因此我们在使用层面可能类似如下代码所示的情况：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">int</span> j = <span class="number">0</span>;</span><br><span class="line"><span class="keyword">for</span> (; j &lt; <span class="number">500000000</span>; j ++) &#123;</span><br><span class="line">     TValue* o = luaL_index2addr(L, (j % ELEMENTNUM) + <span class="number">1</span>);</span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">gco</span> = <span class="title">luaC_newobj</span>(<span class="title">L</span>, <span class="title">LUA_TSTRING</span>, <span class="title">sizeof</span>(<span class="title">TString</span>));</span></span><br><span class="line">     o-&gt;value_.gc = gco;</span><br><span class="line">     o-&gt;tt_ = LUA_TSTRING;</span><br><span class="line">     luaC_checkgc(L);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>正如上面的代码所示，我们所有的gc操作，都将在luaC_checkgc里完成。不过现在，我还不想展开其内部的所有细节，在开始论述细节之前，我们首先得了解gc的基本数据结构。<br>        现在我们在vm目录下，新增luagc.h和luagc.c两个文件，现在目录变成下面展示的那样：<br><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">+ bin/</span><br><span class="line">+ clib/</span><br><span class="line">+ common/</span><br><span class="line">+ compiler/</span><br><span class="line">~ vm/</span><br><span class="line">    luado.h</span><br><span class="line">    luado.c</span><br><span class="line">    luagc.h</span><br><span class="line">    luagc.c</span><br><span class="line">main.c</span><br></pre></td></tr></table></figure></p>
+<p>在lua中，受gc管理的数据类型主要有string、table、function、proto和lua_State，它们都需要有一个公共头部，由于lua是纯C实现的，因此，不能设置一个基类供这些类型继承，取而代之的是，通过一个宏来定义gc对象类型的公共部分，我将其定义在luaobject.h中，并以CommonHeader命名：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luaobject.h</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> CommonHeader struct GCObject* next; lu_byte tt_; lu_byte marked</span></span><br><span class="line">``` </span><br><span class="line">这个CommonHeader一共有<span class="number">3</span>个字段，他们分别的意义是：</span><br><span class="line"></span><br><span class="line">* next：在allgc链表中，指定下一个gc对象的指针</span><br><span class="line">* tt_：记录gc对象的类型，不同的gc对象在propagate阶段有不同的处理逻辑</span><br><span class="line">* marked：用来标记gc对象颜色用的</span><br><span class="line">上一章节，我们定义了代表任何lua类型的Value类型，现在我们需要它也能表示gc类型，由于它是一个<span class="keyword">union</span>类型，而gc的字段必须是整合在一起的，因此我们还需要定义一个结构GCObject，然后让Value类型包含这个GCObject：</span><br><span class="line">```c</span><br><span class="line"><span class="comment">// luaobject.h</span></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span> &#123;</span></span><br><span class="line">    CommonHeader;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="keyword">typedef</span> <span class="keyword">union</span> lua_Value &#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">gc</span>;</span></span><br><span class="line">    <span class="keyword">void</span>* p;</span><br><span class="line">    <span class="keyword">int</span> b;</span><br><span class="line">    lua_Integer i;</span><br><span class="line">    lua_Number n;</span><br><span class="line">    lua_CFunction f;</span><br><span class="line">&#125; Value;</span><br></pre></td></tr></table></figure></p>
+<p>现在TValue也能表示被gc管理的对象类型了，到目前为止，具体的类型我们只实现了lua_State，现在需要在lua_State的头部加上这个CommonHeader的宏，限于篇幅，以及后面我们还需要往lua_State内添加其他gc相关的字段，这里就不展示代码了。<br>   在我们编写解释器的过程中，经常会遇到Value类型和具体的类型（如lua_State）相互转换的情况，为了达到这个目的，我们需要设计一个union类型GCUnion来表示任何，需要被GC管理的数据类型，而它的定义如下：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luastate.h</span></span><br><span class="line"><span class="comment">// GCUnion</span></span><br><span class="line"><span class="keyword">union</span> GCUnion &#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span> <span class="title">gc</span>;</span></span><br><span class="line">    lua_State th;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure></p>
+<p>有了这个结构，我们就可以实现具体类型和Value类型的互转了，具体逻辑实现如下：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.h</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> obj2gco(o) (&amp;cast(union GCUnion*, o)-&gt;gc)</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> gco2th(o)  check_exp((o)-&gt;tt_ == LUA_TTHREAD, &amp;cast(union GCUnion*, o)-&gt;th)</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> gcvalue(o) ((o)-&gt;value_.gc)</span></span><br></pre></td></tr></table></figure></p>
+<p>具体的数据类型，将调用obj2gco将自己转成Value的GCObject域的指针，而Value要转成具体类型，如lua_State，则通过gco2th这样的接口来转化，不论谁转谁，首先都要转成GCUnion类型的指针，再做进一步转换。<br>        现在要开始介绍gc颜色处理的具体实现了，首先我们要定义几个位操作的宏：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.h</span></span><br><span class="line"><span class="comment">// Bit operation</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> bitmask(b) (1&lt;&lt;b)</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> bit2mask(b1, b2) (bitmask(b1) | bitmask(b2))</span></span><br><span class="line"> </span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> resetbits(x, m) ((x) &amp;= cast(lu_byte, ~(m)))</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> setbits(x, m) ((x) |= (m))</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> testbits(x, m) ((x) &amp; (m))</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> resetbit(x, b) resetbits(x, bitmask(b)) </span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> l_setbit(x, b) setbits(x, bitmask(b))</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> testbit(x, b) testbits(x, bitmask(b))</span></span><br></pre></td></tr></table></figure></p>
+<p>这些宏，有进行位移的操作，有进行与、或和异或操作，后面我们在进行颜色操作的时候，会频繁用到这些宏，逻辑都很直观，有程序基础的人看懂都不是问题。接下来，我们定义和颜色相关的宏：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">//luagc.h</span></span><br><span class="line"><span class="comment">// Color</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> WHITE0BIT       0</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> WHITE1BIT       1</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> BLACKBIT        2</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> WHITEBITS bit2mask(WHITE0BIT, WHITE1BIT)</span></span><br></pre></td></tr></table></figure></p>
+<p>我们可以看到，白色有两个宏定义，黑色只有一个宏定义，而灰色则一个宏定义都没有，这是因为在lua官方的实现版本中，白色有两种，在不同的gc轮之间执行乒乓交换，而既不是白色也不是黑色则被视为是灰色，因此没有对灰色进行直接定义。最下面的WHITEBITS则是非常关键的存在，因为它是我们切换白色、判断对象是否dead以及标记对象为白色的重要参数，根据bit2mask的定义，WHITEBITS实际相当于被这样定义：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.h</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> WHITEBITS ((1&lt;&lt;0) | (1&lt;&lt;1))</span></span><br></pre></td></tr></table></figure></p>
+<p>也就是说，WHITEBITS最后相当于二进制值112，现在我们可以来看一下标记一个对象为白色的接口是怎样的：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.h</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> luaC_white(g) (g-&gt;currentwhite &amp; WHITEBITS)</span></span><br></pre></td></tr></table></figure></p>
+<p>g-&gt;currentwhite在初始化阶段，被赋值为012值，由于WHITEBITS是112，012 &amp; 112还是012能够获得当前白色的值。而切换不同白的宏定义，则是这样的：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.h</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> otherwhite(g) (g-&gt;currentwhite ^ WHITEBITS)</span></span><br></pre></td></tr></table></figure></p>
+<p>这里是一个异或操作，也就是说如果g-&gt;currentwhite的值是012的话，通过otherwhite计算，则是012 ^ 112 = 102，如果g-&gt;currentwhite的值是102的话，结果正好相反。从这里的逻辑我们可以看出，white的值只有两种，要么是012，要么是102。<br>        现在我们来看看颜色相关的判断：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.h</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> iswhite(o) testbits((o)-&gt;marked, WHITEBITS)</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> isgray(o)  (!testbits((o)-&gt;marked, bitmask(BLACKBIT) | WHITEBITS))</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> isblack(o) testbit((o)-&gt;marked, bitmask(BLACKBIT))</span></span><br></pre></td></tr></table></figure></p>
+<p>这段逻辑没什么好说的，都很直观，需要注意的是，灰色的值是0。接下来要看的是颜色间的互转宏：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.c</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> white2gray(o) resetbits((o)-&gt;marked, WHITEBITS)</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> gray2black(o) l_setbit((o)-&gt;marked, BLACKBIT)</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> black2gray(o) resetbit((o)-&gt;marked, BLACKBIT)</span></span><br></pre></td></tr></table></figure></p>
+<p>从上可以看到，从白色转到灰色，需要把白色标记位清掉，因为灰色的值是0，黑色转灰色也是要把黑色标记位清掉，而灰色转黑色，则相当于把值设置为1002。</p>
+<p>  在迅速过一篇，基本的定义以后，我们要看看最终要的数据结构global_State和lua_State到底新增了什么字段：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luastate.h</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">lua_State</span> &#123;</span></span><br><span class="line">     CommonHeader;       <span class="comment">// gc header, all gcobject should have the commonheader</span></span><br><span class="line">     StkId <span class="built_in">stack</span>;</span><br><span class="line">     StkId stack_last;</span><br><span class="line">     StkId top;</span><br><span class="line">     <span class="keyword">int</span> stack_size;</span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">lua_longjmp</span>* <span class="title">errorjmp</span>;</span></span><br><span class="line">     <span class="keyword">int</span> status;</span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">lua_State</span>* <span class="title">previous</span>;</span></span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">CallInfo</span> <span class="title">base_ci</span>;</span></span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">CallInfo</span>* <span class="title">ci</span>;</span></span><br><span class="line">     <span class="keyword">int</span> nci;</span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span>* <span class="title">l_G</span>;</span></span><br><span class="line">     <span class="keyword">ptrdiff_t</span> errorfunc;</span><br><span class="line">     <span class="keyword">int</span> ncalls;</span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">gclist</span>;</span></span><br><span class="line"> &#125; lua_State;</span><br><span class="line"> </span><br><span class="line"> <span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span> &#123;</span></span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">lua_State</span>* <span class="title">mainthread</span>;</span></span><br><span class="line">     lua_Alloc frealloc;</span><br><span class="line">     <span class="keyword">void</span>* ud; </span><br><span class="line">     lua_CFunction panic;</span><br><span class="line">  </span><br><span class="line">     <span class="comment">//gc fields</span></span><br><span class="line">     lu_byte gcstate;</span><br><span class="line">     lu_byte currentwhite;</span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">allgc</span>;</span>         <span class="comment">// gc root set</span></span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>** <span class="title">sweepgc</span>;</span></span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">gray</span>;</span></span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">grayagain</span>;</span></span><br><span class="line">     lu_mem totalbytes;</span><br><span class="line">     l_mem GCdebt;                   <span class="comment">// GCdebt will be negative</span></span><br><span class="line">     lu_mem GCmemtrav;               <span class="comment">// per gc step traverse memory bytes </span></span><br><span class="line">     lu_mem GCestimate;              <span class="comment">// after finish a gc cycle,it records total memory bytes (totalbytes + GCdebt)</span></span><br><span class="line">     <span class="keyword">int</span> GCstepmul;</span><br><span class="line"> &#125; global_State;</span><br></pre></td></tr></table></figure></p>
+<p>lua_State新增的字段很少，只有头部加了CommonHeader以及尾部加了一个GCObject指针的字段–gclist，这个gclist的作用是，当lua_State对象在gray链表时，它指向gray链表中的下一个灰色对象的地址，当lua_State对象在grayagain链表时，它指向grayagain链表中，下一个灰色对象的地址，其实就是相当于gray或者grayagain链表中，数据对象的next指针。<br>   相比于lua_State结构，我们的global_State结构新增的，与gc相关的字段则要多得多，现在一个一个对其进行解释：</p>
+<ul>
+<li>gcstate：标记gc当前处于哪个阶段，我们gc过程一共要经历几个阶段，分别是GCSpause、GCSpropagate、GCSatomic、GCSinsideatomic、GCSsweepgc和GCSsweepend，和我上面展示的伪代码有些出入，但是大体流程是相同的，后面我们会详细讨论。</li>
+<li>currentwhite：当前gc是哪种白色，102与012中的一种，在gc的atomic阶段结束时，会从一种切换为另一种。</li>
+<li>allgc：这是一个单向链表，所有新建的gc对象，都要放入到这个链表中，放入的方式是直接放在链表的头部。</li>
+<li>sweepgc：这个变量用于记录当前sweep的进度。</li>
+<li>gray：gc对象，首次从白色被标记为灰色的时候，会被放入这个列表，放入这个列表的gc对象，是准备被propagate的对象。</li>
+<li>grayagain：前文已经提到了grayagain的作用了，table对象，从黑色变回灰色时，会放入这个链表中，作用是避免table反复在黑色和灰色之间来回切换重复扫描。</li>
+<li>totalbytes：记录开辟内存字节大小的变量之一，真实的大小是totalbytes+GCdebt。</li>
+<li>GCdebt：这是一个可以为负数的变量，主要用于控制gc触发的时机。当GCdebt&gt;0时，才能触发gc流程。</li>
+<li>GCmemtrav：每次进行gc操作时，所遍历的对象字节大小之和，单位是byte，当其值大于单步执行的内存上限时，gc终止，上节的伪代码有这方面的展示，如果遗忘可以回顾一下。</li>
+<li>GCestimate：在sweep阶段结束时，会被重新计算，本质是totalbytes+GCdebt，它的作用是，在本轮gc结束时，将自身扩充两倍大小，然后让真实大小减去扩充后的自己得到差debt，然后totalbytes会等于扩充后的自己，而GCdebt则会被负数debt赋值，就是是说下一次执行gc流程，要在有|debt|个bytes内存被开辟后，才会开始。目的是避免gc太过频繁。</li>
+<li>GCstepmul：一个和GC单次处理多少字节相关的参数。<br> gc对象，在创建的开始，就已经被gc机制所监管，而我们将通过一个通用的创建gc的函数，来处理这个gc机制监管的开始流程，该函数定义在luagc.c中：<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.c</span></span><br><span class="line"><span class="function">struct GCObject* <span class="title">luaC_newobj</span><span class="params">(struct lua_State* L, <span class="keyword">int</span> tt_, <span class="keyword">size_t</span> <span class="built_in">size</span>)</span> </span>&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span>* <span class="title">g</span> = <span class="title">G</span>(<span class="title">L</span>);</span></span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">obj</span> = (<span class="title">struct</span> <span class="title">GCObject</span>*)<span class="title">luaM_realloc</span>(<span class="title">L</span>, <span class="title">NULL</span>, 0, <span class="title">size</span>);</span></span><br><span class="line">    obj-&gt;marked = luaC_white(g);</span><br><span class="line">    obj-&gt;next = g-&gt;allgc;</span><br><span class="line">    obj-&gt;tt_ = tt_;</span><br><span class="line">    g-&gt;allgc = obj;</span><br><span class="line"> </span><br><span class="line">    <span class="keyword">return</span> obj;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
+</ul>
+<p>不难发现，这个函数先创建指定字节大小的堆内存以后，将其转成GCObject指针对象，在标记为白色后，放入allgc链表的头部。所有创建出来的对象，都会被放入allgc链表，因此所有的对象都能被跟踪到。在这个创建过程中，我们开辟内存的函数luaM_realloc函数也有一些改动，变为：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luamem.h</span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> luaM_free(L, ptr, osize) luaM_realloc(L, ptr, osize, 0)</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// luamem.c</span></span><br><span class="line"><span class="function"><span class="keyword">void</span>* <span class="title">luaM_realloc</span><span class="params">(struct lua_State* L, <span class="keyword">void</span>* ptr, <span class="keyword">size_t</span> osize, <span class="keyword">size_t</span> nsize)</span> </span>&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span>* <span class="title">g</span> = <span class="title">G</span>(<span class="title">L</span>);</span></span><br><span class="line">    <span class="keyword">int</span> oldsize = ptr ? osize : <span class="number">0</span>;</span><br><span class="line">        </span><br><span class="line">    <span class="keyword">void</span>* ret = (*g-&gt;frealloc)(g-&gt;ud, ptr, oldsize, nsize);</span><br><span class="line">    <span class="keyword">if</span> (ret == <span class="literal">NULL</span> &amp;&amp; nsize &gt; <span class="number">0</span>) &#123;</span><br><span class="line">        luaD_throw(L, LUA_ERRMEM);</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    g-&gt;GCdebt = g-&gt;GCdebt - oldsize + nsize;</span><br><span class="line">    <span class="keyword">return</span> ret;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>这里新增了对GCdebt进行统计的逻辑，当osize为0，且nsize &gt; 0时，说明这是一个创建新内存块，那么GCdebt就要加上这个新创建对象的内存大小。如果osize&gt;0且nsize为0时，说明程序要释放一个对象，那么GCdebt要减去这个内存的大小。如果这个对象调整了内存大小，GCdebt也能精确统计到实际的内存大小。<br>  一个对象被创建以后，我们就需要在合适的时机去进行gc检查和处理，这里将提供一个luaC_checkgc的宏来完成这个任务，事实上我们在创建完一个对象以后，都可以调用这个宏，因为这个宏所代表的逻辑，有对gc触发时机的管理流程，外部无需关注，这个宏定义在luagc.h中：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"> <span class="comment">// luagc.h</span></span><br><span class="line"> <span class="comment">// try trigger gc</span></span><br><span class="line"> <span class="meta">#<span class="meta-keyword">define</span> luaC_condgc(pre, L, pos) <span class="meta-keyword">if</span> (G(L)-&gt;GCdebt &gt; 0) &#123; pre; luaC_step(L); pos; &#125; </span></span><br><span class="line"> <span class="meta">#<span class="meta-keyword">define</span> luaC_checkgc(L) luaC_condgc((void)0, L, (void)0)</span></span><br><span class="line">我们可以看到，只有当GCdebt的值大于<span class="number">0</span>的时候，才能触发gc运作机制，而gc运作的机制均是在luaC_step函数里执行：</span><br><span class="line"></span><br><span class="line"> <span class="comment">// luagc.c</span></span><br><span class="line"> <span class="function"><span class="keyword">void</span> <span class="title">luaC_step</span><span class="params">(struct lua_State*L)</span> </span>&#123;</span><br><span class="line">     <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span>* <span class="title">g</span> = <span class="title">G</span>(<span class="title">L</span>);</span></span><br><span class="line">     l_mem debt = get_debt(L);</span><br><span class="line">     <span class="keyword">do</span> &#123;</span><br><span class="line">         l_mem work = singlestep(L);</span><br><span class="line">         debt -= work;</span><br><span class="line">     &#125;<span class="keyword">while</span>(debt &gt; -GCSTEPSIZE &amp;&amp; G(L)-&gt;gcstate != GCSpause);</span><br><span class="line"> </span><br><span class="line">     <span class="keyword">if</span> (G(L)-&gt;gcstate == GCSpause) &#123;</span><br><span class="line">         setpause(L);</span><br><span class="line">     &#125;</span><br><span class="line">     <span class="keyword">else</span> &#123;</span><br><span class="line">         debt = debt / g-&gt;GCstepmul * STEPMULADJ;</span><br><span class="line">         setdebt(L, debt);</span><br><span class="line">     &#125;</span><br><span class="line"> &#125;</span><br></pre></td></tr></table></figure></p>
+<p>这个函数，首先获取了debt的字节大小，所有的gc流程都在singlestep函数里进行处理，这里需要注意的是，当lua解释器能被处理的内存字节总大小，小于debt+GCSTEPSIZE时，那么gc将是一步到位执行完毕（gc的初始状态就是GCSpause，在上述的逻辑中，如果while条件判断内，gcstate等于GCSpause的话，说明本轮gc已经彻底完结，即将进入下一个gc轮回中）。当创建的gc对象足够多时，每次触发luaC_step函数，只会处理至多debt+GCSTEPSIZE个字节的数据，GCSTEPSIZE我设置为1k，通常运行过程中，单次执行gc操作也差不多是处理1kb的数据。当程序满足跳出while循环的条件后，如果一轮gc已经完整执行完毕，那么需要重新设置totalbytes和GCdebt变量的大小，这些操作在setpause函数内执行：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.c</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// when memory is twice bigger than current estimate, it will trigger gc</span></span><br><span class="line"><span class="comment">// again</span></span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">void</span> <span class="title">setpause</span><span class="params">(struct lua_State* L)</span> </span>&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span>* <span class="title">g</span> = <span class="title">G</span>(<span class="title">L</span>);</span></span><br><span class="line">    l_mem estimate = g-&gt;GCestimate / GCPAUSE;</span><br><span class="line">    estimate = (estimate * g-&gt;GCstepmul) &gt;= MAX_LMEM ? MAX_LMEM : estimate * g-&gt;GCstepmul;</span><br><span class="line"></span><br><span class="line">    l_mem debt = g-&gt;GCestimate - estimate;</span><br><span class="line">    setdebt(L, debt);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>在sweep阶段结束时，我们会重新计算GCestimate的值，其实质是totalbytes+GCdebt，代表当前lua解释器内存的真实大小。GCestimate首先除以一个GCPAUSE常量，然后再乘以GCstepmul变量，以获取新的估算值，这里我参照lua53的标准，将GCstepmul设置为GCPAUSE的两倍，也就是说GCestimate被扩充为当前内存实际大小的两倍。在计算实际大小和扩充大小的差值以后，将会进行设置操作：<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.c                                                                                                                                                        X </span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">void</span> <span class="title">setdebt</span><span class="params">(struct lua_State* L, l_mem debt)</span> </span>&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span>* <span class="title">g</span> = <span class="title">G</span>(<span class="title">L</span>);</span></span><br><span class="line">    lu_mem totalbytes = gettotalbytes(g);</span><br><span class="line"></span><br><span class="line">    g-&gt;totalbytes = totalbytes - debt;</span><br><span class="line">    g-&gt;GCdebt = debt;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure></p>
+<p>这里的处理很简单，将差值的绝对值累加到totalbytes上，并把GCdebt设置为负数，这里相当于内存”负债”，因为GCdebt小于0，gc操作不会被触发，但是真实的内存大小是totalbytes+GCdebt并没有改变，这样做的目的是，当新创建的内存大小，足以还清GCdebt所欠下的”债务”时（GCdebt&gt;0），才会触发新的gc流程。这种操作时为了避免gc过度频繁地被调用。同样的，在luaC_step内处理够足够多的对象以后（这里是1kb左右），我们会将这1kb左右的内存，累加到totalbytes上，而GCdebt则等于负的1kb，产生”负债”，当lua虚拟机有新的1kb的内存被开辟时，gc逻辑流程才会被再次触发。         上文我们介绍的gc的触发流程控制，接下来来看看我们的gc处理流程函数signlestep。<br><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// luagc.c                                                                                                                                                        X </span></span><br><span class="line"><span class="function"><span class="keyword">static</span> lu_mem <span class="title">singlestep</span><span class="params">(struct lua_State* L)</span> </span>&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span>* <span class="title">g</span> = <span class="title">G</span>(<span class="title">L</span>);</span></span><br><span class="line">    <span class="keyword">switch</span>(g-&gt;gcstate) &#123;</span><br><span class="line">        <span class="keyword">case</span> GCSpause: &#123;</span><br><span class="line">            g-&gt;GCmemtrav = <span class="number">0</span>;</span><br><span class="line">            restart_collection(L);     <span class="comment">// markroot阶段，将lua_State标记为灰色，并push到gray列表中</span></span><br><span class="line">            g-&gt;gcstate = GCSpropagate;</span><br><span class="line">            <span class="keyword">return</span> g-&gt;GCmemtrav;</span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> GCSpropagate:&#123;</span><br><span class="line">            g-&gt;GCmemtrav = <span class="number">0</span>;</span><br><span class="line">            propagatemark(L);         <span class="comment">// 从gray列表中，pop出一个对象，并标记为黑色，同时扫描其关联对象，设置为灰色并放入gray列表。</span></span><br><span class="line">            <span class="keyword">if</span> (g-&gt;gray == <span class="literal">NULL</span>) &#123;</span><br><span class="line">                g-&gt;gcstate = GCSatomic;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> g-&gt;GCmemtrav;</span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> GCSatomic:&#123;</span><br><span class="line">            g-&gt;GCmemtrav = <span class="number">0</span>;</span><br><span class="line">            <span class="keyword">if</span> (g-&gt;gray) &#123;</span><br><span class="line">                propagateall(L); <span class="comment">// 一次性将gray列表中所有的对象标记和扫描</span></span><br><span class="line">            &#125;</span><br><span class="line">            atomic(L);           <span class="comment">// 一次性将grayagain链表中所有的对象标记和扫描</span></span><br><span class="line">            entersweep(L);</span><br><span class="line">            g-&gt;GCestimate = gettotalbytes(g);</span><br><span class="line">            <span class="keyword">return</span> g-&gt;GCmemtrav;</span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> GCSsweepallgc: &#123;</span><br><span class="line">            g-&gt;GCmemtrav = <span class="number">0</span>;</span><br><span class="line">            sweepstep(L);</span><br><span class="line">            <span class="keyword">return</span> g-&gt;GCmemtrav;</span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">case</span> GCSsweepend: &#123;</span><br><span class="line">            g-&gt;GCmemtrav = <span class="number">0</span>;</span><br><span class="line">            g-&gt;gcstate = GCSpause;</span><br><span class="line">            <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        &#125; <span class="keyword">break</span>;</span><br><span class="line">        <span class="keyword">default</span>:<span class="keyword">break</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> g-&gt;GCmemtrav;</span><br><span class="line">   &#125;</span><br></pre></td></tr></table></figure></p>
+<p>逻辑代码和伪代码很相似，如果能看懂上面展示的伪代码，这段逻辑应该不难理解。不过这里对部分逻辑做了注释，完整的项目代码可以在这里找到。</p>
+<pre><code>到目前为止，重要的内容基本写完了，在文章的最后，我觉得有必要将测试用例贴出来，让大家直观感受一下最终的效果：
+</code></pre><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// p2_test.c                                                                                                                                                      X </span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">"../clib/luaaux.h"</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">"../vm/luagc.h"</span> </span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">"p2_test.h"</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;time.h&gt;</span></span></span><br><span class="line">            </span><br><span class="line"><span class="meta">#<span class="meta-keyword">define</span> ELEMENTNUM 5</span></span><br><span class="line">        </span><br><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">p2_test_main</span><span class="params">()</span> </span>&#123;</span><br><span class="line">   <span class="class"><span class="keyword">struct</span> <span class="title">lua_State</span>* <span class="title">L</span> = <span class="title">luaL_newstate</span>();</span></span><br><span class="line">            </span><br><span class="line">   <span class="keyword">int</span> i = <span class="number">0</span>;</span><br><span class="line">   <span class="keyword">for</span> (; i &lt; ELEMENTNUM; i ++) &#123;</span><br><span class="line">       luaL_pushnil(L);</span><br><span class="line">   &#125;        </span><br><span class="line">        </span><br><span class="line">   <span class="keyword">int</span> start_time = time(<span class="literal">NULL</span>);</span><br><span class="line">   <span class="keyword">int</span> end_time = time(<span class="literal">NULL</span>);</span><br><span class="line">   <span class="keyword">size_t</span> max_bytes = <span class="number">0</span>; </span><br><span class="line">   <span class="class"><span class="keyword">struct</span> <span class="title">global_State</span>* <span class="title">g</span> = <span class="title">G</span>(<span class="title">L</span>);</span></span><br><span class="line">   <span class="keyword">int</span> j = <span class="number">0</span>;</span><br><span class="line">   <span class="keyword">for</span> (; j &lt; <span class="number">500000000</span>; j ++) &#123;</span><br><span class="line">        TValue* o = luaL_index2addr(L, (j % ELEMENTNUM) + <span class="number">1</span>);</span><br><span class="line">        <span class="class"><span class="keyword">struct</span> <span class="title">GCObject</span>* <span class="title">gco</span> = <span class="title">luaC_newobj</span>(<span class="title">L</span>, <span class="title">LUA_TSTRING</span>, <span class="title">sizeof</span>(<span class="title">TString</span>));</span></span><br><span class="line">        o-&gt;value_.gc = gco;</span><br><span class="line">        o-&gt;tt_ = LUA_TSTRING;</span><br><span class="line">        luaC_checkgc(L);</span><br><span class="line">            </span><br><span class="line">        <span class="keyword">if</span> ((g-&gt;totalbytes + g-&gt;GCdebt) &gt; max_bytes) &#123;</span><br><span class="line">            max_bytes = g-&gt;totalbytes + g-&gt;GCdebt;</span><br><span class="line">        &#125; </span><br><span class="line">        </span><br><span class="line">        <span class="keyword">if</span> (j % <span class="number">1000</span> == <span class="number">0</span>) &#123;</span><br><span class="line">            <span class="built_in">printf</span>(<span class="string">"timestamp:%d totalbytes:%f kb \n"</span>, (<span class="keyword">int</span>)time(<span class="literal">NULL</span>), (<span class="keyword">float</span>)(g-&gt;totalbytes + g-&gt;GCdebt) / <span class="number">1024.0f</span>);</span><br><span class="line">        &#125;   </span><br><span class="line">   &#125;    </span><br><span class="line">   end_time = time(<span class="literal">NULL</span>);</span><br><span class="line">   <span class="built_in">printf</span>(<span class="string">"finish test start_time:%d end_time:%d max_bytes:%f kb \n"</span>, start_time, end_time, (<span class="keyword">float</span>)max_bytes / <span class="number">1024.0f</span>);</span><br><span class="line"> </span><br><span class="line">   luaL_close(L);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上面的测试代码，创建了5亿次gc对象，新创建的对象，不断在适当的stack位置替换旧的gc对象，如图7所示，内存大小的峰值大约是1.7k，这说明gc在不断进行，回收不可达的gc对象：<br><img src="gc_test_result.png" alt></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>   到这里，gc相关的东西也基本完成了，通过这篇blog我们可以了解传统Mark and Sweep Garbage Collection算法的原理，以及其优势和劣势，同时我们也细致探索了其改进型Incremental Mark and Sweep算法。本文刻意简化了代码说明部分，希望让有兴趣了解更多细节的读者，下载源码结合blog深入研究，这样比我在这里说能获取的有效信息，将会多得多。GC相关的文章是个很难写的部分，本篇我也花了巨量的时间和精力，不过现在总算是交了答卷，下一章我们将进入探索lua string的设计和实现上。</p>
+<h1 id="Reference"><a href="#Reference" class="headerlink" title="Reference"></a>Reference</h1><p>[1] 这是一篇关于Lua设计者的访谈记录，出版社中文翻译由云风负责审校，由于云风对翻译并不满意，因此他重新写了<a href="https://blog.codingnow.com/2010/06/masterminds_of_programming_7_lua.html" rel="external nofollow noopener noreferrer" target="_blank">一篇</a><br>[2] 参考内容位于<a href="https://en.wikipedia.org/wiki/Tracing_garbage_collection" rel="external nofollow noopener noreferrer" target="_blank">Tracing garbage collection</a>的Naive Mark and Sweep章节<br>[3] 参考<a href="http://wiki.c2.com/?MarkAndSweep" rel="external nofollow noopener noreferrer" target="_blank">Mark and Sweep</a> 其中有一段话这么阐述”The second pass traverses all pointers, starting at the accessible roots of a program (conventionally, globals, the stack, and registers) and for each object traversed it marks the object.“，即globals，stack和register是作为gc开始的起点，会被使用的变量基本在这上面，或者与在这上面的变量关联。</p>
+<p>let us build a lua interpreter </p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/lua/" rel="tag"> <i class="fa fa-tag"></i> lua</a>
+          
+            <a href="/tags/构建Lua解释器/" rel="tag"> <i class="fa fa-tag"></i> 构建Lua解释器</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/lua/构建Lua解释器Part1/" rel="next" title="构建Lua解释器Part1：虚拟机的基础--Lua基本数据结构、栈和基于栈的C函数调用的设计与实现">
+                <i class="fa fa-chevron-left"></i> 构建Lua解释器Part1：虚拟机的基础--Lua基本数据结构、栈和基于栈的C函数调用的设计与实现
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">79</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">12</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">13</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="https://blog.csdn.net/pyf09" title="CSDN &rarr; https://blog.csdn.net/pyf09" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-book"></i>CSDN</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#前言"><span class="nav-number">1.</span> <span class="nav-text">前言</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Naive-Mark-and-Sweep算法"><span class="nav-number">2.</span> <span class="nav-text">Naive Mark and Sweep算法</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#原理探索"><span class="nav-number">2.1.</span> <span class="nav-text">原理探索</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#优点与缺点"><span class="nav-number">2.2.</span> <span class="nav-text">优点与缺点</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Incremental-Mark-and-Sweep算法"><span class="nav-number">3.</span> <span class="nav-text">Incremental Mark and Sweep算法</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Garbage-Collection基础架构逻辑实现"><span class="nav-number">4.</span> <span class="nav-text">Garbage Collection基础架构逻辑实现</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#总结"><span class="nav-number">5.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#Reference"><span class="nav-number">6.</span> <span class="nav-text">Reference</span></a></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
