@@ -447,7 +447,7 @@
 <p>既然通过加锁的方式就能解决map的并发问题，实现方式简洁，并且利用读写锁而不是Mutex可以进一步减少读写的时候因为锁而带来的性能损耗。那么为什么还会有sync.Map的出现？</p>
 <p>当map的数据量非常大时，会引发并发的大量goroutine争夺同一把锁，这种现象将直接导致性能的急剧下降。在java中有类似于map的hashMap，它同样是并发不安全，但是JDK提供了线程安全的ConcurrentHashMap，它在面对上述场景时，其核心解决方案是锁分段技术，即内部使用多个锁，每个区间共享一把锁，当多线程访问map中的不同数据段的数据时，线程间就不会存在锁竞争，从而提高了并发访问效率。那sync.Map采取的是什么策略来提升并发性能的呢？</p>
 <p>sync.Map的源码结构（基于1.14.1）</p>
-<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">type</span> Map <span class="keyword">struct</span> &#123;</span><br><span class="line">  <span class="comment">// 此锁是为了保护Map中的dirty数据</span></span><br><span class="line">  mu Mutex</span><br><span class="line">  <span class="comment">// 用来存读的数据，只读类型，不会造成读写冲突</span></span><br><span class="line">  read atomic.Value <span class="comment">// readOnly</span></span><br><span class="line">  <span class="comment">// dirty包含最新的写入数据（entry），在写的同时，将read中未删除的数据拷贝到dirty中</span></span><br><span class="line">  <span class="comment">// 因为是go中内置的普通map类型，且涉及写操作，所以需要通过mu加锁</span></span><br><span class="line">  dirty <span class="keyword">map</span>[<span class="keyword">interface</span>&#123;&#125;]*entry</span><br><span class="line">  <span class="comment">// 当读数据时,该字段不在read中，尝试从dirty中读取，不管是否在dirty中读取到数据，misses+1</span></span><br><span class="line">  <span class="comment">// 当累计到len（dirty）时，会将dirty拷贝到read中，并将dirty清空，以此提升读性能。</span></span><br><span class="line">  misses <span class="keyword">int</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<figure class="highlight arduino"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">type Map <span class="class"><span class="keyword">struct</span> &#123;</span></span><br><span class="line">  <span class="comment">// 此锁是为了保护Map中的dirty数据</span></span><br><span class="line">  mu Mutex</span><br><span class="line">  <span class="comment">// 用来存读的数据，只读类型，不会造成读写冲突</span></span><br><span class="line">  <span class="built_in">read</span> atomic.Value <span class="comment">// readOnly</span></span><br><span class="line">  <span class="comment">// dirty包含最新的写入数据（entry），在写的同时，将read中未删除的数据拷贝到dirty中</span></span><br><span class="line">  <span class="comment">// 因为是go中内置的普通map类型，且涉及写操作，所以需要通过mu加锁</span></span><br><span class="line">  dirty <span class="built_in">map</span>[interface&#123;&#125;]*entry</span><br><span class="line">  <span class="comment">// 当读数据时,该字段不在read中，尝试从dirty中读取，不管是否在dirty中读取到数据，misses+1</span></span><br><span class="line">  <span class="comment">// 当累计到len（dirty）时，会将dirty拷贝到read中，并将dirty清空，以此提升读性能。</span></span><br><span class="line">  misses <span class="keyword">int</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 <p>在sync.Map中用到了两个冗余数据结构read、dirty。其中read的类型为atomic.Value，它会通过atomic.Value的Load方法将其断言为readOnly对象。</p>
 <figure class="highlight arduino"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">read</span>, _ := m.<span class="built_in">read</span>.Load().(readOnly) <span class="comment">// m为sync.Map</span></span><br></pre></td></tr></table></figure>
 <p>因此，read的真实类型即是readOnly，其数据类型如下。</p>
@@ -656,7 +656,7 @@
                 
                   <a href="/archives">
                 
-                    <span class="site-state-item-count">153</span>
+                    <span class="site-state-item-count">158</span>
                     <span class="site-state-item-name">posts</span>
                   </a>
                 </div>
@@ -806,7 +806,11 @@
                     
                       
                     
-                    <span class="site-state-item-count">31</span>
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">33</span>
                     <span class="site-state-item-name">tags</span>
                   </a>
                 </div>
