@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="Go更细粒度的读写锁设计在《Go精妙的互斥锁设计》一文中，我们详细地讲解了互斥锁的实现原理。互斥锁为了避免竞争条件，它只允许一个线程进入代码临界区，而由于锁竞争的存在，程序的执行效率会被降低。同时我们知道，只有多线程在共享资源中有写操作，才会引发竞态问题，只要资源没有发生变化，多线程读取相同的资源就是安全的。因此，我们引申出更细粒度的锁：读写锁。 什么是读写锁 读写锁是一种多读单写锁，分读和写两种">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Go更细粒度的读写锁设计">
+<meta property="og:url" content="https://shankusu2017.github.io/go/知识点/Go更细粒度的读写锁设计/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="Go更细粒度的读写锁设计在《Go精妙的互斥锁设计》一文中，我们详细地讲解了互斥锁的实现原理。互斥锁为了避免竞争条件，它只允许一个线程进入代码临界区，而由于锁竞争的存在，程序的执行效率会被降低。同时我们知道，只有多线程在共享资源中有写操作，才会引发竞态问题，只要资源没有发生变化，多线程读取相同的资源就是安全的。因此，我们引申出更细粒度的锁：读写锁。 什么是读写锁 读写锁是一种多读单写锁，分读和写两种">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="https://shankusu2017.github.io/go/知识点/Go更细粒度的读写锁设计/1.png">
+<meta property="og:image" content="https://shankusu2017.github.io/go/知识点/Go更细粒度的读写锁设计/2.png">
+<meta property="og:updated_time" content="2021-04-30T08:37:36.747Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Go更细粒度的读写锁设计">
+<meta name="twitter:description" content="Go更细粒度的读写锁设计在《Go精妙的互斥锁设计》一文中，我们详细地讲解了互斥锁的实现原理。互斥锁为了避免竞争条件，它只允许一个线程进入代码临界区，而由于锁竞争的存在，程序的执行效率会被降低。同时我们知道，只有多线程在共享资源中有写操作，才会引发竞态问题，只要资源没有发生变化，多线程读取相同的资源就是安全的。因此，我们引申出更细粒度的锁：读写锁。 什么是读写锁 读写锁是一种多读单写锁，分读和写两种">
+<meta name="twitter:image" content="https://shankusu2017.github.io/go/知识点/Go更细粒度的读写锁设计/1.png">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/go/知识点/Go更细粒度的读写锁设计/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>Go更细粒度的读写锁设计 | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">28</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-guestbook">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/guestbook/" rel="section"><i class="menu-item-icon fa fa-fw fa-commenting"></i> <br>guestbook</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/go/知识点/Go更细粒度的读写锁设计/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">Go更细粒度的读写锁设计
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h2 id="Go更细粒度的读写锁设计"><a href="#Go更细粒度的读写锁设计" class="headerlink" title="Go更细粒度的读写锁设计"></a>Go更细粒度的读写锁设计</h2><p>在<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484613&amp;idx=1&amp;sn=d79c33be877e8124d050ed3669b26e24&amp;chksm=9737106ba040997d4bdd3aa077186d89568b0019b4b83164dc59b9b2e8c4a408e4496aa93d1a&amp;scene=21#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">《Go精妙的互斥锁设计》</a>一文中，我们详细地讲解了互斥锁的实现原理。互斥锁为了避免竞争条件，它只允许一个线程进入代码临界区，而由于锁竞争的存在，程序的执行效率会被降低。同时我们知道，只有多线程在共享资源中有写操作，才会引发竞态问题，只要资源没有发生变化，多线程读取相同的资源就是安全的。因此，我们引申出更细粒度的锁：读写锁。</p>
+<p><strong>什么是读写锁</strong></p>
+<p>读写锁是一种多读单写锁，分读和写两种锁，多个线程可以同时加读锁，但是写锁和写锁、写锁与读锁之间是互斥的。</p>
+<p><img src="1.png" alt="图片"></p>
+<p>读写锁对临界区的处理如上图所示。其中，t1时刻，由于线程1已加写锁，线程2被互斥等待写锁的释放；t2时刻，线程2已加读锁，线程3可以对其继续加读锁并进入临界区；t3时刻，线程3加了读锁，线程4被互斥等待读锁的释放。</p>
+<p><strong>饥饿问题</strong></p>
+<p>根据读写锁的性质，读者应该能猜到读写锁适用于读写分明的场景。根据优先级，可以分为读优先锁和写优先锁。读优先锁能允许最大并发，但是写线程可能被饿死；同理，写优先锁是优先服务写线程，这样读线程就可能被饿死。</p>
+<p>相对而言，写锁饥饿的问题更为突出。因为读锁是共享的，如果当前临界区已经加了读锁，后续的线程继续加读锁是没问题的，但是如果一直有读锁的线程加锁，那尝试加写锁的线程则会一直获取不到锁，这样加写锁的线程一直被阻塞，导致了写锁饥饿。</p>
+<p>同时，由于多读锁共享，可能会有读者问：为什么不直接去掉读锁，在写操作线程进来时只加写锁就好了呢，这样岂不是很好实现了。道理很简单，如果当前临界区加了写锁，在写锁解开之前又有新的写操作线程进来，等到写锁释放，新的写操作线程又上了写锁。这种情况如果连续不断，那整个程序就只能执行写操作线程，读操作线程就活活被饿死了。</p>
+<p>所以，为了避免饥饿问题，通用的做法是实现公平读写锁，它将请求锁的线程用队列进行排队，保证了先入先出（FIFO）的原则进行加锁，这样就能有效地避免线程饥饿问题。</p>
+<p>那Go语言的读写锁，对于饥饿问题，它是如何处理的呢？</p>
+<p><strong>Go读写锁设计</strong></p>
+<p>本文代码版本为Go 1.15.2。如下所示，<code>sync.RWMutex</code>结构体包含5个字段。</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>type RWMutex struct &#123;</span><br><span class="line"><span class="symbol">2 </span>   w           Mutex  </span><br><span class="line"><span class="symbol">3 </span>   writerSem   uint32 </span><br><span class="line"><span class="symbol">4 </span>   readerSem   uint32 </span><br><span class="line"><span class="symbol">5 </span>   readerCount int32  </span><br><span class="line"><span class="symbol">6 </span>   readerWait  int32  </span><br><span class="line"><span class="number">7</span>&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li><code>w</code> 互斥锁<code>sync.Mutex</code>，用于互斥写操作。</li>
+<li><code>writerSem</code> 写操作goroutine阻塞等待信号量。最后一个阻塞写操作的读操作goroutine释放读锁时，会通知阻塞的写锁goroutine。</li>
+<li><code>readerSem</code> 读操作goroutine阻塞等待信号量。写锁goroutine释放写锁后，会通知阻塞的读锁goroutine。</li>
+<li><code>readerCount</code> 读操作goroutine数量。</li>
+<li><code>readerWait</code> 阻塞写操作goroutine的读操作goroutine数量。</li>
+</ul>
+<p>对于互斥锁的几个字段，现在可能不好理解，先不用着急，看完我们对<code>sync.RWMutex</code>对外提供的四个方法接口解析，就自然明白了。</p>
+<ul>
+<li><code>RLock()</code>：加读锁</li>
+<li><code>RUnlock()</code>：解读锁</li>
+<li><code>Lock()</code>：加写锁</li>
+<li><code>Unlock()</code>：解写锁</li>
+</ul>
+<p>下面，我们来依次分析。</p>
+<h4 id="1-加读锁"><a href="#1-加读锁" class="headerlink" title="1. 加读锁"></a><strong>1. 加读锁</strong></h4><p>这里，需要说明一下的是，为了更好理解代码逻辑，本文所有的代码块均去除了竞态检测的逻辑部分，即<code>if race.Enabled {}</code>方法块。</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>func (rw *RWMutex) RLock() &#123;</span><br><span class="line"><span class="symbol">2 </span>   <span class="keyword">if</span> atomic.AddInt32(&amp;rw.readerCount, <span class="number">1</span>) &lt; <span class="number">0</span> &#123;</span><br><span class="line"><span class="symbol">3 </span>       runtime_Semacqui<span class="comment">reMutex(&amp;rw.readerSem, false, 0)</span></span><br><span class="line"><span class="symbol">4 </span>   &#125;</span><br><span class="line"><span class="number">5</span>&#125;</span><br></pre></td></tr></table></figure>
+<p><code>atomic.AddInt32</code>是一个原子性操作，其底层通过硬件指令<code>LOCK</code>实现封装（详情可见文章<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484574&amp;idx=1&amp;sn=5bbe2668e64455f428c70f00c09f28a2&amp;chksm=97371030a04099263dfbf16dc24438f409166a053fd9fef802f9f9e4f8fd3c4aba9dd97df8f8&amp;scene=21#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">《同步原语的基石》</a>）。<code>rw.readerCount</code>代表读操作goroutine数量，如果将其+1，还小于0，则通过用于同步库的sleep原语<code>runtime_SemacquireMutex</code>阻塞等待写锁释放。</p>
+<p>简单地说，如果当前有写操作goroutine已经进来了，则新来的读操作goroutine会被排队阻塞等待。但是，读者肯定会觉得判断条件很奇怪，为什么<code>rw.readerCount</code>会是负值？不要急，下文会有答案。</p>
+<p>当然，如果此时没有写锁，则仅仅将<code>rw.readerCount</code>数目加1，然后直接退出，代表加读锁成功。</p>
+<h4 id="2-解读锁"><a href="#2-解读锁" class="headerlink" title="2. 解读锁"></a><strong>2. 解读锁</strong></h4><figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>func (rw *RWMutex) RUnlock() &#123;</span><br><span class="line"><span class="symbol">2 </span>   <span class="keyword">if</span> r := atomic.AddInt32(&amp;rw.readerCount, -<span class="number">1</span>); r &lt; <span class="number">0</span> &#123;</span><br><span class="line"><span class="symbol">3 </span>       rw.rUnlockSlow(r)</span><br><span class="line"><span class="symbol">4 </span>   &#125;</span><br><span class="line"><span class="number">5</span>&#125;</span><br></pre></td></tr></table></figure>
+<p>将读操作goroutine数目-1，如果其数目<code>r</code>大于等于0，则直接退出，代表解读锁成功。否则，带着当前处于负值的数目<code>r</code>进入以下<code>rUnlockSlow</code>逻辑：</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>func (rw *RWMutex) rUnlockSlow(r int32) &#123;</span><br><span class="line"><span class="symbol">2 </span>   <span class="keyword">if</span> r+<span class="number">1</span> == <span class="number">0</span> || r+<span class="number">1</span> == -rwmutexMaxReaders &#123;</span><br><span class="line"><span class="symbol">3 </span>       race.Enable()</span><br><span class="line"><span class="symbol">4 </span>       throw(<span class="string">"sync: RUnlock of unlocked RWMutex"</span>)</span><br><span class="line"><span class="symbol">5 </span>   &#125;</span><br><span class="line"><span class="symbol">6 </span>   <span class="keyword">if</span> atomic.AddInt32(&amp;rw.readerWait, -<span class="number">1</span>) == <span class="number">0</span> &#123;</span><br><span class="line"><span class="symbol">7 </span>       runtime_Semrelease(&amp;rw.writerSem, false, <span class="number">1</span>)</span><br><span class="line"><span class="symbol">8 </span>   &#125;</span><br><span class="line"><span class="number">9</span>&#125;</span><br></pre></td></tr></table></figure>
+<p>如果<code>r+1==0</code>，则证明在解读锁时，其实并没有读goroutine加读锁；<code>rwmutexMaxReaders = 1 &lt;&lt; 30</code>，这代表读写锁所能接收的最大读操作goroutine数量。至于这里为什么<code>r+1 == -rwmutexMaxReaders</code>也代表并没有goroutine加读锁，同样留在下文解答。在没有加读锁的锁上解读锁，会抛出异常并panic。</p>
+<p><code>rw.readerWait</code>代表写操作被阻塞时，读操作goroutine数量。如果该值为1，代表当前是最后一个阻塞写操作的goroutine，则通过用于同步库的wakeup原语<code>runtime_Semrelease</code>唤醒阻塞的写操作goroutine。</p>
+<p>读者此时只看了加解读锁的代码，理解上会有困难，不要急，我们接着看加解写锁的逻辑。</p>
+<h4 id="3-加写锁"><a href="#3-加写锁" class="headerlink" title="3. 加写锁"></a><strong>3. 加写锁</strong></h4><figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>func (rw *RWMutex) Lock() &#123;</span><br><span class="line"><span class="symbol">2 </span>   rw.w.Lock()</span><br><span class="line"><span class="symbol">3 </span>   r := atomic.AddInt32(&amp;rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders</span><br><span class="line"><span class="symbol">4 </span>   <span class="keyword">if</span> r != <span class="number">0</span> &amp;&amp; atomic.AddInt32(&amp;rw.readerWait, r) != <span class="number">0</span> &#123;</span><br><span class="line"><span class="symbol">5 </span>       runtime_Semacqui<span class="comment">reMutex(&amp;rw.writerSem, false, 0)</span></span><br><span class="line"><span class="symbol">6 </span>   &#125;</span><br><span class="line"><span class="number">7</span>&#125;</span><br></pre></td></tr></table></figure>
+<p>在加写锁时，首先会通过互斥锁加锁，这保证只会有一个写锁加锁成功。当互斥锁加锁成功之后，我们就能看到<strong>写操作是如何阻止读操作，读操作是如何感知到写操作的。</strong></p>
+<p>我们已经知道<code>rw.readerCount</code>是代表读操作goroutine数量，如果在不存在写操作的情况下，每次加读锁，该值就会+1，每次解读锁该值就会-1，那么我们可以合理地认为<code>rw.readerCount</code>的取值范围是[0,rwmutexMaxReaders],即最大支持2^30个并发读，最小是0个。</p>
+<p>然而，在当前写操作goroutine加互斥锁成功后，会通过原子操作<code>atomic.AddInt32</code>将<code>readerCount</code>减去2^30，此时<code>readerCount</code>会变成负值，那么如果之后再有读操作goroutine加读锁时，能通过该负值知道当前已经有写锁了，从而阻塞等待。这里也解释了加读锁和解读锁两小节中留下的问题。最后，为了持有真实的读操作goroutine数目，再加回2^30即可。</p>
+<p>这里需要格外注意的是：互斥锁加锁成功并不意味着加写锁成功。我们需要知道<strong>读操作是如何阻止写操作，写操作是如何感知到读操作的。</strong></p>
+<p><code>r != 0</code> 即代表当前读操作goroutine不为0，这意味着写操作要等待排在前面的读操作结束后才算是加上写锁。写操作获得互斥锁后，通过<code>atomic.AddInt32</code>把<code>rw.readerCount</code>值拷贝到<code>rw.readerWait</code>中，用于标记排在写操作goroutine前面的读操作goroutine个数。通过用于同步库的sleep原语<code>runtime_SemacquireMutex</code>阻塞等待这些读操作结束。在解读锁小结中我们知道，读操作结束时，除了会递减<code>rw.readerCount</code>，同时需要递减<code>rw.readerWait</code>值，当<code>rw.readerWait</code>值变为0时就会唤醒阻塞的写操作goroutine。</p>
+<h4 id="4-解写锁"><a href="#4-解写锁" class="headerlink" title="4. 解写锁"></a><strong>4. 解写锁</strong></h4><figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"> <span class="string">1func</span> <span class="string">(rw</span> <span class="string">*RWMutex)</span> <span class="string">Unlock()</span> <span class="string">&#123;</span></span><br><span class="line"> <span class="number">2</span>    <span class="string">r</span> <span class="string">:=</span> <span class="string">atomic.AddInt32(&amp;rw.readerCount,</span> <span class="string">rwmutexMaxReaders)</span></span><br><span class="line"> <span class="number">3</span>    <span class="string">if</span> <span class="string">r</span> <span class="string">&gt;=</span> <span class="string">rwmutexMaxReaders</span> <span class="string">&#123;</span></span><br><span class="line"> <span class="number">4</span>        <span class="string">race.Enable()</span></span><br><span class="line"> <span class="number">5</span>        <span class="string">throw("sync:</span> <span class="string">Unlock</span> <span class="string">of</span> <span class="string">unlocked</span> <span class="string">RWMutex")</span></span><br><span class="line"> <span class="number">6</span>    <span class="string">&#125;</span></span><br><span class="line"> <span class="number">7</span>    <span class="string">for</span> <span class="string">i</span> <span class="string">:=</span> <span class="number">0</span><span class="string">;</span> <span class="string">i</span> <span class="string">&lt;</span> <span class="string">int(r);</span> <span class="string">i++</span> <span class="string">&#123;</span></span><br><span class="line"> <span class="number">8</span>        <span class="string">runtime_Semrelease(&amp;rw.readerSem,</span> <span class="literal">false</span><span class="string">,</span> <span class="number">0</span><span class="string">)</span></span><br><span class="line"> <span class="number">9</span>    <span class="string">&#125;</span></span><br><span class="line"><span class="number">10</span>    <span class="string">rw.w.Unlock()</span></span><br><span class="line"><span class="number">11</span><span class="string">&#125;</span></span><br></pre></td></tr></table></figure>
+<p>在解写锁时，将负值的rw.readerCount变更为正值，解除对读锁的互斥，并唤醒r个因为写锁而阻塞的读操作goroutine。最后，通过调用互斥锁的Unlock方法，解除对写锁的互斥。</p>
+<p>到这里，我们可以图解一下<strong>Go是如何解决饥饿问题的</strong>。</p>
+<p><img src="2.png" alt="图片"></p>
+<p>假设G1、G2、G3是正在共享读的goroutine，<code>rw.readerCount</code>值为3。此时写操作G4进来，把<code>rw.readerCount</code>值变为了负值，同时它发现<code>rw.readerCount</code>不为0，因此阻塞等待。但是在G4的等待期间又有新的读操作G5、G6和写操作G7进来。由于此时的<code>rw.readerCount</code>值为负，所以G5和G6是不能加读锁成功的，会陷入阻塞等待。G7由于G4加了互斥锁也会陷入等待。当排在写操作G4前面的最后一个读操作G3结束，G3会唤醒G4。当G4结束时，它将G5、G6和G7均唤醒。但是G7需要等待G5和G6退出（因为它在试图加写锁时，会发现<code>rw.readerCount</code>不为0，会再次陷入阻塞等待）才能加写锁成功。以此反复，保证了读写锁的相对公平，避免一方挨饿。</p>
+<p><strong>总结</strong></p>
+<p>读写锁基于互斥锁，提供了更细粒度的控制，它适用于读写分明的场景，准确而言是读操作远多于写操作的情况。在多读少写的场景中，使用读写锁替代互斥锁能有效地提高程序运行效率。</p>
+<p>读读共享、读写互斥和写写互斥。在优先级方面，偏袒读锁或者写锁要分几种情况。</p>
+<ul>
+<li>锁空闲，此时是完全公平的，谁先进来谁就可以上锁。</li>
+<li>如果没有读操作，均是写操作，读写锁会退化成互斥锁，只有在互斥锁处于饥饿模式下才会公平。</li>
+<li>如果没有写操作，均是读操作，读操作均可以进来，读写锁退化成无锁设计（也并不是真正的无锁，因为加解锁均有原子操作<code>atomic.AddInt32</code>对读操作goroutine的统计）。</li>
+<li>被加读锁时，写操作进来会被阻塞。在写操作阻塞期间，如果有读操作试图进来，它们也会被阻塞。当阻塞写操作的最后一个读操作解读锁时，它只会唤醒被阻塞的写操作，之后进来的读操作需要该写操作完成之后被唤醒。这些被唤醒的读操作会比新的写操作（可以是新来的，也可以是因互斥锁而被阻塞的）先拿到锁，等待这些读操作完成，新的写操作才能拿到写锁。</li>
+</ul>
+<p>因为读写锁是基于互斥锁之上的设计，不可避免地多做了一些工作。因此，并不是说使用读写锁的收益一定会比互斥锁高。在选择何种锁时，需要综合考量读写操作的比例，临界区代码的耗时。性能比对的内容本文就不再讨论，读者可自行测试。</p>
+<p><a href="https://mp.weixin.qq.com/s/CEIQUa7H43FR7M1ghkDSGg" rel="external nofollow noopener noreferrer" target="_blank">以上内容转载自机器铃砍柴刀</a></p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/go/知识点/Go中WaitGroup源码设计/" rel="next" title="Go中看似简单的WaitGroup源码设计，竟然暗含这么多知识？">
+                <i class="fa fa-chevron-left"></i> Go中看似简单的WaitGroup源码设计，竟然暗含这么多知识？
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/go/知识点/Go精妙的互斥锁设计/" rel="prev" title="Go精妙的互斥锁设计">
+                Go精妙的互斥锁设计 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+    <div class="comments" id="gitalk-container">
+    </div>
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">172</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">28</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">46</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Go更细粒度的读写锁设计"><span class="nav-number">1.</span> <span class="nav-text">Go更细粒度的读写锁设计</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#1-加读锁"><span class="nav-number">1.0.1.</span> <span class="nav-text">1. 加读锁</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-解读锁"><span class="nav-number">1.0.2.</span> <span class="nav-text">2. 解读锁</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-加写锁"><span class="nav-number">1.0.3.</span> <span class="nav-text">3. 加写锁</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4-解写锁"><span class="nav-number">1.0.4.</span> <span class="nav-text">4. 解写锁</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+    
+
+<script src="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+
+
+
+<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.css">
+
+
+
+<script src="//cdn.jsdelivr.net/npm/js-md5@0.7.3/src/md5.min.js"></script>
+
+<script>
+  var gitalk = new Gitalk({
+    clientID: '5b2121bbea7ec818e582',
+    clientSecret: 'eb2ca92ba8b3579260d3c51d7c0c7183bf0ae948',
+    repo: 'github-pages-comments',
+    owner: 'shankusu2017',
+    admin: ['shankusu2017'],
+    id: md5(location.pathname),
+    
+      language: window.navigator.language || window.navigator.userLanguage,
+    
+    distractionFreeMode: 'true'
+  });
+  gitalk.render('gitalk-container');
+</script>
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
