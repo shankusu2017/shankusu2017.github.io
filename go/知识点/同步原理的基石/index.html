@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="en">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="同步原语的基石Go是一门以并发编程见长的语言，它提供了一系列的同步原语方便开发者使用，例如sync包下的Mutex、RWMutex、WaitGroup、Once、Cond，以及抽象层级更高的Channel。但是，它们的实现基石是原子操作。需要记住的是：软件原子操作离不开硬件指令的支持。本文拟通过探讨原子操作——比较并交换(compare and swap, CAS)的实现，来理解Go是如何借助硬件">
+<meta name="keywords" content="go,go知识点,Golang,内存同步">
+<meta property="og:type" content="article">
+<meta property="og:title" content="同步原理的基石">
+<meta property="og:url" content="https://shankusu2017.github.io/go/知识点/同步原理的基石/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="同步原语的基石Go是一门以并发编程见长的语言，它提供了一系列的同步原语方便开发者使用，例如sync包下的Mutex、RWMutex、WaitGroup、Once、Cond，以及抽象层级更高的Channel。但是，它们的实现基石是原子操作。需要记住的是：软件原子操作离不开硬件指令的支持。本文拟通过探讨原子操作——比较并交换(compare and swap, CAS)的实现，来理解Go是如何借助硬件">
+<meta property="og:locale" content="en">
+<meta property="og:image" content="https://shankusu2017.github.io/go/知识点/同步原理的基石/1.png">
+<meta property="og:image" content="https://shankusu2017.github.io/go/知识点/同步原理的基石/2.png">
+<meta property="og:updated_time" content="2021-04-30T08:04:45.075Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="同步原理的基石">
+<meta name="twitter:description" content="同步原语的基石Go是一门以并发编程见长的语言，它提供了一系列的同步原语方便开发者使用，例如sync包下的Mutex、RWMutex、WaitGroup、Once、Cond，以及抽象层级更高的Channel。但是，它们的实现基石是原子操作。需要记住的是：软件原子操作离不开硬件指令的支持。本文拟通过探讨原子操作——比较并交换(compare and swap, CAS)的实现，来理解Go是如何借助硬件">
+<meta name="twitter:image" content="https://shankusu2017.github.io/go/知识点/同步原理的基石/1.png">
+
+
+
+
+
+  
+  
+  <link rel="canonical" href="https://shankusu2017.github.io/go/知识点/同步原理的基石/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>同步原理的基石 | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="Toggle navigation bar">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>Home</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>Categories<span class="badge">27</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-guestbook">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/guestbook/" rel="section"><i class="menu-item-icon fa fa-fw fa-commenting"></i> <br>guestbook</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>About</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>Search</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="Searching..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+  
+  
+
+  
+
+  <a href="https://github.com/shankusu2017" class="github-corner" title="Follow me on GitHub" aria-label="Follow me on GitHub" rel="external nofollow noopener noreferrer" target="_blank"><svg width="80" height="80" viewbox="0 0 250 250" aria-hidden="true"><path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"/><path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"/><path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.5 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"/></svg></a>
+
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://shankusu2017.github.io/go/知识点/同步原理的基石/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光与你相随">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">同步原理的基石
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+          </span>
+
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             Views:  
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h2 id="同步原语的基石"><a href="#同步原语的基石" class="headerlink" title="同步原语的基石"></a>同步原语的基石</h2><p>Go是一门以并发编程见长的语言，它提供了一系列的同步原语方便开发者使用，例如<code>sync</code>包下的<code>Mutex</code>、<code>RWMutex</code>、<code>WaitGroup</code>、<code>Once</code>、<code>Cond</code>，以及抽象层级更高的<code>Channel</code>。但是，它们的实现基石是原子操作。需要记住的是：<strong>软件原子操作离不开硬件指令的支持</strong>。本文拟通过探讨原子操作——<strong>比较并交换(compare and swap, CAS)</strong>的实现，来理解Go是如何借助硬件指令来实现这一过程的。</p>
+<p><strong>什么是CAS</strong></p>
+<p>看源码实现之前，我们先理解一下CAS。</p>
+<p>维基百科定义：CAS是原子操作的一种，可用于在多线程编程中实现不被打断的数据交换操作，从而<strong>避免多线程同时改写某一数据时由于执行顺序不确定性以及中断的不可预知性产生的数据不一致问题</strong>。该操作通过将内存中的值与指定数据进行比较，当数值一样时将内存中的数据替换为新的值。</p>
+<p>CAS的实现思想可以用以下伪代码表示</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>bool Cas(<span class="keyword">int</span> *<span class="keyword">val</span>, <span class="keyword">int</span> old, <span class="keyword">int</span> <span class="keyword">new</span>)</span><br><span class="line"><span class="symbol">2 </span>Atomically:</span><br><span class="line"><span class="symbol">3 </span>   <span class="keyword">if</span>(*<span class="keyword">val</span> == old)&#123;</span><br><span class="line"><span class="symbol">4 </span>       *<span class="keyword">val</span> = <span class="keyword">new</span>;</span><br><span class="line"><span class="symbol">5 </span>       <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line"><span class="symbol">6 </span>   &#125; <span class="keyword">else</span> &#123;</span><br><span class="line"><span class="symbol">7 </span>       <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line"><span class="symbol">8 </span>   &#125;</span><br></pre></td></tr></table></figure>
+<p>在<code>sync/atomic/doc.go</code>中，定义了一系列原子操作函数原型。以<code>CompareAndSwapInt32</code>为例，有以下代码</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"> <span class="string">1package</span> <span class="string">main</span></span><br><span class="line"> <span class="number">2</span></span><br><span class="line"> <span class="string">3import</span> <span class="string">(</span></span><br><span class="line"> <span class="number">4</span>    <span class="string">"fmt"</span></span><br><span class="line"> <span class="number">5</span>    <span class="string">"sync/atomic"</span></span><br><span class="line"> <span class="number">6</span><span class="string">)</span></span><br><span class="line"> <span class="number">7</span></span><br><span class="line"> <span class="string">8func</span> <span class="string">main()</span> <span class="string">&#123;</span></span><br><span class="line"> <span class="number">9</span>    <span class="string">a</span> <span class="string">:=</span> <span class="string">int32(10)</span></span><br><span class="line"><span class="number">10</span>    <span class="string">ok</span> <span class="string">:=</span> <span class="string">atomic.CompareAndSwapInt32(&amp;a,</span> <span class="number">10</span><span class="string">,</span> <span class="number">100</span><span class="string">)</span></span><br><span class="line"><span class="number">11</span>    <span class="string">fmt.Println(a,</span> <span class="string">ok)</span></span><br><span class="line"><span class="number">12</span>    <span class="string">ok</span> <span class="string">=</span> <span class="string">atomic.CompareAndSwapInt32(&amp;a,</span> <span class="number">10</span><span class="string">,</span> <span class="number">50</span><span class="string">)</span></span><br><span class="line"><span class="number">13</span>    <span class="string">fmt.Println(a,</span> <span class="string">ok)</span></span><br><span class="line"><span class="number">14</span><span class="string">&#125;</span></span><br></pre></td></tr></table></figure>
+<p>它的执行结果如下</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">1 </span>$ go <span class="keyword">run</span> main.go</span><br><span class="line"><span class="symbol">2100 </span>true</span><br><span class="line"><span class="symbol">3100 </span>false</span><br></pre></td></tr></table></figure>
+<p><strong>CAS能做什么</strong></p>
+<p>CAS从线程层面来说，它是非阻塞的，其乐观地认为在数据更新期间没有其他线程影响，因此也常常被称为是一种轻量级的乐观锁。它关注的是并发安全，而并非并发同步。</p>
+<p>在文章开头时，我们就已经提到原子操作是实现上层同步原语的基石。以互斥锁为例，为了方便理解，我们在这里将它的状态定义为0和1，0代表目前该锁空闲，1代表已被加锁。那么，这个时候，CAS就是管理状态的最佳选择。以下是<code>sync.Mutex</code>中<code>Lock</code>方法的部分实现代码。</p>
+<figure class="highlight lsl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">1</span>func (m *Mutex) Lock() &#123;</span><br><span class="line"> <span class="number">2</span>    <span class="comment">// Fast path: grab unlocked mutex.</span></span><br><span class="line"> <span class="number">3</span>    if atomic.CompareAndSwapInt32(&amp;m.<span class="section">state</span>, <span class="number">0</span>, mutexLocked) &#123;</span><br><span class="line"> <span class="number">4</span>        if race.Enabled &#123;</span><br><span class="line"> <span class="number">5</span>            race.Acquire(unsafe.Pointer(m))</span><br><span class="line"> <span class="number">6</span>        &#125;</span><br><span class="line"> <span class="number">7</span>        return</span><br><span class="line"> <span class="number">8</span>    &#125;</span><br><span class="line"> <span class="number">9</span>    <span class="comment">// Slow path (outlined so that the fast path can be inlined)</span></span><br><span class="line"><span class="number">10</span>    m.lockSlow()</span><br><span class="line"><span class="number">11</span>&#125;</span><br></pre></td></tr></table></figure>
+<p>在<code>atomic.CompareAndSwapInt32(&amp;m.state, 0, mutexLocked)</code>中，<code>m.state</code>代表锁的状态，通过CAS函数，判断锁此时的状态是否空闲（<code>m.state==0</code>），是，则对其加锁（这里<code>mutexLocked</code>的值为1）。</p>
+<p><strong>源码解读</strong></p>
+<p>同样还是以<code>CompareAndSwapInt32</code>为例，它在<code>sync/atomic/doc.go</code>中定义的函数原型如下</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span><span class="keyword">func</span> CompareAndSwapInt32(addr *<span class="keyword">int32</span>, old, <span class="built_in">new</span> <span class="keyword">int32</span>) (swapped <span class="keyword">bool</span>)</span><br><span class="line"><span class="number">2</span></span><br></pre></td></tr></table></figure>
+<p>对应的汇编代码位于<code>sync/atomic/asm.s</code>中</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>TEXT ·CompareAndSwapInt32(SB),NOSPLIT,$<span class="number">0</span></span><br><span class="line"><span class="symbol">2 </span>   JMP runtime∕internal∕atomic·Cas(SB)</span><br></pre></td></tr></table></figure>
+<p>通过指令<code>JMP</code>，跳转到它的实际实现<code>runtime∕internal∕atomic·Cas(SB)</code>。这里需要注意的是，由于架构体系差异，其汇编实现也会存在差别。在本文，我们就以常见的<code>amd64</code>为例，因此进入<code>runtime/internal/atomic/asm_amd64.s</code>，汇编代码如下</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>TEXT runtime∕internal∕atomic·Cas(SB),NOSPLIT,$<span class="number">0</span>-<span class="number">17</span></span><br><span class="line"><span class="symbol">2 </span>   MOVQ    ptr+<span class="number">0</span>(FP), BX</span><br><span class="line"><span class="symbol">3 </span>   MOVL    old+<span class="number">8</span>(FP), AX</span><br><span class="line"><span class="symbol">4 </span>   MOVL    <span class="keyword">new</span>+<span class="number">12</span>(FP), CX</span><br><span class="line"><span class="symbol">5 </span>   LOCK</span><br><span class="line"><span class="symbol">6 </span>   CMPXCHGL    CX, <span class="number">0</span>(BX)</span><br><span class="line"><span class="symbol">7 </span>   SETEQ   ret+<span class="number">16</span>(FP)</span><br><span class="line"><span class="symbol">8 </span>   RET</span><br></pre></td></tr></table></figure>
+<p>Go的汇编是基于 <code>Plan9</code> 的，我想是因为<strong>Ken Thompson</strong>（他是<code>Plan 9</code>操作系统的核心成员）吧。如果你不熟悉<code>Plan 9</code>，看到这段汇编可能比较懵。小菜刀觉得没必要花过多时间去学懂，因为它很复杂且另类，同时涉及到很多硬件知识。不过如果只是要求看懂简单的汇编代码，稍微研究下还是能够做到的。</p>
+<p>由于本文的重点并不是plan 9，所以这里就只解释上述汇编代码的含义。</p>
+<p><img src="1.png" alt="图片"></p>
+<p><code>atomic.Cas(SB)</code>的函数原型为<code>func CompareAndSwapInt32(addr *int32, old, new int32) (swapped bool)</code>，其入参<code>addr</code>为8个字节（64位系统），<code>old</code>和<code>new</code>分别为4个字节，返回参数<code>swapped</code>为1个字节，所以17=8+4+4+1。</p>
+<p><strong>FP（Frame pointer: arguments and locals）</strong>，它是伪寄存器，用来表示函数参数与局部变量。其通过<code>symbol+offset(FP)</code>的方式进行使用。在本函数中，我们可以把FP指向的内容表示为如下所示。</p>
+<p><img src="2.png" alt="图片"></p>
+<p><code>ptr+0(FP)</code>代表的意思就是ptr从FP偏移0byte处取内容。<code>AX</code>，<code>BX</code>，<code>CX</code>在这里，知道它们是存放数据的寄存器即可。<code>MOV X Y</code>所做的操作是将<code>X</code>上的内容复制到<code>Y</code>上去，<code>MOV</code>后缀<code>L</code>表示“长字”（32位，4个字节），<code>Q</code>表示“四字”（64位，8个字节）。</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">1 </span>MOVQ     ptr+<span class="number">0</span>(FP), BX  // 第一个参数addr命名为ptr，放入BP(MOVQ，完成<span class="number">8</span>个字节的复制)</span><br><span class="line"><span class="symbol">2 </span>MOVL     old+<span class="number">8</span>(FP), AX  // 第二个参数old，放入AX（MOVL，完成<span class="number">4</span>个字节的复制）</span><br><span class="line"><span class="symbol">3 </span>MOVL     <span class="keyword">new</span>+<span class="number">12</span>(FP), CX // 第三个参数<span class="keyword">new</span>，放入CX（MOVL，完成<span class="number">4</span>个字节的复制）</span><br></pre></td></tr></table></figure>
+<p>重点来了，<code>LOCK</code>指令。这里参考 Intel 的64位和IA-32架构开发手册</p>
+<figure class="highlight livecodeserver"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>Causes <span class="keyword">the</span> processor’s LOCK<span class="comment"># signal to be asserted during execution of the accompanying instruction (turns the instruction into an atomic instruction). In a multiprocessor environment, the LOCK# signal ensures that the processor has exclusive use of any shared memory while the signal is asserted.</span></span><br></pre></td></tr></table></figure>
+<p>在多处理器环境中，指令前缀LOCK能够确保，在执行LOCK随后的指令时，处理器拥有对任何共享内存的独占使用。</p>
+<p>LOCK：是一个指令前缀，其后必须跟一条“<strong>读-改-写</strong>”性质的指令，它们可以是ADD, ADC, AND, BTC, BTR, BTS, CMPXCHG, CMPXCH8B, CMPXCHG16B, DEC, INC, NEG, NOT, OR, SBB, SUB, XOR, XADD,  XCHG。该指令是一种锁定协议，用于封锁<strong>总线</strong>，禁止其他 CPU 对内存的操作来保证原子性。</p>
+<p>在汇编代码里给指令加上 LOCK 前缀，这是CPU 在<strong>硬件层面支持的原子操作</strong>。但这样的锁<strong>粒度太粗</strong>，其他无关的内存操作也会被阻塞，大幅<strong>降低系统性能</strong>，核数越多愈发显著。</p>
+<p>为了提高性能，Intel 从 Pentium 486 开始引入了粒度较细的<strong>缓存锁：MESI协议</strong>（关于该协议，小菜刀在之前的文章《<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484486&amp;idx=1&amp;sn=83ebd97be71caad3537502e459182f88&amp;chksm=973710e8a04099fe6f113c38a9e9940c0ff590877ad7ba0a0f4c383356e91619574f052a6064&amp;scene=21#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">CPU缓存体系对Go程序的影响</a>》有详细介绍过）。此时，尽管有LOCK前缀，但如果对应数据已经在 cache line里，也就不用锁定总线，仅锁住缓存行即可。</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">1 </span>   LOCK</span><br><span class="line"><span class="symbol">2 </span>   CMPXCHGL    CX, <span class="number">0</span>(BX)</span><br></pre></td></tr></table></figure>
+<p><code>CMPXCHGL</code>，<code>L</code>代表4个字节。该指令会把<code>AX</code>（累加器寄存器）中的内容（<code>old</code>）和第二个操作数（<code>0(BX)</code>）中的内容（<code>ptr</code>所指向的数据）比较。如果相等，则把第一个操作数（<code>CX</code>）中的内容（<code>new</code>）赋值给第二个操作数。</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">1 </span>SETEQ    ret+<span class="number">16</span>(FP)</span><br><span class="line"><span class="symbol">2 </span>RET</span><br></pre></td></tr></table></figure>
+<p><code>SETEQ</code> 与<code>CMPXCHGL</code>是配合使用的，如果<code>CMPXCHGL</code>中比较结果是相等的，则设置<code>ret</code>（即函数原型中的<code>swapped</code>）为1，不等则设置为0。<code>RET</code>代表函数返回。</p>
+<p><strong>总结</strong></p>
+<p>本文探讨了<code>atomic.CompareAndSwapInt32</code>是如何通过硬件指令<code>LOCK</code>实现原子性操作的封装。但要记住，在不同的架构平台，依赖的机器指令是不同的，本文仅研究的是<code>amd64</code>下的汇编实现。</p>
+<p>在Go提供的原子操作库atomic中，除了CAS还有许多有用的原子方法，<strong>它们共同筑起了Go同步原语体系的基石</strong>。</p>
+<figure class="highlight lisp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>func SwapIntX(<span class="name">addr</span> *intX, new intX) (old intX)</span><br><span class="line">2func CompareAndSwapIntX(addr *intX, old, new intX) (<span class="name">swapped</span> bool)</span><br><span class="line"><span class="number">3</span>func AddIntX(<span class="name">addr</span> *intX, delta intX) (new intX)</span><br><span class="line">4func LoadIntX(addr *uintX) (<span class="name">val</span> uintX)</span><br><span class="line"><span class="number">5</span>func StoreIntX(<span class="name">addr</span> *intX, val intX)</span><br><span class="line">6func XPointer(addr *unsafe.Pointer, val unsafe.Pointer)</span><br><span class="line"><span class="number">7</span></span><br></pre></td></tr></table></figure>
+<p>那么它们是如何实现的？小菜刀将它们实现的关键指令总结如下。</p>
+<ul>
+<li><strong>Swap</strong> : <code>XCHGQ</code></li>
+<li><strong>CAS</strong> : <code>LOCK</code>+ <code>CMPXCHGQ</code></li>
+<li><strong>Add</strong> : <code>LOCK</code> + <code>XADDQ</code></li>
+<li><strong>Load</strong> : <code>MOVQ</code></li>
+<li><strong>Store</strong> : <code>XCHGQ</code></li>
+<li><strong>Pointer</strong> : 以上指令结合GC 调度</li>
+</ul>
+<p>这里大家可能会好奇，<code>Swap</code>和<code>Store</code>会对共享数据做修改，但是为啥它们没有加<code>LOCK</code>，小菜刀对此也同样疑惑。好在 Intel 的64位和IA-32架构开发手册中给出了答案：</p>
+<figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">1If a memory operand is referenced, the processor’s locking protocol is automatically implemented <span class="keyword">for</span> the duration of the exchange operation, regardless of the presence <span class="keyword">or</span> absence of the LOCK<span class="built_in"> prefix </span><span class="keyword">or</span> of the value of the IOPL</span><br></pre></td></tr></table></figure>
+<p>在实现<code>Swap</code>和<code>Store</code>方法时，其实不管是否存在<code>LOCK</code>前缀，在交换操作期间（<code>XCHGQ</code>）将自动实现CPU的锁定协议。</p>
+<p>除此之外，在<code>Load</code>和<code>Store/Swap</code>的实现中，前者没有使用锁定协议，而后者需要。两者结合，那这不就是一种读共享，写独占的思想吗？</p>
+<p><a href="https://mp.weixin.qq.com/s/KpLJkxDV1tofIOnJeyH2mg" rel="external nofollow noopener noreferrer" target="_blank">以上内容转载自机器铃砍柴刀</a></p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/go/" rel="tag"> <i class="fa fa-tag"></i> go</a>
+          
+            <a href="/tags/go知识点/" rel="tag"> <i class="fa fa-tag"></i> go知识点</a>
+          
+            <a href="/tags/Golang/" rel="tag"> <i class="fa fa-tag"></i> Golang</a>
+          
+            <a href="/tags/内存同步/" rel="tag"> <i class="fa fa-tag"></i> 内存同步</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/go/知识点/append扩容机制/" rel="next" title="Golang append扩容机制">
+                <i class="fa fa-chevron-left"></i> Golang append扩容机制
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+    <div class="comments" id="gitalk-container">
+    </div>
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光与你相随</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">168</span>
+                    <span class="site-state-item-name">posts</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">27</span>
+                    <span class="site-state-item-name">categories</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">44</span>
+                    <span class="site-state-item-name">tags</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+            </div>
+          
+
+          
+             <div class="cc-license motion-element" itemprop="license">
+              
+              
+                
+              
+              
+              
+              <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" class="cc-opacity" rel="external nofollow noopener noreferrer" target="_blank"><img src="/images/cc-by-nc-sa.svg" alt="Creative Commons"></a>
+             </div>
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#同步原语的基石"><span class="nav-number">1.</span> <span class="nav-text">同步原语的基石</span></a></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="Total Visitors">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="Total Views">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+    
+
+<script src="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+
+
+
+<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.css">
+
+
+
+<script src="//cdn.jsdelivr.net/npm/js-md5@0.7.3/src/md5.min.js"></script>
+
+<script>
+  var gitalk = new Gitalk({
+    clientID: '5b2121bbea7ec818e582',
+    clientSecret: 'eb2ca92ba8b3579260d3c51d7c0c7183bf0ae948',
+    repo: 'github-pages-comments',
+    owner: 'shankusu2017',
+    admin: ['shankusu2017'],
+    id: md5(location.pathname),
+    
+      language: window.navigator.language || window.navigator.userLanguage,
+    
+    distractionFreeMode: 'true'
+  });
+  gitalk.render('gitalk-container');
+</script>
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('Copy').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('Copied');
+        else $(this).text('Copy failed');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('Copy');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
