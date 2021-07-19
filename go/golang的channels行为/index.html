@@ -1,0 +1,1754 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="zh-CN">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+  <meta name="baidu-site-verification" content="code-legvFikwxc">
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="简介当我第一次使用 Go 的 channels 工作的时候，我犯了一个错误，把 channels 考虑为一个数据结构。我把 channels 看作为 goroutines 之间提供自动同步访问的队列。这种结构上的理解导致我写了很多不好且结构复杂的并发代码。 随着时间的推移，我认识到最好的方式是忘记 channels 是数据结构，转而关注它的行为。所以现在谈论到 channels，我只考虑一件事情：">
+<meta property="og:type" content="article">
+<meta property="og:title" content="golang 的channels 行为">
+<meta property="og:url" content="http://www.shankusu.me/go/golang的channels行为/index.html">
+<meta property="og:site_name" content="知识中转站">
+<meta property="og:description" content="简介当我第一次使用 Go 的 channels 工作的时候，我犯了一个错误，把 channels 考虑为一个数据结构。我把 channels 看作为 goroutines 之间提供自动同步访问的队列。这种结构上的理解导致我写了很多不好且结构复杂的并发代码。 随着时间的推移，我认识到最好的方式是忘记 channels 是数据结构，转而关注它的行为。所以现在谈论到 channels，我只考虑一件事情：">
+<meta property="og:locale" content="zh-CN">
+<meta property="og:image" content="https://segmentfault.com/img/bV83A8?w=1264&h=380">
+<meta property="og:image" content="https://segmentfault.com/img/bV83F2?w=1666&h=544">
+<meta property="og:image" content="https://segmentfault.com/img/bV83LG?w=1662&h=382">
+<meta property="og:image" content="https://segmentfault.com/img/bV83O2?w=1660&h=388">
+<meta property="og:updated_time" content="2021-07-19T08:24:04.047Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="golang 的channels 行为">
+<meta name="twitter:description" content="简介当我第一次使用 Go 的 channels 工作的时候，我犯了一个错误，把 channels 考虑为一个数据结构。我把 channels 看作为 goroutines 之间提供自动同步访问的队列。这种结构上的理解导致我写了很多不好且结构复杂的并发代码。 随着时间的推移，我认识到最好的方式是忘记 channels 是数据结构，转而关注它的行为。所以现在谈论到 channels，我只考虑一件事情：">
+<meta name="twitter:image" content="https://segmentfault.com/img/bV83A8?w=1264&h=380">
+
+
+
+  <link rel="alternate" href="/atom.xml" title="知识中转站" type="application/atom+xml">
+
+
+
+  
+  
+  <link rel="canonical" href="http://www.shankusu.me/go/golang的channels行为/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>golang 的channels 行为 | 知识中转站</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-CN">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">知识中转站</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="切换导航栏">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>首页</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>分类<span class="badge">35</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-lua">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/lua" rel="section"><i class="menu-item-icon fa fa-fw fa-moon-o"></i> <br>lua</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-go">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/go" rel="section"><i class="menu-item-icon fa fa-fw fa-google"></i> <br>go</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-weekly">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/weekly" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>周记</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-links">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/link" rel="section"><i class="menu-item-icon fa fa-fw fa-external-link"></i> <br>友情链接</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-guestbook">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/guestbook/" rel="section"><i class="menu-item-icon fa fa-fw fa-commenting"></i> <br>留言册</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>关于</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>搜索</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="搜索..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://www.shankusu.me/go/golang的channels行为/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光伴你左右">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知识中转站">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">golang 的channels 行为
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          
+          
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+              
+
+              
+                
+
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                
+                  <span class="post-meta-item-text">更新于</span>
+                
+                <time title="修改时间：2021-07-19 16:24:04" itemprop="dateModified" datetime="2021-07-19T16:24:04+08:00">2021-07-19</time>
+              
+            
+          </span>
+
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/go/" itemprop="url" rel="index"><span itemprop="name">go</span></a></span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             阅读次数： 
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h2 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h2><p>当我第一次使用 Go 的 channels 工作的时候，我犯了一个错误，把 channels 考虑为一个数据结构。我把 channels 看作为 goroutines 之间提供自动同步访问的队列。这种结构上的理解导致我写了很多不好且结构复杂的并发代码。</p>
+<p>随着时间的推移，我认识到最好的方式是忘记 channels 是数据结构，转而关注它的行为。所以现在谈论到 channels，我只考虑一件事情：signaling（信号）。一个 channel 允许一个 goroutine 给另外一个发特定事件的信号。信号是使用 channel 做一切事情的核心。将 channel 看作是一种信号机制，可以让你写出明确定义和精确行为的更好代码。</p>
+<p>为了理解信号怎样工作，我们必须理解以下三个特性：</p>
+<ul>
+<li>交付保证</li>
+<li>状态</li>
+<li>有数据或无数据</li>
+</ul>
+<p>这三个特性共同构成了围绕信号的设计哲学，在讨论这些特性之后，我将提供一系列代码示例，这些示例将演示使用这些属性的信号。</p>
+<h2 id="交付保证"><a href="#交付保证" class="headerlink" title="交付保证"></a>交付保证</h2><p>交付保证基于一个问题：“我是否需要保证由特定的 goroutine 发送的信号已经被接收？”</p>
+<p>换句话说，我们可以给出清单1的示例：</p>
+<p><strong>清单1</strong></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span>go func() &#123;</span><br><span class="line"><span class="symbol">02 </span>    p := &lt;-ch // Receive</span><br><span class="line"><span class="symbol">03 </span>&#125;()</span><br><span class="line"><span class="number">04</span></span><br><span class="line"><span class="symbol">05 </span>ch &lt;- <span class="string">"paper"</span> // Send</span><br></pre></td></tr></table></figure>
+<p>发送的 goroutine 是否需要保证在第五行中发送给 channel 的 paper，在继续执行前， 会被第二行的 goroutine 接收。</p>
+<p>基于这个问题的答案，你将知道使用两种类型的 channels 中的哪种：<strong>无缓冲</strong>或<strong>有缓冲</strong>。每个channel围绕交付保证提供不同的行为。</p>
+<p><strong>图1</strong></p>
+<p><img src="https://segmentfault.com/img/bV83A8?w=1264&amp;h=380" alt="clipboard.png"></p>
+<p>保证很重要，并且如果你不这样认为，我有很多东西兜售给你。当然，我想开个玩笑，当你的生活没有保障的时候你不会害怕吗？在编写并发代码时，对是否需要一项保证有很强的理解是至关重要的。随着继续，你将学会如何做决策。</p>
+<h2 id="状态"><a href="#状态" class="headerlink" title="状态"></a>状态</h2><p>一个 channel 的行为直接被它当前的状态所影响。一个channel 的状态是：<strong>nil</strong>，<strong>open</strong> 或 <strong>closed</strong>。</p>
+<p>下面的清单2展示了怎样声明或把一个 channel放进这三个状态。</p>
+<p><strong>清单2</strong></p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ** nil channel</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// A channel is in a nil state when it is declared to its zero value</span></span><br><span class="line"><span class="keyword">var</span> ch <span class="keyword">chan</span> <span class="keyword">string</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// A channel can be placed in a nil state by explicitly setting it to nil.</span></span><br><span class="line">ch = <span class="literal">nil</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment">// ** open channel</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// A channel is in a open state when it’s made using the built-in function make.</span></span><br><span class="line">ch := <span class="built_in">make</span>(<span class="keyword">chan</span> <span class="keyword">string</span>)    </span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment">// ** closed channel</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// A channel is in a closed state when it’s closed using the built-in function close.</span></span><br><span class="line"><span class="built_in">close</span>(ch)</span><br></pre></td></tr></table></figure>
+<p>状态决定了怎样<strong>send</strong>（发送）和<strong>receive</strong>（接收）操作行为。</p>
+<p>信号通过一个 channel 发送和接收。不要说读和写，因为 channels 不执行 I/O。</p>
+<p><strong>图2</strong></p>
+<p><img src="https://segmentfault.com/img/bV83F2?w=1666&amp;h=544" alt="clipboard.png"></p>
+<p>当一个 channel 是 <strong>nil</strong> 状态，任何试图在 channel 的发送或接收都将会被阻塞。当一个 channel 是在 <strong>open</strong> 状态，信号可以被发送和接收。当一个 channel 被置为 <strong>closed</strong> 状态，信号将不在被发送，但是依然可以接收信号。</p>
+<p>这些状态将在你遭遇不同的情况的时候可以提供不同的行为。当结合<strong>状态</strong>和<strong>交付保证</strong>，作为你设计选择的结果，你可以分析你承担的成本/收益。你也可以仅仅通过读代码快速发现错误，因为你懂得 channel 将表现出什么行为。</p>
+<h2 id="有数据和无数据"><a href="#有数据和无数据" class="headerlink" title="有数据和无数据"></a>有数据和无数据</h2><p>最后的信号特性需要考虑你是否需要信号有数据或者无数据。</p>
+<p>在一个 channel 中有数据的信号被执行一个发送。</p>
+<p><strong>清单3</strong></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span>ch &lt;- <span class="string">"paper"</span></span><br></pre></td></tr></table></figure>
+<p>当你的信号有数据，它通常是因为：</p>
+<ul>
+<li>一个 goroutine 被要求启动一个新的 task。</li>
+<li>一个 goroutine 传达一个结果。</li>
+</ul>
+<p>无数据信号通过关闭一个 channel。</p>
+<p><strong>清单4</strong></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span><span class="keyword">close</span>(ch)</span><br></pre></td></tr></table></figure>
+<p>当信号没有数据的时候，它通常是因为：</p>
+<ul>
+<li>一个 goroutine 被告知停止它正在做的事情。</li>
+<li>一个 goroutine 报告它们已经完成，没有结果。</li>
+<li>一个 goroutine 报告它已经完成处理并且关闭。</li>
+</ul>
+<p>这些规则也有例外，但这些都是主要的用例，并且我们将在本文中重点讨论这些问题。我认为这些规则例外的情况是最初的代码味道。</p>
+<p>无数据信号的一个好处是一个单独的 goroutine 可以立刻给很多 goroutines 信号。有数据的信号通常是在 goroutines 之间一对一的交换数据。</p>
+<h2 id="有数据信号"><a href="#有数据信号" class="headerlink" title="有数据信号"></a>有数据信号</h2><p>当你使用有数据信号的时候，依赖于你需要保证的类型，有三个channel配置选项可以选择。</p>
+<p><strong>图3：有数据信号</strong></p>
+<p><img src="https://segmentfault.com/img/bV83LG?w=1662&amp;h=382" alt="clipboard.png"></p>
+<p>这三个 channel 选项是：<strong>Unbuffered</strong>, <strong>Buffered &gt;1</strong> 或 <strong>Buffered =1</strong>。</p>
+<ul>
+<li><strong>有保证</strong><ul>
+<li>一个<strong>无缓冲</strong>的channel给你保证被发送的信号已经被接收。<ul>
+<li>因为信号接收发生在信号发送完成之前。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>无保证</strong><ul>
+<li>一个 <code>size &gt; 1</code>的有缓冲的 channel 不会保证发送的信号已经被接收。<ul>
+<li>因为信号发送发生在信号接送完成之前。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><strong>延迟保证</strong><ul>
+<li>一个 <code>size = 1</code> 的有缓冲 channel 提供延迟保证。它可以保证先前发送的信号已经被接收。<ul>
+<li>因为第一个接收信号，发生在第二个完成的发送信号之前。</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p>缓冲大小绝对不能是一个随机数字，它必须是为一些定义好的约束而计算出来的。在计算中没有无穷大，无论是空间还是时间，所有的东西都必须要有良好的定义约束。</p>
+<h2 id="无数据信号"><a href="#无数据信号" class="headerlink" title="无数据信号"></a>无数据信号</h2><p>无数据信号主要用于取消，它允许一个 goroutine 发送信号给另外一个来取消它们正在做的事情。取消可以被有缓冲和无缓冲的channels实现，但是在没有数据发送的情况下使用缓冲 channel 会更好。</p>
+<p><strong>图4：无数据信号</strong></p>
+<p><img src="https://segmentfault.com/img/bV83O2?w=1660&amp;h=388" alt="clipboard.png"></p>
+<p>内建的函数 <code>close</code> 被用于无数据信号。正如上面<strong>状态</strong>章节所解释的那样，你依然可以在channel关闭的时候接收信号。实际上，在一个关闭的channel上的任何接收都不会被阻塞，并且接收操作将一直返回。</p>
+<p>在大多数情况下，你想使用标准的库 <code>context</code> 包来实现无数据信号。<code>context</code> 包使用一个无缓冲channel传递信号以及内建函数<code>close</code>发送无数据信号。</p>
+<p>如果你选择使用你自己的 channel 而不是 <code>context</code>包来取消，你的channel 应该是<code>chan struct{}</code> 类型，这是一种零空间的惯用方式，用来表示一个信号仅仅用于信号传递。</p>
+<h2 id="场景"><a href="#场景" class="headerlink" title="场景"></a>场景</h2><p>有了这些特性，更进一步理解它们在实践中怎样工作的最好方式就是运行一系列的代码场景。当我在读写 channel 基础代码的时候，我喜欢把goroutines想像成人。这个形象对我非常有帮助，我将把它用作下面的辅助工具。</p>
+<h3 id="有数据信号-保证-无缓冲-Channels"><a href="#有数据信号-保证-无缓冲-Channels" class="headerlink" title="有数据信号 - 保证 - 无缓冲 Channels"></a>有数据信号 - 保证 - 无缓冲 Channels</h3><p>当你需要知道一个被发送的信号已经被接收的时候，有两种情况需要考虑。它们是 <strong>等待任务</strong>和<strong>等待结果</strong>。</p>
+<h4 id="场景1-等待任务"><a href="#场景1-等待任务" class="headerlink" title="场景1 - 等待任务"></a>场景1 - 等待任务</h4><p>考虑一下作为一名经理，需要雇佣一名新员工。在本场景中，你想你的新员工执行一个任务，但是他们需要等待直到你准备好。这是因为在他们开始前你需要递给他们一份报告。</p>
+<p><strong>清单5</strong></p>
+<p><a href="https://link.segmentfault.com/?url=https%3A%2F%2Fplay.golang.org%2Fp%2FBnVEHRCcdh" rel="external nofollow noopener noreferrer" target="_blank">在线演示地址</a></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span>func waitForTask() &#123;</span><br><span class="line"><span class="symbol">02 </span>    ch := make(chan string)</span><br><span class="line"><span class="number">03</span></span><br><span class="line"><span class="symbol">04 </span>    go func() &#123;</span><br><span class="line"><span class="symbol">05 </span>        p := &lt;-ch</span><br><span class="line"><span class="number">06</span></span><br><span class="line"><span class="symbol">07 </span>        // Employee performs work here.</span><br><span class="line"><span class="number">08</span></span><br><span class="line"><span class="symbol">09 </span>        // Employee is done <span class="keyword">and</span> free <span class="keyword">to</span> go.</span><br><span class="line"><span class="symbol">10 </span>    &#125;()</span><br><span class="line"><span class="number">11</span></span><br><span class="line"><span class="symbol">12 </span>    time.Sleep(time.Duration(rand.Intn(<span class="number">500</span>)) * time.Millisecond)</span><br><span class="line"><span class="number">13</span></span><br><span class="line"><span class="symbol">14 </span>    ch &lt;- <span class="string">"paper"</span></span><br><span class="line"><span class="symbol">15 </span>&#125;</span><br></pre></td></tr></table></figure>
+<p>在清单5的第2行，一个带有属性的无缓冲channel被创建，<code>string</code> 数据将与信号一起被发送。在第4行，一名员工被雇佣并在开始工作前，被告诉等待你的信号【在第5行】。第5行是一个 channel 接收，引起员工阻塞直到等到你发送的报告。一旦报告被员工接收，员工将执行工作并在完成的时候可以离开。</p>
+<p>你作为经理正在并发的与你的员工工作。因此在第4行你雇佣员工之后，你发现你自己需要做什么来解锁并且发信号给员工（第12行）。值得注意的是，不知道要花费多长的时间来准备这份报告（paper）。</p>
+<p>最终你准备好给员工发信号，在第14行，你执行一个有数据信号，数据就是那份报告。由于一个无缓冲的channel被使用，你得到一个保证就是一旦你操作完成，员工就已经接收到了这份报告。接收发生在发送之前。</p>
+<p>技术上你所知道的一切就是在你的channel发送操作完成的同时员工接收到了这份报告。在两个channel操作之后，调度器可以选择执行它想要执行的任何语句。下一行被执行的代码是被你还是员工是不确定的。这意味着使用print语句会欺骗你关于事件的执行顺序。</p>
+<h4 id="场景2-等待结果"><a href="#场景2-等待结果" class="headerlink" title="场景2 - 等待结果"></a>场景2 - 等待结果</h4><p>在下一个场景中，事情是相反的。这时你想你的员工一被雇佣就立即执行他们的任务。然后你需要等待他们工作的结果。你需要等待是因为在你继续前你需要他们发来的报告。</p>
+<p><strong>清单6</strong><br><a href="https://link.segmentfault.com/?url=https%3A%2F%2Fplay.golang.org%2Fp%2FVFAWHxIQTP" rel="external nofollow noopener noreferrer" target="_blank">在线演示地址</a></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span>func waitForResult() &#123;</span><br><span class="line"><span class="symbol">02 </span>    ch := make(chan string)</span><br><span class="line"><span class="number">03</span></span><br><span class="line"><span class="symbol">04 </span>    go func() &#123;</span><br><span class="line"><span class="symbol">05 </span>        time.Sleep(time.Duration(rand.Intn(<span class="number">500</span>)) * time.Millisecond)</span><br><span class="line"><span class="number">06</span></span><br><span class="line"><span class="symbol">07 </span>        ch &lt;- <span class="string">"paper"</span></span><br><span class="line"><span class="number">08</span></span><br><span class="line"><span class="symbol">09 </span>        // Employee is done <span class="keyword">and</span> free <span class="keyword">to</span> go.</span><br><span class="line"><span class="symbol">10 </span>    &#125;()</span><br><span class="line"><span class="number">11</span></span><br><span class="line"><span class="symbol">12 </span>    p := &lt;-ch</span><br><span class="line"><span class="symbol">13 </span>&#125;</span><br></pre></td></tr></table></figure>
+<h4 id="成本-收益"><a href="#成本-收益" class="headerlink" title="成本/收益"></a>成本/收益</h4><p>无缓冲 channel 提供了信号被发送就会被接收的保证，这很好，但是没有任何东西是没有代价的。这个成本就是保证是未知的延迟。在<strong>等待任务</strong>场景中，员工不知道你要花费多长时间发送你的报告。在<strong>等待结果</strong>场景中，你不知道员工会花费多长时间把报告发送给你。</p>
+<p>在以上两个场景中，未知的延迟是我们必须面对的，因为它需要保证。没有这种保证行为，逻辑就不会起作用。</p>
+<h3 id="有数据信号-无保证-缓冲-Channels-gt-1"><a href="#有数据信号-无保证-缓冲-Channels-gt-1" class="headerlink" title="有数据信号 - 无保证 - 缓冲 Channels &gt; 1"></a>有数据信号 - 无保证 - 缓冲 Channels &gt; 1</h3><h4 id="场景1-扇出（Fan-Out）"><a href="#场景1-扇出（Fan-Out）" class="headerlink" title="场景1 - 扇出（Fan Out）"></a>场景1 - 扇出（Fan Out）</h4><p>扇出模式允许你抛出明确定义数量的员工在同时工作的问题上。由于你每个任务都有一个员工，你很明确的知道你会接收多少个报告。你可能需要确保你的盒子有适量的空间来接收所有的报告。这就是你员工的收益，不需要等待你来提交他们的报告。但是他们确实需要轮流把报告放进你的盒子，如果他们几乎同一时间到达盒子。</p>
+<p>再次假设你是经理，但是这次你雇佣一个团队的员工，你有一个单独的任务，你想每个员工都执行它。作为每个单独的员工完成他们的任务，他们需要给你提供一张报告放进你桌子上的盒子里面。</p>
+<p><strong>清单7</strong><br><a href="https://link.segmentfault.com/?url=https%3A%2F%2Fplay.golang.org%2Fp%2F8HIt2sabs_" rel="external nofollow noopener noreferrer" target="_blank">演示地址</a></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span>func fanOut() &#123;</span><br><span class="line"><span class="symbol">02 </span>    emps := <span class="number">20</span></span><br><span class="line"><span class="symbol">03 </span>    ch := make(chan string, emps)</span><br><span class="line"><span class="number">04</span></span><br><span class="line"><span class="symbol">05 </span>    <span class="keyword">for</span> e := <span class="number">0</span>; e &lt; emps; e++ &#123;</span><br><span class="line"><span class="symbol">06 </span>        go func() &#123;</span><br><span class="line"><span class="symbol">07 </span>            time.Sleep(time.Duration(rand.Intn(<span class="number">200</span>)) * time.Millisecond)</span><br><span class="line"><span class="symbol">08 </span>            ch &lt;- <span class="string">"paper"</span></span><br><span class="line"><span class="symbol">09 </span>        &#125;()</span><br><span class="line"><span class="symbol">10 </span>    &#125;</span><br><span class="line"><span class="number">11</span></span><br><span class="line"><span class="symbol">12 </span>    <span class="keyword">for</span> emps &gt; <span class="number">0</span> &#123;</span><br><span class="line"><span class="symbol">13 </span>        p := &lt;-ch</span><br><span class="line"><span class="symbol">14 </span>        fmt.Println(p)</span><br><span class="line"><span class="symbol">15 </span>        emps--</span><br><span class="line"><span class="symbol">16 </span>    &#125;</span><br><span class="line"><span class="symbol">17 </span>&#125;</span><br></pre></td></tr></table></figure>
+<p>在清单7的第3行，一个带有属性的有缓冲channel被创建，<code>string</code> 数据将与信号一起被发送。这时，由于在第2行声明的 <code>emps</code> 变量，将创建有 20个缓冲的 channel。</p>
+<p>在第5行和第10行之间，20 个员工被雇佣，并且他们立即开始工作。在第7行你不知道每个员工将花费多长时间。这时在第8行，员工发送他们的报告，但这一次发送不会阻塞等待接收。因为在盒子里为每位员工准备的空间，在 channel 上的发送仅仅与其他在同一时间想发送他们报告的员工竞争。</p>
+<p>在 12 行和16行之间的代码全部是你的操作。在这里你等待20个员工来完成他们的工作并且发送报告。在12行，你在一个循环中，在 13 行你被阻塞在一个 channel 等待接收你的报告。一旦报告接收完成，报告在14被打印，并且本地的计数器变量被消耗来表明一个员工意见完成了他的工作。</p>
+<h4 id="场景2-Drop"><a href="#场景2-Drop" class="headerlink" title="场景2 - Drop"></a>场景2 - Drop</h4><p>Drop模式允许你在你的员工在满负荷的时候丢掉工作。这有利于继续接受客户端的工作，并且从不施加压力或者是这项工作可接受的延迟。这里的关键是知道你什么时候是满负荷的，因此你不承担或过度承诺你将尝试完成的工作量。通常集成测试或度量可以帮助你确定这个数字。</p>
+<p>假设你是经理，你雇佣了单个员工来完成工作。你有一个单独的任务想员工去执行。当员工完成他们任务时，你不在乎知道他们已经完成了。最重要的是你能或不能把新工作放入盒子。如果你不能执行发送，这时你知道你的盒子满了并且员工是满负荷的。这时候，新工作需要丢弃以便让事情继续进行。</p>
+<p><strong>清单8</strong><br><a href="https://link.segmentfault.com/?url=https%3A%2F%2Fplay.golang.org%2Fp%2FPhFUN5itiv" rel="external nofollow noopener noreferrer" target="_blank">演示地址</a></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span>func selectDrop() &#123;</span><br><span class="line"><span class="symbol">02 </span>    const cap = <span class="number">5</span></span><br><span class="line"><span class="symbol">03 </span>    ch := make(chan string, cap)</span><br><span class="line"><span class="number">04</span></span><br><span class="line"><span class="symbol">05 </span>    go func() &#123;</span><br><span class="line"><span class="symbol">06 </span>        <span class="keyword">for</span> p := range ch &#123;</span><br><span class="line"><span class="symbol">07 </span>            fmt.Println(<span class="string">"employee : received :"</span>, p)</span><br><span class="line"><span class="symbol">08 </span>        &#125;</span><br><span class="line"><span class="symbol">09 </span>    &#125;()</span><br><span class="line"><span class="number">10</span></span><br><span class="line"><span class="symbol">11 </span>    const work = <span class="number">20</span></span><br><span class="line"><span class="symbol">12 </span>    <span class="keyword">for</span> w := <span class="number">0</span>; w &lt; work; w++ &#123;</span><br><span class="line"><span class="symbol">13 </span>        select &#123;</span><br><span class="line"><span class="symbol">14 </span>            case ch &lt;- <span class="string">"paper"</span>:</span><br><span class="line"><span class="symbol">15 </span>                fmt.Println(<span class="string">"manager : send ack"</span>)</span><br><span class="line"><span class="symbol">16 </span>            default:</span><br><span class="line"><span class="symbol">17 </span>                fmt.Println(<span class="string">"manager : drop"</span>)</span><br><span class="line"><span class="symbol">18 </span>        &#125;</span><br><span class="line"><span class="symbol">19 </span>    &#125;</span><br><span class="line"><span class="number">20</span></span><br><span class="line"><span class="symbol">21 </span>    <span class="keyword">close</span>(ch)</span><br><span class="line"><span class="symbol">22 </span>&#125;</span><br></pre></td></tr></table></figure>
+<p>在清单8的第3行，一个有属性的有缓冲 channel 被创建，<code>string</code> 数据将与信号一起被发送。由于在第2行声明的<code>cap</code> 常量，这时创建了有5个缓冲的 channel。</p>
+<p>从第5行到第9行，一个单独的员工被雇佣来处理工作，一个 <code>for range</code>被用于循环处理 channel 的接收。每次一份报告被接收，在第7行被处理。</p>
+<p>在第11行和19行之间，你尝试发送20分报告给你的员工。这时一个 <code>select</code>语句在第14行的第一个<code>case</code>被用于执行发送。因为<code>default</code>从句被用于第16行的<code>select</code>语句。如果发送被堵塞，是因为缓冲中没有多余的空间，通过执行第17行发送被丢弃。</p>
+<p>最后在第21行，内建函数<code>close</code>被调用来关闭channel。这将发送没有数据的信号给员工表明他们已经完成，并且一旦他们完成分派给他们的工作可以立即离开。</p>
+<h4 id="成本-收益-1"><a href="#成本-收益-1" class="headerlink" title="成本/收益"></a>成本/收益</h4><p>有缓冲的 channel 缓冲大于1提供无保证发送的信号被接收到。离开保证是有好处的，在两个goroutine之间通信可以降低或者是没有延迟。在<strong>扇出</strong>场景，这有一个有缓冲的空间用于存放员工将被发送的报告。在<strong>Drop</strong>场景，缓冲是测量能力的，如果容量满，工作被丢弃以便工作继续。</p>
+<p>在两个选择中，这种缺乏保证是我们必须面对的，因为延迟降低非常重要。0到最小延迟的要求不会给系统的整体逻辑造成问题。</p>
+<h3 id="有数据信号-延迟保证-缓冲1的channel"><a href="#有数据信号-延迟保证-缓冲1的channel" class="headerlink" title="有数据信号 - 延迟保证- 缓冲1的channel"></a>有数据信号 - 延迟保证- 缓冲1的channel</h3><h4 id="场景1-等待任务-1"><a href="#场景1-等待任务-1" class="headerlink" title="场景1 - 等待任务"></a>场景1 - 等待任务</h4><p><strong>清单9</strong><br><a href="https://link.segmentfault.com/?url=https%3A%2F%2Fplay.golang.org%2Fp%2F4pcuKCcAK3" rel="external nofollow noopener noreferrer" target="_blank">演示地址</a></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span>func waitForTasks() &#123;</span><br><span class="line"><span class="symbol">02 </span>    ch := make(chan string, <span class="number">1</span>)</span><br><span class="line"><span class="number">03</span></span><br><span class="line"><span class="symbol">04 </span>    go func() &#123;</span><br><span class="line"><span class="symbol">05 </span>        <span class="keyword">for</span> p := range ch &#123;</span><br><span class="line"><span class="symbol">06 </span>            fmt.Println(<span class="string">"employee : working :"</span>, p)</span><br><span class="line"><span class="symbol">07 </span>        &#125;</span><br><span class="line"><span class="symbol">08 </span>    &#125;()</span><br><span class="line"><span class="number">09</span></span><br><span class="line"><span class="symbol">10 </span>    const work = <span class="number">10</span></span><br><span class="line"><span class="symbol">11 </span>    <span class="keyword">for</span> w := <span class="number">0</span>; w &lt; work; w++ &#123;</span><br><span class="line"><span class="symbol">12 </span>        ch &lt;- <span class="string">"paper"</span></span><br><span class="line"><span class="symbol">13 </span>    &#125;</span><br><span class="line"><span class="number">14</span></span><br><span class="line"><span class="symbol">15 </span>    <span class="keyword">close</span>(ch)</span><br><span class="line"><span class="symbol">16 </span>&#125;</span><br></pre></td></tr></table></figure>
+<p>在清单9的第2行，一个带有属性的一个缓冲大小的 channel 被创建，<code>string</code> 数据将与信号一起被发送。在第4行和第8行之间，一个员工被雇佣来处理工作。<code>for range</code>被用于循环处理 channel 的接收。在第6行每次一份报告被接收就被处理。</p>
+<p>在第10行和13行之间，你开始发送你的任务给员工。如果你的员工可以跑的和你发送的一样快，你们之间的延迟会降低。但是每次发送你成功执行，你需要保证你提交的最后一份工作正在被进行。</p>
+<p>在最后的第15行，内建函数<code>close</code>被调用关闭channel，这将会发送无数据信号给员工告知他们工作已经完成，可以离开了。尽管如此，你提交的最后一份工作将在 <code>for range</code>中断前被接收。</p>
+<h3 id="无数据信号-Context"><a href="#无数据信号-Context" class="headerlink" title="无数据信号 - Context"></a>无数据信号 - Context</h3><p>在最后这个场景中，你将看到从 <code>Context</code> 包中使用 <code>Context</code>值怎样取消一个正在运行的goroutine。这所有的工作是通过改变一个已经关闭的无缓冲channel来执行一个无数据信号。</p>
+<p>最后一次你是经理，你雇佣了一个单独的员工来完成工作，这次你不会等待员工未知的时间完成他的工作。你分配了一个截止时间，如果你的员工没有按时完成工作，你将不会等待。</p>
+<p><strong>清单10</strong><br><a href="https://link.segmentfault.com/?url=https%3A%2F%2Fplay.golang.org%2Fp%2F6GQbN5Z7vC" rel="external nofollow noopener noreferrer" target="_blank">演示地址</a></p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">01 </span>func withTimeout() &#123;</span><br><span class="line"><span class="symbol">02 </span>    duration := <span class="number">50</span> * time.Millisecond</span><br><span class="line"><span class="number">03</span></span><br><span class="line"><span class="symbol">04 </span>    ctx, cancel := context.WithTimeout(context.Background(), duration)</span><br><span class="line"><span class="symbol">05 </span>    defer cancel()</span><br><span class="line"><span class="number">06</span></span><br><span class="line"><span class="symbol">07 </span>    ch := make(chan string, <span class="number">1</span>)</span><br><span class="line"><span class="number">08</span></span><br><span class="line"><span class="symbol">09 </span>    go func() &#123;</span><br><span class="line"><span class="symbol">10 </span>        time.Sleep(time.Duration(rand.Intn(<span class="number">100</span>)) * time.Millisecond)</span><br><span class="line"><span class="symbol">11 </span>        ch &lt;- <span class="string">"paper"</span></span><br><span class="line"><span class="symbol">12 </span>    &#125;()</span><br><span class="line"><span class="number">13</span></span><br><span class="line"><span class="symbol">14 </span>    select &#123;</span><br><span class="line"><span class="symbol">15 </span>    case p := &lt;-ch:</span><br><span class="line"><span class="symbol">16 </span>        fmt.Println(<span class="string">"work complete"</span>, p)</span><br><span class="line"><span class="number">17</span></span><br><span class="line"><span class="symbol">18 </span>    case &lt;-ctx.Done():</span><br><span class="line"><span class="symbol">19 </span>        fmt.Println(<span class="string">"moving on"</span>)</span><br><span class="line"><span class="symbol">20 </span>    &#125;</span><br><span class="line"><span class="symbol">21 </span>&#125;</span><br></pre></td></tr></table></figure>
+<p>在清单10的第2行，一个时间值被声明，它代表了员工将花费多长时间完成他们的工作。这个值被用在第4行来创建一个50毫秒超时的 <code>context.Context</code>值。<code>context</code>包的<code>WithTimeout</code>函数返回一个 <code>Context</code> 值和一个取消函数。</p>
+<p><code>context</code>包创建一个goroutine，一旦时间值到期，将关闭与<code>Context</code>值关联的无缓冲channels。不管事情如何发生，你需要负责调用<code>cancel</code>函数。这将清理被<code>Context</code>创建的东西。<code>cancel</code>被调用不止一次是可以的。</p>
+<p>在第5行，一旦函数中断，<code>cancel</code>函数被 deferred 执行。在第7行，1个缓冲的channels被创建，它被用于被员工发送他们工作的结果给你。在第09行和12行，员工被雇佣兵立即投入工作，你不需要指定员工花费多长时间完成他们的工作。</p>
+<p>在第14行和20行之间，你使用 <code>select</code>语句来在两个channels接收。在第15行的接收，你等待员工发送他们的结果。在第18行的接收，你等待看<code>context</code>包是否正在发送信号50毫秒的时间到了。无论你首先收到哪个信号，都将有一个被处理。</p>
+<p>这个算法的一个重要方面是使用一个缓冲的channels。如果员工没有按时完成，你将离开而不会给员工任何通知。对于员工而言，在第11行他将一直发送他的报告，你在或者不在那里接收，他都是盲目的。如果你使用一个无缓冲channels，如果你离开，员工将一直阻塞在那尝试你给发送报告。这会引起goroutine泄漏。因此一个缓冲的channels用来防止这个问题发生。</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>当使用 channels（或并发） 时，在保证，channel状态和发送过程中信号属性是非常重要的。它们将帮助你实现你并发程序需要的更好的行为以及你写的算法。它们将帮助你找出bug和闻出潜在的坏代码。</p>
+<p>在本文中，我分享了一些程序示例来展示信号属性工作在不同的场景中。凡事都有例外，但是这些模式是非常良好的开端。</p>
+<p>作为总结回顾下这些要点，何时，如何有效地思考和使用channels：</p>
+<h3 id="语言机制"><a href="#语言机制" class="headerlink" title="语言机制"></a>语言机制</h3><ul>
+<li>使用 channels 来编排和协作 goroutines：<ul>
+<li>关注信号属性而不是数据共享</li>
+<li>有数据信号和无数据信号</li>
+<li>询问它们用于同步访问共享数据的用途<ul>
+<li>有些情况下，对于这个问题，通道可以更简单一些，但是最初的问题是。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>无缓冲 channels：<ul>
+<li>接收发生在发送之前</li>
+<li>收益：100%保证信号被接收</li>
+<li>成本：未知的延迟，不知道信号什么时候将被接收。</li>
+</ul>
+</li>
+<li>有缓冲 channels：<ul>
+<li>发送发生在接收之前。</li>
+<li>收益：降低信号之间的阻塞延迟。</li>
+<li>成本：不保证信号什么时候被接收。<ul>
+<li>缓冲越大，保证越少。</li>
+<li>缓冲为1可以给你一个延迟发送保证。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>关闭的 channels：<ul>
+<li>关闭发生在接收之前（像缓冲）。</li>
+<li>无数据信号。</li>
+<li>完美的信号取消或截止。</li>
+</ul>
+</li>
+<li>nil channels：<ul>
+<li>发送和接收都阻塞。</li>
+<li>关闭信号。</li>
+<li>完美的速度限制或短时停工。</li>
+</ul>
+</li>
+</ul>
+<h3 id="设计哲学"><a href="#设计哲学" class="headerlink" title="设计哲学"></a>设计哲学</h3><ul>
+<li>如果在 channel上任何给定的发送能引起发送 goroutine 阻塞：<ul>
+<li>不允许使用大于1的缓冲channels。<ul>
+<li>缓冲大于1必须有原因/测量。</li>
+</ul>
+</li>
+<li>必须知道当发送 goroutine阻塞的时候发生了什么。</li>
+</ul>
+</li>
+<li>如果在 channel 上任何给定的发送不会引起发送阻塞：<ul>
+<li>每个发送必须有确切的缓冲数字。<ul>
+<li>扇出模式。</li>
+</ul>
+</li>
+<li>有缓冲测量最大的容量。<ul>
+<li>Drop 模式。</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>对于缓冲而言，少即是多。<ul>
+<li>当考虑缓冲的时候，不要考虑性能。</li>
+<li>缓冲可以帮助降低信号之间的阻塞延迟。<ul>
+<li>降低阻塞延迟到0并不一定意味着更好的吞吐量。</li>
+<li>如果一个缓冲可以给你足够的吞吐量，那就保持它。</li>
+<li>缓冲大于1的问题需要测量大小。</li>
+<li>尽可能找到提供足够吞吐量的最小缓冲</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/go/GO开发者对GO初学者的建议/" rel="next" title="GO 开发者对 GO 初学者的建议">
+                <i class="fa fa-chevron-left"></i> GO 开发者对 GO 初学者的建议
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/散文/总有一种力量让我们泪流满面/" rel="prev" title="总有一种力量让我们泪流满面">
+                总有一种力量让我们泪流满面 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+    <div class="comments" id="gitalk-container">
+    </div>
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光伴你左右</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">216</span>
+                    <span class="site-state-item-name">日志</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">35</span>
+                    <span class="site-state-item-name">分类</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">54</span>
+                    <span class="site-state-item-name">标签</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+            <div class="feed-link motion-element">
+              <a href="/atom.xml" rel="alternate">
+                <i class="fa fa-rss"></i>
+                RSS
+              </a>
+            </div>
+          
+
+          
+
+          
+
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#简介"><span class="nav-number">1.</span> <span class="nav-text">简介</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#交付保证"><span class="nav-number">2.</span> <span class="nav-text">交付保证</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#状态"><span class="nav-number">3.</span> <span class="nav-text">状态</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#有数据和无数据"><span class="nav-number">4.</span> <span class="nav-text">有数据和无数据</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#有数据信号"><span class="nav-number">5.</span> <span class="nav-text">有数据信号</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#无数据信号"><span class="nav-number">6.</span> <span class="nav-text">无数据信号</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#场景"><span class="nav-number">7.</span> <span class="nav-text">场景</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#有数据信号-保证-无缓冲-Channels"><span class="nav-number">7.1.</span> <span class="nav-text">有数据信号 - 保证 - 无缓冲 Channels</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#场景1-等待任务"><span class="nav-number">7.1.1.</span> <span class="nav-text">场景1 - 等待任务</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#场景2-等待结果"><span class="nav-number">7.1.2.</span> <span class="nav-text">场景2 - 等待结果</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#成本-收益"><span class="nav-number">7.1.3.</span> <span class="nav-text">成本/收益</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#有数据信号-无保证-缓冲-Channels-gt-1"><span class="nav-number">7.2.</span> <span class="nav-text">有数据信号 - 无保证 - 缓冲 Channels &gt; 1</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#场景1-扇出（Fan-Out）"><span class="nav-number">7.2.1.</span> <span class="nav-text">场景1 - 扇出（Fan Out）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#场景2-Drop"><span class="nav-number">7.2.2.</span> <span class="nav-text">场景2 - Drop</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#成本-收益-1"><span class="nav-number">7.2.3.</span> <span class="nav-text">成本/收益</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#有数据信号-延迟保证-缓冲1的channel"><span class="nav-number">7.3.</span> <span class="nav-text">有数据信号 - 延迟保证- 缓冲1的channel</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#场景1-等待任务-1"><span class="nav-number">7.3.1.</span> <span class="nav-text">场景1 - 等待任务</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#无数据信号-Context"><span class="nav-number">7.4.</span> <span class="nav-text">无数据信号 - Context</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">8.</span> <span class="nav-text">总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#语言机制"><span class="nav-number">8.1.</span> <span class="nav-text">语言机制</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#设计哲学"><span class="nav-number">8.2.</span> <span class="nav-text">设计哲学</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <a> 粤公网安备44011302003059号 粤ICP备2021068940号</a>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="总访客量">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="总访问量">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+    
+
+<script src="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+
+
+
+<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.css">
+
+
+
+<script src="//cdn.jsdelivr.net/npm/js-md5@0.7.3/src/md5.min.js"></script>
+
+<script>
+  var gitalk = new Gitalk({
+    clientID: 'f11b272cc4efaec58a26',
+    clientSecret: '14ded6181649ec8aed8d601d16bdadcea6a68c88',
+    repo: 'github-pages-comments',
+    owner: 'shankusu2017',
+    admin: ['shankusu2017'],
+    id: md5(location.pathname),
+    
+      language: window.navigator.language || window.navigator.userLanguage,
+    
+    distractionFreeMode: 'true'
+  });
+  gitalk.render('gitalk-container');
+</script>
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  <script>
+    (function(){
+      var bp = document.createElement('script');
+      var curProtocol = window.location.protocol.split(':')[0];
+      bp.src = (curProtocol === 'https') ? 'https://zz.bdstatic.com/linksubmit/push.js' : 'http://push.zhanzhang.baidu.com/push.js';
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(bp, s);
+    })();
+  </script>
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('复制成功');
+        else $(this).text('复制失败');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('复制');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
