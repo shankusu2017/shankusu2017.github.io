@@ -1,0 +1,1706 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="zh-CN">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+  <meta name="baidu-site-verification" content="code-legvFikwxc">
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="gdb 提示 coredump 文件 truncated 问题排查 本文选自“字节跳动基础架构实践”系列文章。 “字节跳动基础架构实践”系列文章是由字节跳动基础架构部门各技术团队及专家倾力打造的技术干货内容，和大家分享团队在基础架构发展和演进过程中的实践经验与教训，与各位技术同学一起交流成长。 coredump 我们日常开发中经常会遇到，能够帮助我们辅助定位问题，但如果 coredump 出现 t">
+<meta property="og:type" content="article">
+<meta property="og:title" content="gdb 提示 coredump 文件 truncated 问题排查">
+<meta property="og:url" content="http://www.shankusu.me/go/gdb提示coredump文件truncated问题排查/index.html">
+<meta property="og:site_name" content="愿星光伴你左右">
+<meta property="og:description" content="gdb 提示 coredump 文件 truncated 问题排查 本文选自“字节跳动基础架构实践”系列文章。 “字节跳动基础架构实践”系列文章是由字节跳动基础架构部门各技术团队及专家倾力打造的技术干货内容，和大家分享团队在基础架构发展和演进过程中的实践经验与教训，与各位技术同学一起交流成长。 coredump 我们日常开发中经常会遇到，能够帮助我们辅助定位问题，但如果 coredump 出现 t">
+<meta property="og:locale" content="zh-CN">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLa1RhM0ZOR0s3Y0V4aWNnd2R0RWliNG1zZmc1ZWJJNXdSY3VGWW0zejd0a2ZBU3ROTTJPZW96RXcvNjQw?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLUVRiUjVSMHVSV2liZUd5OE9sU0JEVFhUZzR3Ym1WWklIVU02aElnRUxNTFpYeDdpYmljeVVPTjd3LzY0MA?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLUHN4M002UWNVV2ZKWU8zU1dMSTJMY3VVSG0zaGRDcEZtZWlja05yZ2paRm5oOEZpYmliUUlzZlFBLzY0MA?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLU2h2aWEzNXZycWdabzg4Zm9FbThQaWNXUzk2dGdLbTNsOXpTcDU0Yk1MQWliREVjbDZqNGZ5OVh3LzY0MA?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLSDRpY0NHSHZ0THV0Y0p4RVBOMXVhSUxsRmVpY283N1V6WjRBV2N4WWJBZnhISGliWllmSE9ZVDRRLzY0MA?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLc0xwOUlGUlVPRUxid2R2R0NyemI4eGJpYUd2M2RNeHBrOFFWQVd5bjY1TWZraWFxVXZOOXh5VVEvNjQw?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPaWFNUlNSaWFCM1lVNTB1aGxGQTlTbExNc01iTTFGcGtCallqVUowMlpRU01PeVpQdk1QeUJoUmhLT0g5VzVCcmtBdTkzdmV1NlZJbTJnLzY0MA?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLbmljTkJNZnd2SlB5d2dCV1pRUlJVajdpYm50YWRtYnlKa1FMR3Byck9KYjJWMWVpY082S1ZMMmlhUS82NDA?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLcTRsbXQydmxhRTdxa0FrSUwwVHZkUUZNa2p6ZWxUSWNEaWFYUkJudGlhU3dacmRTU0xtdlN5aWNRLzY0MA?x-oss-process=image/format,png">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLd3U4OVJwSGliYjJGamNNUXdkdUFMbVVqbzkxUkVvSUxTNVJXaWFScjlxNjZCeXpadkdmOXI1Y1EvNjQw?x-oss-process=image/format,png">
+<meta property="og:updated_time" content="2021-07-27T10:33:23.034Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="gdb 提示 coredump 文件 truncated 问题排查">
+<meta name="twitter:description" content="gdb 提示 coredump 文件 truncated 问题排查 本文选自“字节跳动基础架构实践”系列文章。 “字节跳动基础架构实践”系列文章是由字节跳动基础架构部门各技术团队及专家倾力打造的技术干货内容，和大家分享团队在基础架构发展和演进过程中的实践经验与教训，与各位技术同学一起交流成长。 coredump 我们日常开发中经常会遇到，能够帮助我们辅助定位问题，但如果 coredump 出现 t">
+<meta name="twitter:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLa1RhM0ZOR0s3Y0V4aWNnd2R0RWliNG1zZmc1ZWJJNXdSY3VGWW0zejd0a2ZBU3ROTTJPZW96RXcvNjQw?x-oss-process=image/format,png">
+
+
+
+  <link rel="alternate" href="/atom.xml" title="愿星光伴你左右" type="application/atom+xml">
+
+
+
+  
+  
+  <link rel="canonical" href="http://www.shankusu.me/go/gdb提示coredump文件truncated问题排查/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>gdb 提示 coredump 文件 truncated 问题排查 | 愿星光伴你左右</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-CN">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">愿星光伴你左右</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="切换导航栏">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>首页</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>分类<span class="badge">40</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-lua">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/lua" rel="section"><i class="menu-item-icon fa fa-fw fa-moon-o"></i> <br>lua</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-go">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/go" rel="section"><i class="menu-item-icon fa fa-fw fa-google"></i> <br>go</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-weekly">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/weekly" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>周记</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-daily">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/daily" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>心语</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-links">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/link" rel="section"><i class="menu-item-icon fa fa-fw fa-external-link"></i> <br>友情链接</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-guestbook">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/guestbook/" rel="section"><i class="menu-item-icon fa fa-fw fa-commenting"></i> <br>留言册</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>关于</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>搜索</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="搜索..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://www.shankusu.me/go/gdb提示coredump文件truncated问题排查/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光伴你左右">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="愿星光伴你左右">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">gdb 提示 coredump 文件 truncated 问题排查
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          
+          
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+              
+
+              
+                
+
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                
+                  <span class="post-meta-item-text">更新于</span>
+                
+                <time title="修改时间：2021-07-27 18:33:23" itemprop="dateModified" datetime="2021-07-27T18:33:23+08:00">2021-07-27</time>
+              
+            
+          </span>
+
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/go/" itemprop="url" rel="index"><span itemprop="name">go</span></a></span>
+
+                
+                
+                  ，
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/go/go知识点/" itemprop="url" rel="index"><span itemprop="name">go知识点</span></a></span>
+
+                
+                
+                  ，
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/编程杂谈/" itemprop="url" rel="index"><span itemprop="name">编程杂谈</span></a></span>
+
+                
+                
+                  ，
+                
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/基础架构/" itemprop="url" rel="index"><span itemprop="name">基础架构</span></a></span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             阅读次数： 
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="gdb-提示-coredump-文件-truncated-问题排查"><a href="#gdb-提示-coredump-文件-truncated-问题排查" class="headerlink" title="gdb 提示 coredump 文件 truncated 问题排查"></a>gdb 提示 coredump 文件 truncated 问题排查</h1><blockquote>
+<p>本文选自“字节跳动基础架构实践”系列文章。</p>
+<p>“字节跳动基础架构实践”系列文章是由字节跳动基础架构部门各技术团队及专家倾力打造的技术干货内容，和大家分享团队在基础架构发展和演进过程中的实践经验与教训，与各位技术同学一起交流成长。</p>
+<p>coredump 我们日常开发中经常会遇到，能够帮助我们辅助定位问题，但如果 coredump 出现 truncate 会给排查问题带来不便。本文以线上问题为例，借助这个Case我们深入了解一下这类问题的排查思路，以及如何使用一些调试工具、阅读内核源代码，更清晰地了解coredump的处理过程。希望能为大家在排查这类问题的时候，提供一个清晰的脉络。</p>
+</blockquote>
+<h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在 c/cpp 类的程序开发中进程遇到 coredump，偶尔会遇到 coredump truncate 问题，影响 core 后的问题排查。coredump truncate 大部分是由于 core limits 和剩余磁盘空间引发的。这种比较好排查和解决。今天我们要分析的一种特殊的 case。</p>
+<p>借助这个 Case 我们深入了解一下这类问题的排查思路，使用一些调试工具和阅读内核源代码能更清晰的了解 coredump 的处理过程。能够在排查这类问题的时候有个清晰的脉络。</p>
+<p>业务同学反馈在容器内的服务出 core 后 gdb 调试报错。业务的服务运行在 K8S+Docker 的环境下，服务在容器内最终由 system 托管。在部分机器上的 coredump 文件在 gdb 的时候出现如下警告，导致排查问题受影响。报错信息如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">BFD: Warning: /tmp/coredump<span class="number">.1582242674</span><span class="number">.3907019</span>.dp-b9870a84ea</span><br><span class="line"><span class="number">-867b</span>ccccdd<span class="number">-5</span>hb7h is truncated: expected core file <span class="built_in">size</span> &gt;= </span><br><span class="line"><span class="number">89036038144</span>, found: <span class="number">31395205120.</span></span><br></pre></td></tr></table></figure>
+<p>导致的结果是 gdb 无法继续调试。我们登录机器后排查不是磁盘空间和 core ulimit 的问题。需要进一步排查。</p>
+<h1 id="名词约定"><a href="#名词约定" class="headerlink" title="名词约定"></a>名词约定</h1><p><strong>GDB</strong>：UNIX 及 UNIX-like 下的二进制调试工具。</p>
+<p><strong>Coredump：</strong> 核心转储，是操作系统在进程收到某些信号而终止运行时，将此时进程地址空间的内容以及有关进程状态的其他信息写出的一个磁盘文件。这种信息往往用于调试。</p>
+<p><strong>ELF：</strong> 可执行与可链接格式（Executable and Linkable Format），用于可执行文件、目标文件、共享库和核心转储的标准文件格式。x86 架构上的类 Unix 操作系统的二进制文件格式标准。</p>
+<p><strong>BFD：</strong> 二进制文件描述库(Binary File Descriptor library)是 GNU 项目用于解决不同格式的目标文件的可移植性的主要机制。</p>
+<p><strong>VMA：</strong> 虚拟内存区域（Virtual Memory Area），VMA 是用户进程里的一段 virtual address space 区块，内核使用 VMA 来跟踪进程的内存映射。</p>
+<h1 id="排查过程"><a href="#排查过程" class="headerlink" title="排查过程"></a>排查过程</h1><h2 id="用户态排查"><a href="#用户态排查" class="headerlink" title="用户态排查"></a>用户态排查</h2><p>开始怀疑是自研的 coredump handler 程序有问题。于是还原系统原本的 coredump。<img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLa1RhM0ZOR0s3Y0V4aWNnd2R0RWliNG1zZmc1ZWJJNXdSY3VGWW0zejd0a2ZBU3ROTTJPZW96RXcvNjQw?x-oss-process=image/format,png" alt="img"></p>
+<p>手动触发一次 Coredump。结果问题依然存在。现在排除 coredump handler 的问题。说明问题可能发生在 kernel 层或 gdb 的问题。</p>
+<p>需要确定是 gdb 问题还是 kernel 吐 core 的问题。先从 gdb 开始查起，下载 gdb 的源代码找到报错的位置（为了方便阅读，源代码的缩进进行了调整）。</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLUVRiUjVSMHVSV2liZUd5OE9sU0JEVFhUZzR3Ym1WWklIVU02aElnRUxNTFpYeDdpYmljeVVPTjd3LzY0MA?x-oss-process=image/format,png" alt="img"></p>
+<p>目前看不是 gdb 的问题。coredump 文件写入不完整。coredump 的写入是由内核完成的。需要从内核侧排查。</p>
+<p>在排查之前观察这个 coredump 的程序使用的内存使用非常大，几十 G 规模。怀疑是否和其过大有关，于是做一个实验。写一个 50G 内存的程序模拟，并对其 coredump。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;string.h&gt;</span></span></span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">(<span class="keyword">void</span>)</span></span>&#123;</span><br><span class="line">        <span class="keyword">for</span>( <span class="keyword">int</span> i=<span class="number">0</span>; i&lt;<span class="number">1024</span>; i++ )&#123;</span><br><span class="line">                <span class="keyword">void</span>* test = <span class="built_in">malloc</span>(<span class="number">1024</span>*<span class="number">1024</span>*<span class="number">50</span>); <span class="comment">// 50MB</span></span><br><span class="line">                <span class="built_in">memset</span>(test, <span class="number">0</span>, <span class="number">1</span>);</span><br><span class="line">        &#125;</span><br><span class="line">        sleep(<span class="number">3600</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>经过测试正常吐 core。gdb 正常，暂时排除 core 大体积问题。</p>
+<p>所以初步判断是 kernel 在吐的 core 文件自身的问题。需要在进一步跟进。</p>
+<p>查看内核代码发现一处可疑点:</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/*</span></span><br><span class="line"><span class="comment"> * Ensures that file size is big enough to contain the current file</span></span><br><span class="line"><span class="comment"> * postion. This prevents gdb from complaining about a truncated file</span></span><br><span class="line"><span class="comment"> * if the last "write" to the file was dump_skip.</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">void</span> <span class="title">dump_truncate</span><span class="params">(struct coredump_params *cprm)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">file</span> *<span class="title">file</span> = <span class="title">cprm</span>-&gt;<span class="title">file</span>;</span></span><br><span class="line">    <span class="keyword">loff_t</span> offset;</span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line">    <span class="keyword">if</span> (file-&gt;f_op-&gt;llseek &amp;&amp; file-&gt;f_op-&gt;llseek != no_llseek) &#123;</span><br><span class="line">        offset = file-&gt;f_op-&gt;llseek(file, <span class="number">0</span>, SEEK_CUR);</span><br><span class="line">        <span class="keyword">if</span> (i_size_read(file-&gt;f_mapping-&gt;host) &lt; offset)</span><br><span class="line">            do_truncate(file-&gt;f_path.dentry, offset, <span class="number">0</span>, file);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这段代码的注释引起了我们的注意。</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLUHN4M002UWNVV2ZKWU8zU1dMSTJMY3VVSG0zaGRDcEZtZWlja05yZ2paRm5oOEZpYmliUUlzZlFBLzY0MA?x-oss-process=image/format,png" alt="img"></p>
+<p>现在怀疑在出现这个 case 的时候没有执行到这个 dump_truncate 函数。于是尝试把 dump_truncate 移到第二个位置处。重新编译内核尝试。重新打了测试内核测试后问题依然存在。于是继续看代码。</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLU2h2aWEzNXZycWdabzg4Zm9FbThQaWNXUzk2dGdLbTNsOXpTcDU0Yk1MQWliREVjbDZqNGZ5OVh3LzY0MA?x-oss-process=image/format,png" alt="img"></p>
+<p>这段代码引起了注意。怀疑某个时刻执行 get_dump_page 的时候返回了 NULL。然后走到了 dump_skip 函数，dump_skip 返回 0，导致 goto end_coredump。于是 stap 抓下。</p>
+<p>不出所料，dump_skip 返回 0 后 coredump 停止。也就是说第二阶段只 dump 了一部分 vma 就停止了。导致 coredump 写入不完整。</p>
+<h1 id="VMA-部分-dump-分析"><a href="#VMA-部分-dump-分析" class="headerlink" title="VMA 部分 dump 分析"></a>VMA 部分 dump 分析</h1><p>再看下 dump_skip 函数。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">dump_skip</span><span class="params">(struct coredump_params *cprm, <span class="keyword">size_t</span> nr)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">char</span> zeroes[PAGE_SIZE];</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> <span class="title">file</span> *<span class="title">file</span> = <span class="title">cprm</span>-&gt;<span class="title">file</span>;</span></span><br><span class="line">    <span class="keyword">if</span> (file-&gt;f_op-&gt;llseek &amp;&amp; file-&gt;f_op-&gt;llseek != no_llseek) &#123;</span><br><span class="line">        <span class="keyword">if</span> (dump_interrupted() ||</span><br><span class="line">            file-&gt;f_op-&gt;llseek(file, nr, SEEK_CUR) &lt; <span class="number">0</span>)</span><br><span class="line">            <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        cprm-&gt;pos += nr;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">while</span> (nr &gt; PAGE_SIZE) &#123;</span><br><span class="line">            <span class="keyword">if</span> (!dump_emit(cprm, zeroes, PAGE_SIZE))</span><br><span class="line">                <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">            nr -= PAGE_SIZE;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> dump_emit(cprm, zeroes, nr);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>因为 coredump 是 pipe 的，所以是没有 llseek 操作的，因此会走到 else 分支里。也就是 dump_emit 返回 0 导致的。于是 stap 抓下 dump_emit 函数 。</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLSDRpY0NHSHZ0THV0Y0p4RVBOMXVhSUxsRmVpY283N1V6WjRBV2N4WWJBZnhISGliWllmSE9ZVDRRLzY0MA?x-oss-process=image/format,png" alt="img"></p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">function func:<span class="built_in">string</span>(task:<span class="keyword">long</span>)</span><br><span class="line">%&#123;</span><br><span class="line">    <span class="built_in">snprintf</span>(STAP_RETVALUE, MAXSTRINGLEN, <span class="string">"%s"</span>, signal_pending(current) ? <span class="string">"true"</span> : <span class="string">"false"</span>);</span><br><span class="line">%&#125;</span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line">probe kernel.function(<span class="string">"dump_emit"</span>).<span class="keyword">return</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">"return: %d, cprm-&gt;limit:%d, cprm-&gt;written: %d, signal: %s\n"</span>, $<span class="keyword">return</span>, @entry($cprm-&gt;limit), @entry($cprm-&gt;written), func($<span class="keyword">return</span>));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>结果如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">return</span>: <span class="number">1</span>, cprm-&gt;limit:<span class="number">-1</span>, cprm-&gt;written: <span class="number">0</span>, signal: <span class="literal">false</span></span><br><span class="line"><span class="keyword">return</span>: <span class="number">1</span>, cprm-&gt;limit:<span class="number">-1</span>, cprm-&gt;written: <span class="number">64</span>, signal: <span class="literal">false</span></span><br><span class="line"><span class="keyword">return</span>: <span class="number">1</span>, cprm-&gt;limit:<span class="number">-1</span>, cprm-&gt;written: <span class="number">120</span>, signal: <span class="literal">false</span></span><br><span class="line">... 省略<span class="number">9221238</span>行 ...</span><br><span class="line"><span class="keyword">return</span>: <span class="number">1</span>, cprm-&gt;limit:<span class="number">-1</span>, cprm-&gt;written: <span class="number">37623402496</span>, signal: <span class="literal">false</span></span><br><span class="line"><span class="keyword">return</span>: <span class="number">1</span>, cprm-&gt;limit:<span class="number">-1</span>, cprm-&gt;written: <span class="number">37623406592</span>, signal: <span class="literal">false</span></span><br><span class="line"><span class="keyword">return</span>: <span class="number">1</span>, cprm-&gt;limit:<span class="number">-1</span>, cprm-&gt;written: <span class="number">37623410688</span>, signal: <span class="literal">false</span></span><br><span class="line"><span class="keyword">return</span>: <span class="number">0</span>, cprm-&gt;limit:<span class="number">-1</span>, cprm-&gt;written: <span class="number">37623414784</span>, signal: <span class="literal">true</span></span><br></pre></td></tr></table></figure>
+<p>不出意外和怀疑的一致，dump_emit 返回 0 了，此时写入到 core 文件的有 37623414784 字节。主要因为 dump_interrupted 检测条件为真。(cprm-&gt;limit = -1 不会进入 if 逻辑，kernrel_wirte 写 pipe 也没有出错)。</p>
+<p>下面我们看 dump_interrupted 函数。为了方便阅读，整理出相关的函数。</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">bool</span> <span class="title">dump_interrupted</span><span class="params">(<span class="keyword">void</span>)</span></span>&#123;</span><br><span class="line">    <span class="comment">/*</span></span><br><span class="line"><span class="comment">     * SIGKILL or freezing() interrupt the coredumping. Perhaps we</span></span><br><span class="line"><span class="comment">     * can do try_to_freeze() and check __fatal_signal_pending(),</span></span><br><span class="line"><span class="comment">     * but then we need to teach dump_write() to restart and clear</span></span><br><span class="line"><span class="comment">     * TIF_SIGPENDING.</span></span><br><span class="line"><span class="comment">     */</span></span><br><span class="line">    <span class="keyword">return</span> signal_pending(current);</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">inline</span> <span class="keyword">int</span> <span class="title">signal_pending</span><span class="params">(struct task_struct *p)</span></span>&#123;</span><br><span class="line">    <span class="keyword">return</span> unlikely(test_tsk_thread_flag(p,TIF_SIGPENDING));</span><br><span class="line">&#125;</span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">inline</span> <span class="keyword">int</span> <span class="title">test_tsk_thread_flag</span><span class="params">(struct task_struct *tsk, <span class="keyword">int</span> flag)</span></span>&#123;</span><br><span class="line">    <span class="keyword">return</span> test_ti_thread_flag(task_thread_info(tsk), flag);</span><br><span class="line">&#125;</span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">inline</span> <span class="keyword">int</span> <span class="title">test_ti_thread_flag</span><span class="params">(struct thread_info *ti, <span class="keyword">int</span> flag)</span></span>&#123;</span><br><span class="line">    <span class="keyword">return</span> test_bit(flag, (<span class="keyword">unsigned</span> <span class="keyword">long</span> *)&amp;ti-&gt;flags);</span><br><span class="line">&#125;</span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * test_bit - Determine whether a bit is set</span></span><br><span class="line"><span class="comment"> * @nr: bit number to test</span></span><br><span class="line"><span class="comment"> * @addr: Address to start counting from</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">static</span> <span class="keyword">inline</span> <span class="keyword">int</span> <span class="title">test_bit</span><span class="params">(<span class="keyword">int</span> nr, <span class="keyword">const</span> <span class="keyword">volatile</span> <span class="keyword">unsigned</span> <span class="keyword">long</span> *addr)</span></span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="number">1U</span>L &amp; (addr[BIT_WORD(nr)] &gt;&gt; (nr &amp; (BITS_PER_LONG<span class="number">-1</span>)));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>相关的宏：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">#ifdef CONFIG_64BIT#define BITS_PER_LONG <span class="number">64</span>#<span class="keyword">else</span>#define BITS_PER_LONG <span class="number">32</span>#endif <span class="comment">/* CONFIG_64BIT */</span>#define TIF_SIGPENDING      <span class="number">2</span>   <span class="comment">/* signal pending */</span> 平台相关。以X64架构为例。</span><br></pre></td></tr></table></figure>
+<p>有上面的代码就很清楚 dump_interrupted 函数就是检测 task 的 thread_info-&gt;flags 是否 TIF_SIGPENDING 置位。</p>
+<p>目前怀疑还是和用户的内存 vma 有关。但什么场景会触发 TIF_SIGPENDING 置位是个问题。dump_interrupted 函数的注释中已经说明了，一个是接收到了 KILL 信号，一个是 freezing()。freezing()一般和 cgroup 有关，一般是 docker 在使用。KILL 有可能是 systemd 发出的。于是做了 2 个实验：</p>
+<h4 id="实验一："><a href="#实验一：" class="headerlink" title="实验一："></a>实验一：</h4><figure class="highlight armasm"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="symbol">systemd</span>启动实例，<span class="keyword">bash裸起服务，不接流量。</span></span><br><span class="line"><span class="keyword">测试结果gdb正常...</span></span><br><span class="line"><span class="keyword">然后再用systemd起来，不接流量。测试结果也是正常的。</span></span><br><span class="line"><span class="keyword">这就奇怪了。但是不能排除systemd。</span></span><br><span class="line"><span class="keyword">回想接流量和不接流量的区别是coredump的压缩后的体积大小不同，不接流</span></span><br><span class="line"><span class="keyword">量vma大都是空，空洞比较多，因此coredump非常快，有流量vma不是空</span></span><br><span class="line"><span class="keyword">的，coredump比较慢。因此怀疑和coredump时间有关系，超过某个时间就</span></span><br><span class="line"><span class="keyword">有TIF_SIGPENDING被置位。</span></span><br></pre></td></tr></table></figure>
+<h4 id="实验二："><a href="#实验二：" class="headerlink" title="实验二："></a>实验二：</h4><figure class="highlight armasm"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">是产生一个<span class="number">50</span>G的内存。代码如最上方。</span><br><span class="line">在容器内依然使用systemd启动一个测试程序</span><br><span class="line">（直接在问题容器内替换这个<span class="keyword">bin。然后systemctl重启服务）</span></span><br><span class="line"><span class="keyword">然后发送SEGV信号。stap抓一下。</span></span><br><span class="line"><span class="keyword">coredump很漫长。等待结果</span></span><br><span class="line"><span class="keyword">结果很意外。core正常，gdb也正常。</span></span><br></pre></td></tr></table></figure>
+<p>这个 TIF_SIGPENDING 信号源是个问题。</p>
+<p>还有个排查方向就是 get_dump_page 为啥会返回 NULL。所以现在有 2 个排查方向：</p>
+<ol>
+<li>需要确定 TIF_SIGPENDING 信号源。</li>
+<li>get_dump_page 返回 NULL 的原因。</li>
+</ol>
+<h1 id="get-dump-page-返回-NULL-分析"><a href="#get-dump-page-返回-NULL-分析" class="headerlink" title="get_dump_page 返回 NULL 分析"></a>get_dump_page 返回 NULL 分析</h1><p>首先看 get_dump_page 这个返回 NULL 的 case：</p>
+<figure class="highlight livecodeserver"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* Returns <span class="literal">NULL</span> <span class="keyword">on</span> <span class="title">any</span> <span class="title">kind</span> <span class="title">of</span> <span class="title">failure</span> - <span class="title">a</span> <span class="title">hole</span> <span class="title">must</span> <span class="title">then</span> <span class="title">be</span> <span class="title">inserted</span> <span class="title">into</span></span><br><span class="line"> * <span class="keyword">the</span> corefile, <span class="built_in">to</span> preserve alignment <span class="keyword">with</span> its headers; <span class="keyword">and</span> also returns</span><br><span class="line"> * <span class="literal">NULL</span> wherever <span class="keyword">the</span> ZERO_PAGE, <span class="keyword">or</span> <span class="keyword">an</span> anonymous pte_none, has been found -</span><br><span class="line"> * allowing <span class="keyword">a</span> hole <span class="built_in">to</span> be left <span class="keyword">in</span> <span class="keyword">the</span> corefile <span class="built_in">to</span> save diskspace.</span><br></pre></td></tr></table></figure>
+<p>看注释返回 NULL，一个是 page 是 ZERO_PAGE，一个是 pte_none 问题。</p>
+<p>首先看 ZREO 问题，于是构造一个 ZERO_PAGE 的程序来测试：</p>
+<figure class="highlight arduino"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;sys/mman.h&gt;</span></span></span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line"><span class="keyword">const</span> <span class="keyword">int</span> BUFFER_SIZE = <span class="number">4096</span> * <span class="number">1000</span>;</span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">main</span><span class="params">(<span class="keyword">void</span>)</span></span>&#123;</span><br><span class="line">    <span class="keyword">int</span> i = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">unsigned</span> <span class="keyword">char</span>* <span class="built_in">buffer</span>;</span><br><span class="line">    <span class="keyword">for</span>( <span class="keyword">int</span> n=<span class="number">0</span>; n&lt;<span class="number">10240</span>; n++ )&#123;</span><br><span class="line">        <span class="built_in">buffer</span> = mmap(<span class="literal">NULL</span>, BUFFER_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, <span class="number">-1</span>, <span class="number">0</span>);</span><br><span class="line">        <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; BUFFER_SIZE - <span class="number">3</span> * <span class="number">4096</span>; i += <span class="number">4096</span>)&#123;</span><br><span class="line">            <span class="built_in">buffer</span>[i] = <span class="number">0</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// zero page</span></span><br><span class="line">    <span class="keyword">for</span> (i=<span class="number">0</span>; i &lt; BUFFER_SIZE - <span class="number">4096</span>; i += <span class="number">4096</span>) &#123;</span><br><span class="line">        <span class="keyword">char</span> dirty = <span class="built_in">buffer</span>[i];</span><br><span class="line">        <span class="built_in">printf</span>(<span class="string">"%c"</span>, dirty);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">"ok...\n"</span>);</span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line">    sleep(<span class="number">3600</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>测试结果是 coredump 正常，同时 trace 一下 get_dump_page 的返回值。结果和预想的有些不同，返回了很多个 NULL。说明和 get_dump_page 函数的因素不大。</p>
+<p>于是转向到 TIF_SIGPENDING 信号发生源。</p>
+<h1 id="TIF-SIGPENDING-信号来源分析"><a href="#TIF-SIGPENDING-信号来源分析" class="headerlink" title="TIF_SIGPENDING 信号来源分析"></a>TIF_SIGPENDING 信号来源分析</h1><p>bpftrace 抓一下看看：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">#!/usr/bin/env bpftrace</span><br><span class="line"><span class="meta">#<span class="meta-keyword">include</span> <span class="meta-string">&lt;linux/sched.h&gt;</span></span></span><br><span class="line"> </span><br><span class="line"> </span><br><span class="line">kprobe:__send_signal</span><br><span class="line">&#123;</span><br><span class="line">        $t = (struct task_struct *)arg2;</span><br><span class="line">        <span class="keyword">if</span> ($t-&gt;pid == $<span class="number">1</span>) &#123;</span><br><span class="line">                <span class="built_in">printf</span>(<span class="string">"comm:%s(pid: %d) send sig: %d to %s\n"</span>, comm, pid, arg0, $t-&gt;comm);</span><br><span class="line">        &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>结果如下：</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLc0xwOUlGUlVPRUxid2R2R0NyemI4eGJpYUd2M2RNeHBrOFFWQVd5bjY1TWZraWFxVXZOOXh5VVEvNjQw?x-oss-process=image/format,png" alt="img"></p>
+<p>结果比较有趣。kill 和 systemd 打断了 coredump 进程。信号 2(SIGINT)和信号 9(SIGKILL)都足以打断进程。现在问题变为 kill 和 systemd 为什么会发送这 2 个信号。一个怀疑是超时。coredump 进程为 not running 太久会不会触发 systemd 什么机制呢。</p>
+<p>于是查看了 systemd service 的 doc 发现这样一段话：</p>
+<blockquote>
+<p>TimeoutAbortSec=<br>This option configures the time to wait for the service to terminate when it was aborted due to a watchdog timeout (see WatchdogSec=). If the service has a short TimeoutStopSec= this option can be used to give the system more time to write a core dump of the service. Upon expiration the service will be forcibly terminated by SIGKILL (see KillMode= in systemd.kill(5)). The core file will be truncated in this case. Use TimeoutAbortSec= to set a sensible timeout for the core dumping per service that is large enough to write all expected data while also being short enough to handle the service failure in due time.</p>
+<p>Takes a unit-less value in seconds, or a time span value such as “5min 20s”. Pass an empty value to skip the dedicated watchdog abort timeout handling and fall back TimeoutStopSec=. Pass “infinity” to disable the timeout logic. Defaults to DefaultTimeoutAbortSec= from the manager configuration file (see systemd-system.conf(5)).</p>
+<p>If a service of Type=notify handles SIGABRT itself (instead of relying on the kernel to write a core dump) it can send “EXTEND_TIMEOUT_USEC=…” to extended the abort time beyond TimeoutAbortSec=. The first receipt of this message must occur before TimeoutAbortSec= is exceeded, and once the abort time has exended beyond TimeoutAbortSec=, the service manager will allow the service to continue to abort, provided the service repeats “EXTEND_TIMEOUT_USEC=…” within the interval specified, or terminates itself (see sd_notify(3)).</p>
+</blockquote>
+<p>标红的字引起了注意，于是调大一下(TimeoutAbortSec=”10min”) 再试。无效…</p>
+<p>无效后就很奇怪，难道 system 都不是信号的发起者，是信号的”传递者”? 现在有 2 个怀疑，一个是 systemd 是信号的发起者，一个是 systemd 不是信号的发起者，是信号的“传递者”。于是这次同时抓业务进程和 systemd 进程看看。结果如下：</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPaWFNUlNSaWFCM1lVNTB1aGxGQTlTbExNc01iTTFGcGtCallqVUowMlpRU01PeVpQdk1QeUJoUmhLT0g5VzVCcmtBdTkzdmV1NlZJbTJnLzY0MA?x-oss-process=image/format,png" alt="img"></p>
+<p>其中 3533840 是容器的 init 进程 systemd。3533916 是业务进程。和预想的一样，systemd 并不是信号的第一个发起者。systemd 是接收到 runc 的信号 15（SIGTERM）而停止的，停止前会对子进程发起 kill 行为。也就是最后的 systemd send sig。</p>
+<p>有个疑问就来了，之前用程序 1 测试了 system+docker 的场景，没有复现，回想一下 coredump 的过程应该是这样的，程序 1 没有对每个 page 都写，只写了一个 malloc 之后的第一个 page 的第一个一个字节。coredump 在遍历每个 vma 的时候耗时要比都写了 page 要快很多（因为没有那么多空洞，VMA 不会那么零碎）。coredump 体积虽然大，但时间短，因此没有触发这个问题，对于排查这个问题带来一定的曲折。</p>
+<p>于是排查方向转到 kill 命令和 runc 经过排查发现 K8S 的一个 lifecycle 中的 prestop 脚本有 kill 行为。把这个脚本停到后再次抓一下：</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLbmljTkJNZnd2SlB5d2dCV1pRUlJVajdpYm50YWRtYnlKa1FMR3Byck9KYjJWMWVpY082S1ZMMmlhUS82NDA?x-oss-process=image/format,png" alt="img"></p>
+<p>这次没有 kill 行为，但是 systemd 还是被 runc 杀死了，发送了 2 个信号，一个是 SIGTERM，一个是 SIGKILL 现在解释通了 kill 信号的来源，这也就解释了 kill 的信号来源。其实 kill 和 systemd 的信号根源间接或直接都是 runc。runc 的销毁指令来自 k8s。</p>
+<p>于是根据 K8S 的日志继续排查。经过排查发现最终的触发逻辑是来自字节内部实现的 Load 驱逐。该机制当容器的 Load 过高时则会把这个实例驱逐掉，避免影响其他实例。因为 coredump 的时候 CPU 会长期陷入到内核态，导致 load 升高。所以 I 引发了 Pod 驱逐。</p>
+<p>coredump 期间实例的负载很高，导致 k8s 的组件 kubelet 的触发了 load 高驱逐实例的行为。删除 pod。停止 systemd。杀死正在 coredump 的进程，最终导致 coredump 第二阶段写 vma 数据未完成。</p>
+<h2 id="验证问题"><a href="#验证问题" class="headerlink" title="验证问题"></a>验证问题</h2><p>在做一个简单的验证，停止 K8S 组件 kubelet，然后对服务发起 core。最后 gdb。验证正常，gdb 正常读取数据。至此这个问题就排查完毕了。最后修改内部实现 cgroup 级的 Load（和整机 load 近似的采集数据的方案）采集功能，过滤 D 状态的进程（coredump 进程在用户态表现为 D 状态）后，这个问题彻底解决。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本次 coredump 文件 truncate 是因为 coredump 的进程被杀死（SIGKILL 信号）导致 VMA 没有写入完全（只写入了一部分）导致，。解决这个问题通过阅读内核源代码加以使用 bpftrace、systemtap 工具追踪 coredump 的过程。打印出关心的数据，借助源代码最终分析出问题的原因。同时我们对内核的 coredump 过程有了一定的了解。</p>
+<p>最后，欢迎加入字节跳动基础架构团队，一起探讨、解决问题，一起变强！</p>
+<p><strong>附：coredump 文件简单分析</strong></p>
+<p>在排查这个问题期间也阅读了内核处理 coredump 的相关源代码，简单总结一下:</p>
+<p>coredump 文件其实是一个精简版的 ELF 文件。coredump 过程并不复杂。coredump 的过程分为 2 个阶段，一个阶段是写 program header（第一个 program header 是 Note Program Header）,每个 program header 包含了 VMA 的大小和在文件的偏移量。gdb 也是依此来确定每个 VMA 的位置的。另一个阶段是写 vma 的数据，遍历进程的所有 vma。然后写入文件。一个 coredump 文件的结构可以简单的用如下图的结构表示。</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLcTRsbXQydmxhRTdxa0FrSUwwVHZkUUZNa2p6ZWxUSWNEaWFYUkJudGlhU3dacmRTU0xtdlN5aWNRLzY0MA?x-oss-process=image/format,png" alt="img"></p>
+<h1 id="参考文献"><a href="#参考文献" class="headerlink" title="参考文献"></a>参考文献</h1><ol>
+<li>Binary_File_Descriptor_library (<a href="https://en.wikipedia.org/wiki/Binary_File_Descriptor_library" rel="external nofollow noopener noreferrer" target="_blank">https://en.wikipedia.org/wiki/Binary_File_Descriptor_library</a>)</li>
+<li>systemd.service — Service unit configuration (<a href="https://www.freedesktop.org/software/systemd/man/systemd.service.html" rel="external nofollow noopener noreferrer" target="_blank">https://www.freedesktop.org/software/systemd/man/systemd.service.html</a>)</li>
+<li>Kubernets Pod Lifecycle (<a href="https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/" rel="external nofollow noopener noreferrer" target="_blank">https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/</a>)</li>
+</ol>
+<h1 id="更多分享"><a href="#更多分享" class="headerlink" title="更多分享"></a>更多分享</h1><p><a href="http://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c395dea74a8349d806c8c5c0cc9dc9b1220adc7531c4a2db6d3a99f2358ad0bbda49c62b&amp;idx=1&amp;mid=2247485559&amp;scene=21&amp;sn=def1a04c3aee1321a238392278476974#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">字节跳动在 RocksDB 存储引擎上的改进实践</a></p>
+<p><a href="http://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c385dea74a937e8200e98eecdfab608081e5e5e23232a905383d0d58d19625ae0717e453&amp;idx=1&amp;mid=2247485543&amp;scene=21&amp;sn=caf885f6d76659e7ad8ef5b006ce31f6#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">深入理解 Linux 内核–jemalloc 引起的 TLB shootdown 及优化</a></p>
+<p><a href="http://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c3a2dea74ab4c3451e20e62e1cb05251b058ae9a81c6b0ca9f94a6874f7da451c6066607&amp;idx=1&amp;mid=2247485504&amp;scene=21&amp;sn=1768d4561b3d787bf6175d124e1a200d#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">字节跳动自研万亿级图数据库 &amp; 图计算实践</a></p>
+<hr>
+<h1 id="字节跳动基础架构团队"><a href="#字节跳动基础架构团队" class="headerlink" title="字节跳动基础架构团队"></a>字节跳动基础架构团队</h1><p>字节跳动基础架构团队是支撑字节跳动旗下包括抖音、今日头条、西瓜视频、火山小视频在内的多款亿级规模用户产品平稳运行的重要团队，为字节跳动及旗下业务的快速稳定发展提供了保证和推动力。</p>
+<p>公司内，基础架构团队主要负责字节跳动私有云建设，管理数以万计服务器规模的集群，负责数万台计算/存储混合部署和在线/离线混合部署，支持若干 EB 海量数据的稳定存储。</p>
+<p>文化上，团队积极拥抱开源和创新的软硬件架构。我们长期招聘基础架构方向的同学，具体可参见  job.bytedance.com （文末“阅读原文”），感兴趣可以联系邮箱 <a href="mailto:guoxinyu.0372@bytedance.com" rel="external nofollow noopener noreferrer" target="_blank">guoxinyu.0372@bytedance.com</a> 。</p>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPak5hNThaQWpkZmNpYUY4aWEzejFnSEtLd3U4OVJwSGliYjJGamNNUXdkdUFMbVVqbzkxUkVvSUxTNVJXaWFScjlxNjZCeXpadkdmOXI1Y1EvNjQw?x-oss-process=image/format,png" alt="img"></p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/go/go的一次故障排除/" rel="next" title="go的一次故障排除">
+                <i class="fa fa-chevron-left"></i> go的一次故障排除
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+    <div class="comments" id="gitalk-container">
+    </div>
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光伴你左右</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">241</span>
+                    <span class="site-state-item-name">日志</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">40</span>
+                    <span class="site-state-item-name">分类</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">54</span>
+                    <span class="site-state-item-name">标签</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+            <div class="feed-link motion-element">
+              <a href="/atom.xml" rel="alternate">
+                <i class="fa fa-rss"></i>
+                RSS
+              </a>
+            </div>
+          
+
+          
+
+          
+
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#gdb-提示-coredump-文件-truncated-问题排查"><span class="nav-number">1.</span> <span class="nav-text">gdb 提示 coredump 文件 truncated 问题排查</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#问题背景"><span class="nav-number">2.</span> <span class="nav-text">问题背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#名词约定"><span class="nav-number">3.</span> <span class="nav-text">名词约定</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#排查过程"><span class="nav-number">4.</span> <span class="nav-text">排查过程</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#用户态排查"><span class="nav-number">4.1.</span> <span class="nav-text">用户态排查</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#VMA-部分-dump-分析"><span class="nav-number">5.</span> <span class="nav-text">VMA 部分 dump 分析</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#实验一："><span class="nav-number">5.0.0.1.</span> <span class="nav-text">实验一：</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#实验二："><span class="nav-number">5.0.0.2.</span> <span class="nav-text">实验二：</span></a></li></ol></li></ol><li class="nav-item nav-level-1"><a class="nav-link" href="#get-dump-page-返回-NULL-分析"><span class="nav-number">6.</span> <span class="nav-text">get_dump_page 返回 NULL 分析</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#TIF-SIGPENDING-信号来源分析"><span class="nav-number">7.</span> <span class="nav-text">TIF_SIGPENDING 信号来源分析</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#验证问题"><span class="nav-number">7.1.</span> <span class="nav-text">验证问题</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#总结"><span class="nav-number">8.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#参考文献"><span class="nav-number">9.</span> <span class="nav-text">参考文献</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#更多分享"><span class="nav-number">10.</span> <span class="nav-text">更多分享</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#字节跳动基础架构团队"><span class="nav-number">11.</span> <span class="nav-text">字节跳动基础架构团队</span></a></li></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <a> 粤公网安备44011302003059号 粤ICP备2021068940号</a>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="总访客量">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="总访问量">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+    
+
+<script src="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+
+
+
+<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.css">
+
+
+
+<script src="//cdn.jsdelivr.net/npm/js-md5@0.7.3/src/md5.min.js"></script>
+
+<script>
+  var gitalk = new Gitalk({
+    clientID: 'f11b272cc4efaec58a26',
+    clientSecret: '14ded6181649ec8aed8d601d16bdadcea6a68c88',
+    repo: 'github-pages-comments',
+    owner: 'shankusu2017',
+    admin: ['shankusu2017'],
+    id: md5(location.pathname),
+    
+      language: window.navigator.language || window.navigator.userLanguage,
+    
+    distractionFreeMode: 'true'
+  });
+  gitalk.render('gitalk-container');
+</script>
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  <script>
+    (function(){
+      var bp = document.createElement('script');
+      var curProtocol = window.location.protocol.split(':')[0];
+      bp.src = (curProtocol === 'https') ? 'https://zz.bdstatic.com/linksubmit/push.js' : 'http://push.zhanzhang.baidu.com/push.js';
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(bp, s);
+    })();
+  </script>
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('复制成功');
+        else $(this).text('复制失败');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('复制');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
