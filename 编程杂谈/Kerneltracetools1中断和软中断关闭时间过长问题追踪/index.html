@@ -1,0 +1,1652 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="zh-CN">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+  <meta name="baidu-site-verification" content="code-legvFikwxc">
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="kenel trace tools（一）：中断和软中断关闭时间过长问题追踪 本文是由字节跳动系统部 STE 团队出品的 “kernel trace tools” 系列文章，以介绍团队自研多类延迟问题追踪工具。 在实际工作中，会遇到由于中断和软中断关闭时间过长而引发的高网络延迟问题。但是，对于该类问题的定位和追踪缺乏行之有效的方案或客观依据，需要耗费大量时间和精力用于问题排查，Interrupts-">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Kernel trace tools（一）：中断和软中断关闭时间过长问题追踪">
+<meta property="og:url" content="http://www.shankusu.me/编程杂谈/Kerneltracetools1中断和软中断关闭时间过长问题追踪/index.html">
+<meta property="og:site_name" content="愿星光伴你左右">
+<meta property="og:description" content="kenel trace tools（一）：中断和软中断关闭时间过长问题追踪 本文是由字节跳动系统部 STE 团队出品的 “kernel trace tools” 系列文章，以介绍团队自研多类延迟问题追踪工具。 在实际工作中，会遇到由于中断和软中断关闭时间过长而引发的高网络延迟问题。但是，对于该类问题的定位和追踪缺乏行之有效的方案或客观依据，需要耗费大量时间和精力用于问题排查，Interrupts-">
+<meta property="og:locale" content="zh-CN">
+<meta property="og:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPZ0thMjgwYVRFQ3UzdExNemx0SzlFUGJlb05abThUcE5kWFJzaFV5V1FiU1AzTWlhY05FWnhXRU1iUWJUZ2VEN3NWdXRPNWtWbTlBTFEvNjQw?x-oss-process=image/format,png">
+<meta property="og:updated_time" content="2021-07-27T10:08:39.489Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Kernel trace tools（一）：中断和软中断关闭时间过长问题追踪">
+<meta name="twitter:description" content="kenel trace tools（一）：中断和软中断关闭时间过长问题追踪 本文是由字节跳动系统部 STE 团队出品的 “kernel trace tools” 系列文章，以介绍团队自研多类延迟问题追踪工具。 在实际工作中，会遇到由于中断和软中断关闭时间过长而引发的高网络延迟问题。但是，对于该类问题的定位和追踪缺乏行之有效的方案或客观依据，需要耗费大量时间和精力用于问题排查，Interrupts-">
+<meta name="twitter:image" content="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPZ0thMjgwYVRFQ3UzdExNemx0SzlFUGJlb05abThUcE5kWFJzaFV5V1FiU1AzTWlhY05FWnhXRU1iUWJUZ2VEN3NWdXRPNWtWbTlBTFEvNjQw?x-oss-process=image/format,png">
+
+
+
+  <link rel="alternate" href="/atom.xml" title="愿星光伴你左右" type="application/atom+xml">
+
+
+
+  
+  
+  <link rel="canonical" href="http://www.shankusu.me/编程杂谈/Kerneltracetools1中断和软中断关闭时间过长问题追踪/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>Kernel trace tools（一）：中断和软中断关闭时间过长问题追踪 | 愿星光伴你左右</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-CN">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">愿星光伴你左右</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="切换导航栏">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>首页</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>分类<span class="badge">40</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-lua">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/lua" rel="section"><i class="menu-item-icon fa fa-fw fa-moon-o"></i> <br>lua</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-go">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/go" rel="section"><i class="menu-item-icon fa fa-fw fa-google"></i> <br>go</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-weekly">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/weekly" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>周记</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-daily">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/daily" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>心语</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-links">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/link" rel="section"><i class="menu-item-icon fa fa-fw fa-external-link"></i> <br>友情链接</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-guestbook">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/guestbook/" rel="section"><i class="menu-item-icon fa fa-fw fa-commenting"></i> <br>留言册</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>关于</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>搜索</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="搜索..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://www.shankusu.me/编程杂谈/Kerneltracetools1中断和软中断关闭时间过长问题追踪/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光伴你左右">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="愿星光伴你左右">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">Kernel trace tools（一）：中断和软中断关闭时间过长问题追踪
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          
+          
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+              
+
+              
+                
+
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                
+                  <span class="post-meta-item-text">更新于</span>
+                
+                <time title="修改时间：2021-07-27 18:08:39" itemprop="dateModified" datetime="2021-07-27T18:08:39+08:00">2021-07-27</time>
+              
+            
+          </span>
+
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/编程杂谈/" itemprop="url" rel="index"><span itemprop="name">编程杂谈</span></a></span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             阅读次数： 
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="kenel-trace-tools（一）：中断和软中断关闭时间过长问题追踪"><a href="#kenel-trace-tools（一）：中断和软中断关闭时间过长问题追踪" class="headerlink" title="kenel trace tools（一）：中断和软中断关闭时间过长问题追踪"></a>kenel trace tools（一）：中断和软中断关闭时间过长问题追踪</h1><blockquote>
+<p>本文是由字节跳动系统部 STE 团队出品的 “kernel trace tools” 系列文章，以介绍团队自研多类延迟问题追踪工具。</p>
+<p>在实际工作中，会遇到由于中断和软中断关闭时间过长而引发的高网络延迟问题。但是，对于该类问题的定位和追踪缺乏行之有效的方案或客观依据，需要耗费大量时间和精力用于问题排查，Interrupts-off or softirqs-off latency tracer (简称：trace-irqoff)工具便是在该背景下诞生的自研工具。</p>
+<p>目前，trace-irqoff 已开源，如感兴趣详见 Open Source Repo（ <a href="https://github.com/bytedance/trace-irqoff/tree/master" rel="external nofollow noopener noreferrer" target="_blank">https://github.com/bytedance/trace-irqoff/tree/master</a> ） 。</p>
+</blockquote>
+<h1 id="1-问题背景"><a href="#1-问题背景" class="headerlink" title="1. 问题背景"></a>1. 问题背景</h1><p>在工作中，我们经常遇到业务的进程网络延迟高。基于此前分析同类问题的丰富经验，造成上述问题的原因有很多种。我们发现以下两种原因经常出现在我们的视野中。</p>
+<ul>
+<li>hardirq 关闭时间过长。</li>
+<li>softirq 关闭时间过长。</li>
+</ul>
+<p>hardirq 关闭时间过长会导致调度延迟，本地 CPU 的 softirq 也会因得不到执行。我们知道网络收发包就是使用 softirq，因此 hardirq 关闭时间过长必然导致问题。同样，softirq 关闭是一样的，虽不会影响 hardirq，但是它直接影响了 softirq 的执行。</p>
+<h1 id="2-我们需要什么"><a href="#2-我们需要什么" class="headerlink" title="2. 我们需要什么"></a>2. 我们需要什么</h1><p>每一次为了确认是否以上原因导致问题，我们经常需要浪费很多的时间。因此有必要开发一款工具专门可以定位这种原因导致的网络延迟问题。我们并不是只求案发现场，我们还要抓住元凶。我们需要知道哪个进程在代码什么位置关闭中断，这很有助于我们高效地解决问题。</p>
+<h1 id="3-是否有现成的方案"><a href="#3-是否有现成的方案" class="headerlink" title="3. 是否有现成的方案"></a>3. 是否有现成的方案</h1><p>我们的目的很简单，跟踪 hardirq/softirq 关闭时间。我们有什么办法做到呢？最简单直观的方法应该是在内核开关中断的地方加入 hook 函数，统计开关时间戳即可得到差值，差值即关闭时间。Linux 内核提供打开关闭中断的 API 如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* hardirq enable/disable api */</span></span><br><span class="line"></span><br><span class="line">local_irq_disable()</span><br><span class="line">local_irq_enable()</span><br><span class="line">local_irq_save()</span><br><span class="line">local_irq_restore()</span><br><span class="line"><span class="comment">/* softirq enable/disable api */</span></span><br><span class="line">local_bh_disable()</span><br><span class="line">local_bh_enable()</span><br></pre></td></tr></table></figure>
+<p>没错，hardirq 关闭跟踪 Linux 内核中已经有现成的实现方案，我们只需要配置以下 config 选项即可。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">CONFIG_IRQSOFF_TRACER=y</span><br></pre></td></tr></table></figure>
+<p>好了，似乎我们什么都不用做直接使用即可。看起来是这样的，但是这里存在 2 个问题。</p>
+<ul>
+<li>CONFIG_IRQSOFF_TRACER 默认是关闭的，如果需要这么做我们需要重新编译内核，还要重装，最后等待问题复现。这不是我们想要的。</li>
+<li>Linux 内核里面中断开关频繁。即使方案可行，overhead 也会很高。所以再一次不是我们想要的。</li>
+</ul>
+<h1 id="4-我们的方法"><a href="#4-我们的方法" class="headerlink" title="4. 我们的方法"></a>4. 我们的方法</h1><p>我们换一个思路。我们可以利用 hrtimer 判断两次中断之间的时间来判断是否关闭了中断。hrtimer 是 Linux 中的高精度定时器，并且执行上下文是 hardirq。所以可以基于这种方式，虽然不够精确但是足以满足我们的需求。例如，hrtimer 定时周期是 10ms。那么两次中断之间的时间间隔应该是 10ms。如果某次发现两次采样时间间隔是 50ms，可以间接说明关闭中断约 50ms。另外根据采样定理，两次中断之间的时间间隔必须大于 2 倍采样周期（20ms）才能认为中断关闭。所以我们的方法比较明确了，针对每个 CPU 都会启动一个 hrtimer，并且绑定每个 CPU。在 hrtimer handle 里面计算中断时间间隔。这就做到了中断关闭检测了。softirq 该怎么办呢？我们可以如法炮制。在 Linux 内核中，普通定时器 timer 执行上下文就是 softirq。很符合我们需求。所以我们可以按照类似的方法周期性采样，只不过定时器使用的是普通 timer。</p>
+<h1 id="5-记录元凶的栈"><a href="#5-记录元凶的栈" class="headerlink" title="5. 记录元凶的栈"></a>5. 记录元凶的栈</h1><p>当我们发现两次中断时间间隔大于阈值时，我们需要知道当前 CPU 究竟在做什么，导致 hardirq/softirq 被关闭。我们可以在中断处理函数中记录当前 CPU 的栈。这么做的前提是，中断处理函数执行时，当前进程不能发生调度，也就是元凶必须在现场。可谓是”抓个现行”。</p>
+<h4 id="5-1-hardirq"><a href="#5-1-hardirq" class="headerlink" title="5.1 hardirq"></a>5.1 hardirq</h4><p>针对 hardirq 关闭情况。当进程在关闭和打开中断之间发生了定时器中断，此时虽不会响应中断，但是硬件会置位 pending。当进程打开中断时，与此同时会响应中断。hardirq handle 会被调用。当前的进程根本没有机会调度，所以这一定是现场，而且当前进程一定是元凶。</p>
+<h4 id="5-2-softirq"><a href="#5-2-softirq" class="headerlink" title="5.2 softirq"></a>5.2 softirq</h4><p>针对 softirq 关闭情况，是否满足上述前提呢？进程调用 local_bh_enable()打开 softirq。精简下打开下半部的函数如下：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">void __local_bh_enable_ip(unsigned long ip, unsigned <span class="keyword">int</span> cnt)</span><br><span class="line"></span><br><span class="line">&#123;</span><br><span class="line">        <span class="comment">/*</span></span><br><span class="line"><span class="comment">         * Keep preemption disabled until we are done with</span></span><br><span class="line"><span class="comment">         * softirq processing:</span></span><br><span class="line"><span class="comment">         */</span></span><br><span class="line">        preempt_count_sub(cnt - <span class="number">1</span>);</span><br><span class="line">        <span class="keyword">if</span> (unlikely(!in_interrupt() &amp;&amp; local_softirq_pending())) &#123;</span><br><span class="line"></span><br><span class="line">                do_softirq();</span><br><span class="line">        &#125;</span><br><span class="line">        preempt_count_dec();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>我们可以看到如果有 softirq pending 的话，do_softirq()会负责在当前进程上下文处理 softirq。并其他抢占是关闭的状态。所以我们不会调度出去，并且调用 local_bh_enable() 会立刻响应普通定时器 timer。所以这也满足以上条件。</p>
+<h1 id="6-softirq-的特殊"><a href="#6-softirq-的特殊" class="headerlink" title="6. softirq 的特殊"></a>6. softirq 的特殊</h1><p>我先回忆下触发 softirq 的执行场景。一共会有 3 个地方。</p>
+<ul>
+<li>irq_exit()</li>
+<li>local_bh_enable()</li>
+<li>ksoftirqd 进程</li>
+</ul>
+<p>当中断返回时会检查 softirq pending，这是大部分执行 softirq 的场景，由于中断的特殊性，在 timer handle 里面记录当前 CPU 的栈是有效的。local_bh_enable()的情况上面已经讨论，可以抓住元凶。但是第 3 种情况下，却不能。这是为什么呢？我们是在 timer handle 里面记录堆栈信息，如果 irq_exit 时 softirq 执行时间过长，会被安排到 ksoftirqd 进程执行。那我们记录的栈信息是什么？仅仅是 ksoftirqd 进程的栈，ksoftirq 并不是元凶。记录是没有用的。所以针对 ksoftirqd 执行的场景，我们需要特殊的处理。我们借助 hrtimer handle。hrtimer 除了测量两次 hardirq 间隔外，还测量 softirq 多长时间没有执行，在合适的时候记录栈。hrtimer 执行的时候，顺便会检测 softirqirq 多长时间没有更新时间戳，如果操作阈值我们也会记录栈信息，这是因为后续如果 softirq 被推迟到 ksoftirqd 进程执行的话，由 softirq 的 timer 记录的栈就没有价值了。</p>
+<h1 id="7-如何安装"><a href="#7-如何安装" class="headerlink" title="7. 如何安装"></a>7. 如何安装</h1><p>安装 trace-irqoff 工具很简单，git clone 代码后执行如下命令即可安装。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">make</span> -j8</span><br><span class="line"><span class="built_in">make</span> install</span><br></pre></td></tr></table></figure>
+<h1 id="8-如何使用"><a href="#8-如何使用" class="headerlink" title="8. 如何使用"></a>8. 如何使用</h1><p>安装 trace-irqoff 工具成功后。会创建如下 /proc/trace_irqoff 目录。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">root@n18<span class="number">-061</span><span class="number">-206</span>:/proc/trace_irqoff# ls</span><br><span class="line"></span><br><span class="line">distribute  enable  sampling_period  trace_latency</span><br></pre></td></tr></table></figure>
+<p>/proc/trace_irqoff 目录下存在 4 个文件，分别：distribute, enable, sampling_period 和 trace_latency。工具安装后，默认是关闭状态，我们需要手动打开 trace。</p>
+<h4 id="8-1-打开-trace"><a href="#8-1-打开-trace" class="headerlink" title="8.1 打开 trace"></a>8.1 打开 trace</h4><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">echo <span class="number">1</span> &gt; /proc/trace_irqoff/enable</span><br></pre></td></tr></table></figure>
+<h4 id="8-2-关闭-trace"><a href="#8-2-关闭-trace" class="headerlink" title="8.2 关闭 trace"></a>8.2 关闭 trace</h4><figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">echo <span class="number">0</span> &gt; /proc/trace_irqoff/enable</span><br></pre></td></tr></table></figure>
+<h4 id="8-3-设置-trace-阈值"><a href="#8-3-设置-trace-阈值" class="headerlink" title="8.3 设置 trace 阈值"></a>8.3 设置 trace 阈值</h4><p>trace-irqoff 工具只会针对关闭中断或者软中断时间超过阈值的情况下记录堆栈信息。因此我们可以通过如下命令查看当前 trace 的阈值：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">root@n18<span class="number">-061</span><span class="number">-206</span>:/proc/trace_irqoff# cat /proc/trace_irqoff/trace_latency</span><br><span class="line">trace_irqoff_latency: <span class="number">50</span>ms</span><br><span class="line"> hardirq:</span><br><span class="line"> softirq:</span><br></pre></td></tr></table></figure>
+<p>默认阈值是 50ms，如第 2 行所示。第 4 行输出 hardirq: 代表下面的栈是可能关闭中断超过阈值的栈。同理，第 6 行是软中断关闭时间超过阈值的栈。如果需要修改阈值至 100ms 可通过如下命令（写入值单位是 ms）：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">echo <span class="number">100</span> &gt; /proc/trace_irqoff/trace_latency</span><br></pre></td></tr></table></figure>
+<h4 id="8-4-清除栈信息"><a href="#8-4-清除栈信息" class="headerlink" title="8.4 清除栈信息"></a>8.4 清除栈信息</h4><p>当然如果需要清除 /proc/trace_irqoff 记录的栈信息。可以执行如下命令（不会修改阈值为 0）：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">echo <span class="number">0</span> &gt; /proc/trace_irqoff/trace_latency</span><br></pre></td></tr></table></figure>
+<h4 id="8-5-查看中断关闭次数的统计信息"><a href="#8-5-查看中断关闭次数的统计信息" class="headerlink" title="8.5 查看中断关闭次数的统计信息"></a>8.5 查看中断关闭次数的统计信息</h4><p>如果我们需要知道中断被关闭一定的时间的次数，可以通过如下命令获取统计信息：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">root@n18<span class="number">-061</span><span class="number">-206</span>:/proc/trace_irqoff# cat distribute</span><br><span class="line"></span><br><span class="line">hardirq-off:</span><br><span class="line">         msecs           : count     distribution</span><br><span class="line">        <span class="number">20</span> -&gt; <span class="number">39</span>         : <span class="number">1</span>        |**********                              |</span><br><span class="line">        <span class="number">40</span> -&gt; <span class="number">79</span>         : <span class="number">0</span>        |                                        |</span><br><span class="line">        <span class="number">80</span> -&gt; <span class="number">159</span>        : <span class="number">4</span>        |****************************************|</span><br><span class="line">       <span class="number">160</span> -&gt; <span class="number">319</span>        : <span class="number">2</span>        |********************                    |</span><br><span class="line">       <span class="number">320</span> -&gt; <span class="number">639</span>        : <span class="number">1</span>        |**********                              |</span><br><span class="line"></span><br><span class="line">softirq-off:</span><br><span class="line">         msecs           : count     distribution</span><br><span class="line">        <span class="number">20</span> -&gt; <span class="number">39</span>         : <span class="number">0</span>        |                                        |</span><br><span class="line">        <span class="number">40</span> -&gt; <span class="number">79</span>         : <span class="number">0</span>        |                                        |</span><br><span class="line">        <span class="number">80</span> -&gt; <span class="number">159</span>        : <span class="number">0</span>        |                                        |</span><br><span class="line">       <span class="number">160</span> -&gt; <span class="number">319</span>        : <span class="number">1</span>        |****************************************|</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>在这个例子中，我们看到 hardirq 被关闭时间 x ∈ [80, 159] ms，次数 4 次。softirq 被关闭时间 x ∈ [160, 319] ms，次数 1 次 如果没有任何信息输出，这说明没有任何地方关闭中断时间超过 20ms。</p>
+</blockquote>
+<h4 id="8-6-修改采样周期"><a href="#8-6-修改采样周期" class="headerlink" title="8.6 修改采样周期"></a>8.6 修改采样周期</h4><p>从上面一节我们可以看到，中断关闭时间分布图最小粒度是 20ms。这是因为采样周期是 10ms。根据采样定理，大于等于 2 倍采样周期时间才能反映真实情况。如果需要提高统计粒度，可修改采样周期时间。例如修改采样周期为 1ms，可执行如下命令（必须在 tracer 关闭的情况下操作有效）：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"># 单位 ms，可设置最小的采样周期是 <span class="number">1</span>ms。</span><br><span class="line">echo <span class="number">1</span> &gt; /proc/trace_irqoff/sampling_period</span><br></pre></td></tr></table></figure>
+<h1 id="9-案例分析"><a href="#9-案例分析" class="headerlink" title="9. 案例分析"></a>9. 案例分析</h1><h4 id="9-1-hardirq-关闭"><a href="#9-1-hardirq-关闭" class="headerlink" title="9.1 hardirq 关闭"></a>9.1 hardirq 关闭</h4><p>我们使用如下示意测试程序，关闭中断 100ms。查看 trace_irqoff 文件内容。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">static void disable_hardirq(unsigned long latency)</span><br><span class="line">&#123;</span><br><span class="line">        local_irq_disable();</span><br><span class="line">        mdelay(latency);</span><br><span class="line">        local_irq_enanle();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>通过模块测试以上代码，然后查看栈信息。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">root@n18<span class="number">-061</span><span class="number">-206</span>:/proc/trace_irqoff# cat trace_latency</span><br><span class="line">trace_irqoff_latency: <span class="number">50</span>ms</span><br><span class="line"> hardirq:</span><br><span class="line"> cpu: <span class="number">17</span></span><br><span class="line">     COMMAND: bash PID: <span class="number">22840</span> LATENCY: <span class="number">107</span>ms</span><br><span class="line">     trace_irqoff_hrtimer_handler+<span class="number">0x39</span>/<span class="number">0x99</span> [trace_irqoff]</span><br><span class="line">     __hrtimer_run_queues+<span class="number">0xfa</span>/<span class="number">0x270</span></span><br><span class="line">     hrtimer_interrupt+<span class="number">0x101</span>/<span class="number">0x240</span></span><br><span class="line">     smp_apic_timer_interrupt+<span class="number">0x5e</span>/<span class="number">0x120</span></span><br><span class="line">     apic_timer_interrupt+<span class="number">0xf</span>/<span class="number">0x20</span></span><br><span class="line">     disable_hardirq+<span class="number">0x5b</span>/<span class="number">0x70</span></span><br><span class="line">     proc_reg_write+<span class="number">0x36</span>/<span class="number">0x60</span></span><br><span class="line">     __vfs_write+<span class="number">0x33</span>/<span class="number">0x190</span></span><br><span class="line">     vfs_write+<span class="number">0xb0</span>/<span class="number">0x190</span></span><br><span class="line">     ksys_write+<span class="number">0x52</span>/<span class="number">0xc0</span></span><br><span class="line">     do_syscall_64+<span class="number">0x4f</span>/<span class="number">0xe0</span></span><br><span class="line">     entry_SYSCALL_64_after_hwframe+<span class="number">0x44</span>/<span class="number">0xa9</span></span><br><span class="line"></span><br><span class="line"> softirq:</span><br></pre></td></tr></table></figure>
+<p>我们可以看到 hardirq 一栏记录 cpu17 执行 bash 命令，关闭中断 107ms（误差 10ms 之内）。其栈信息对应 disable_hardirq() 函数中。第 20 行 softirq 一栏没有信息，说明没有记录 softirq 被关闭的栈。</p>
+<h4 id="9-2-softirq-关闭"><a href="#9-2-softirq-关闭" class="headerlink" title="9.2 softirq 关闭"></a>9.2 softirq 关闭</h4><p>我们使用如下示意测试程序，关闭 softirq 100ms。查看 trace_irqoff 文件内容。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">static void disable_softirq(unsigned long latency)</span><br><span class="line">&#123;</span><br><span class="line">        local_bh_disable();</span><br><span class="line">        mdelay(latency);</span><br><span class="line">        local_bh_enanle();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>通过模块测试以上代码，然后查看栈信息。</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">root@n18<span class="number">-061</span><span class="number">-206</span>:/proc/trace_irqoff# cat trace_latency</span><br><span class="line">trace_irqoff_latency: <span class="number">50</span>ms</span><br><span class="line"> hardirq:</span><br><span class="line"> softirq:</span><br><span class="line"> cpu: <span class="number">17</span></span><br><span class="line">     COMMAND: bash PID: <span class="number">22840</span> LATENCY: <span class="number">51</span>+ms</span><br><span class="line">     trace_irqoff_hrtimer_handler+<span class="number">0x97</span>/<span class="number">0x99</span> [trace_irqoff]</span><br><span class="line">     __hrtimer_run_queues+<span class="number">0xfa</span>/<span class="number">0x270</span></span><br><span class="line">     hrtimer_interrupt+<span class="number">0x101</span>/<span class="number">0x240</span></span><br><span class="line">     smp_apic_timer_interrupt+<span class="number">0x5e</span>/<span class="number">0x120</span></span><br><span class="line">     apic_timer_interrupt+<span class="number">0xf</span>/<span class="number">0x20</span></span><br><span class="line">     delay_tsc+<span class="number">0x3c</span>/<span class="number">0x50</span></span><br><span class="line">     disable_softirq+<span class="number">0x4b</span>/<span class="number">0x80</span></span><br><span class="line">     proc_reg_write+<span class="number">0x36</span>/<span class="number">0x60</span></span><br><span class="line">     __vfs_write+<span class="number">0x33</span>/<span class="number">0x190</span></span><br><span class="line">     vfs_write+<span class="number">0xb0</span>/<span class="number">0x190</span></span><br><span class="line">     ksys_write+<span class="number">0x52</span>/<span class="number">0xc0</span></span><br><span class="line">     do_syscall_64+<span class="number">0x4f</span>/<span class="number">0xe0</span></span><br><span class="line">     entry_SYSCALL_64_after_hwframe+<span class="number">0x44</span>/<span class="number">0xa9</span></span><br><span class="line"></span><br><span class="line">     COMMAND: bash PID: <span class="number">22840</span> LATENCY: <span class="number">106</span>ms</span><br><span class="line">     trace_irqoff_timer_handler+<span class="number">0x3a</span>/<span class="number">0x60</span> [trace_irqoff]</span><br><span class="line">     call_timer_fn+<span class="number">0x29</span>/<span class="number">0x120</span></span><br><span class="line">     run_timer_softirq+<span class="number">0x16c</span>/<span class="number">0x400</span></span><br><span class="line">     __do_softirq+<span class="number">0x108</span>/<span class="number">0x2b8</span></span><br><span class="line">     do_softirq_own_stack+<span class="number">0x2a</span>/<span class="number">0x40</span></span><br><span class="line">     do_softirq.part<span class="number">.21</span>+<span class="number">0x56</span>/<span class="number">0x60</span></span><br><span class="line">     __local_bh_enable_ip+<span class="number">0x60</span>/<span class="number">0x70</span></span><br><span class="line">     disable_softirq+<span class="number">0x62</span>/<span class="number">0x80</span></span><br><span class="line">     proc_reg_write+<span class="number">0x36</span>/<span class="number">0x60</span></span><br><span class="line">     __vfs_write+<span class="number">0x33</span>/<span class="number">0x190</span></span><br><span class="line">     vfs_write+<span class="number">0xb0</span>/<span class="number">0x190</span></span><br><span class="line">     ksys_write+<span class="number">0x52</span>/<span class="number">0xc0</span></span><br><span class="line">     do_syscall_64+<span class="number">0x4f</span>/<span class="number">0xe0</span></span><br><span class="line">     entry_SYSCALL_64_after_hwframe+<span class="number">0x44</span>/<span class="number">0xa9</span></span><br></pre></td></tr></table></figure>
+<p>针对 softirq 关闭情况，有 2 个栈与之对应。我们注意到第 9 行的函数名称和第 24 行的函数名称是不一样的。第 9 行的栈是硬件中断 handler 捕捉到软中断关闭，第 24 行是软中断 handler 捕捉到软中断被关闭。正常情况下，我们以 24 行开始的栈为分析目标即可。当 24 行的栈是无效的时候，可以看第 9 行的栈。这里注意：第 9 行的 lantency 提示信息 51+ms 是阈值信息。并非实际 latency（所以我在后面添加一个’+’字符，表示 latency 大于 51ms）。实际的 latency 是第 24 行显示的 106ms。下面就看下为什么 2 个栈是有必要的。</p>
+<h4 id="9-3-ksoftirqd-延迟"><a href="#9-3-ksoftirqd-延迟" class="headerlink" title="9.3 ksoftirqd 延迟"></a>9.3 ksoftirqd 延迟</h4><p>我们看一个曾经处理的一个实际问题：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">root@n115<span class="number">-081</span><span class="number">-045</span>:/proc/trace_irqoff# cat trace_latency</span><br><span class="line">trace_irqoff_latency: <span class="number">300</span>ms</span><br><span class="line"> hardirq:</span><br><span class="line"> softirq:</span><br><span class="line"> cpu: <span class="number">4</span></span><br><span class="line"></span><br><span class="line">     COMMAND: lxcfs PID: <span class="number">4058797</span> LATENCY: <span class="number">303</span>+ms</span><br><span class="line"></span><br><span class="line">     trace_irqoff_record+<span class="number">0x12b</span>/<span class="number">0x1b0</span> [trace_irqoff]</span><br><span class="line">     trace_irqoff_hrtimer_handler+<span class="number">0x97</span>/<span class="number">0x99</span> [trace_irqoff]</span><br><span class="line">     __hrtimer_run_queues+<span class="number">0xdc</span>/<span class="number">0x220</span></span><br><span class="line">     hrtimer_interrupt+<span class="number">0xa6</span>/<span class="number">0x1f0</span></span><br><span class="line">     smp_apic_timer_interrupt+<span class="number">0x62</span>/<span class="number">0x120</span></span><br><span class="line">     apic_timer_interrupt+<span class="number">0x7d</span>/<span class="number">0x90</span></span><br><span class="line">     memcg_sum_events.isra<span class="number">.26</span>+<span class="number">0x3f</span>/<span class="number">0x60</span></span><br><span class="line">     memcg_stat_show+<span class="number">0x323</span>/<span class="number">0x460</span></span><br><span class="line">     seq_read+<span class="number">0x11f</span>/<span class="number">0x3f0</span></span><br><span class="line">     __vfs_read+<span class="number">0x33</span>/<span class="number">0x160</span></span><br><span class="line">     vfs_read+<span class="number">0x91</span>/<span class="number">0x130</span></span><br><span class="line">     SyS_read+<span class="number">0x52</span>/<span class="number">0xc0</span></span><br><span class="line">     do_syscall_64+<span class="number">0x68</span>/<span class="number">0x100</span></span><br><span class="line">     entry_SYSCALL_64_after_hwframe+<span class="number">0x3d</span>/<span class="number">0xa2</span></span><br><span class="line"></span><br><span class="line">     COMMAND: ksoftirqd/<span class="number">4</span> PID: <span class="number">34</span> LATENCY: <span class="number">409</span>ms</span><br><span class="line">     trace_irqoff_record+<span class="number">0x12b</span>/<span class="number">0x1b0</span> [trace_irqoff]</span><br><span class="line">     trace_irqoff_timer_handler+<span class="number">0x3a</span>/<span class="number">0x60</span> [trace_irqoff]</span><br><span class="line">     call_timer_fn+<span class="number">0x2e</span>/<span class="number">0x130</span></span><br><span class="line">     run_timer_softirq+<span class="number">0x1d4</span>/<span class="number">0x420</span></span><br><span class="line">     __do_softirq+<span class="number">0x108</span>/<span class="number">0x2a9</span></span><br><span class="line">     run_ksoftirqd+<span class="number">0x1e</span>/<span class="number">0x40</span></span><br><span class="line">     smpboot_thread_fn+<span class="number">0xfe</span>/<span class="number">0x150</span></span><br><span class="line">     kthread+<span class="number">0xfc</span>/<span class="number">0x130</span></span><br><span class="line">     ret_from_fork+<span class="number">0x1f</span>/<span class="number">0x30</span></span><br></pre></td></tr></table></figure>
+<p>我们看到下面的进程 ksoftirqd/4 的栈，延迟时间是 409ms。ksoftirqd 进程是 kernel 中处理 softirq 的进程。因此这段栈对我们是没有意义的，因为元凶已经错过了。所以此时，我们可以借鉴上面的栈信息，我们看到当 softirq 被延迟 303ms 的时候，当前 CPU 正在执行的进程是 lxcfs。并且栈是 memory cgroup 相关。因此，我们基本可以判断 lxcfs 进程执行时间过长，由于 kernel 态不支持抢占，因此导致 ksoftirqd 进程没有机会得到运行。</p>
+<h1 id="10-总结"><a href="#10-总结" class="headerlink" title="10. 总结"></a>10. 总结</h1><p>根据字节内部实践来看，trace-irqoff 安装便捷且使用灵活度高，能将问题定位耗时缩短至分钟级别，使用收益可观，并且已经通过该工具定位很多问题，提高了工作效率。</p>
+<h1 id="更多分享"><a href="#更多分享" class="headerlink" title="更多分享"></a>更多分享</h1><p><a href="http://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c395dea74a8349d806c8c5c0cc9dc9b1220adc7531c4a2db6d3a99f2358ad0bbda49c62b&amp;idx=1&amp;mid=2247485559&amp;scene=21&amp;sn=def1a04c3aee1321a238392278476974#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">字节跳动在 RocksDB 存储引擎上的改进实践</a></p>
+<p><a href="http://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c385dea74a937e8200e98eecdfab608081e5e5e23232a905383d0d58d19625ae0717e453&amp;idx=1&amp;mid=2247485543&amp;scene=21&amp;sn=caf885f6d76659e7ad8ef5b006ce31f6#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">深入理解 Linux 内核–jemalloc 引起的 TLB shootdown 及优化</a></p>
+<p><a href="http://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c3a2dea74ab4c3451e20e62e1cb05251b058ae9a81c6b0ca9f94a6874f7da451c6066607&amp;idx=1&amp;mid=2247485504&amp;scene=21&amp;sn=1768d4561b3d787bf6175d124e1a200d#wechat_redirect" rel="external nofollow noopener noreferrer" target="_blank">字节跳动自研万亿级图数据库 &amp; 图计算实践</a></p>
+<h1 id="字节跳动系统部-STE-团队"><a href="#字节跳动系统部-STE-团队" class="headerlink" title="字节跳动系统部 STE 团队"></a>字节跳动系统部 STE 团队</h1><p>字节跳动系统部 STE 团队一直致力于操作系统内核与虚拟化、系统基础软件与基础库的构建和性能优化、超大规模数据中心的稳定性和可靠性建设、新硬件与软件的协同设计等系统基础技术领域的研发与工程化落地，具备全面的基础软件工程能力，为字节上层业务保驾护航。同时，团队积极关注社区技术动向，拥抱开源和标准。欢迎更多有志之士加入，如有意向可发送简历至： <a href="mailto:**sysrecruitment@bytedance.com" rel="external nofollow noopener noreferrer" target="_blank">**sysrecruitment@bytedance.com</a>** 。</p>
+<hr>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPZ0thMjgwYVRFQ3UzdExNemx0SzlFUGJlb05abThUcE5kWFJzaFV5V1FiU1AzTWlhY05FWnhXRU1iUWJUZ2VEN3NWdXRPNWtWbTlBTFEvNjQw?x-oss-process=image/format,png" alt="img"></p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/编程杂谈/基于有限状态机与消息队列的三方支付系统补单实践/" rel="next" title="基于有限状态机与消息队列的三方支付系统补单实践">
+                <i class="fa fa-chevron-left"></i> 基于有限状态机与消息队列的三方支付系统补单实践
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+              <a href="/编程杂谈/Kerneltracetools2中断和软中断关闭时间过长问题追踪/" rel="prev" title="Kernel trace tools（二）：中断和软中断关闭时间过长问题追踪">
+                Kernel trace tools（二）：中断和软中断关闭时间过长问题追踪 <i class="fa fa-chevron-right"></i>
+              </a>
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+    <div class="comments" id="gitalk-container">
+    </div>
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光伴你左右</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">238</span>
+                    <span class="site-state-item-name">日志</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">40</span>
+                    <span class="site-state-item-name">分类</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">54</span>
+                    <span class="site-state-item-name">标签</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+            <div class="feed-link motion-element">
+              <a href="/atom.xml" rel="alternate">
+                <i class="fa fa-rss"></i>
+                RSS
+              </a>
+            </div>
+          
+
+          
+
+          
+
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#kenel-trace-tools（一）：中断和软中断关闭时间过长问题追踪"><span class="nav-number">1.</span> <span class="nav-text">kenel trace tools（一）：中断和软中断关闭时间过长问题追踪</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#1-问题背景"><span class="nav-number">2.</span> <span class="nav-text">1. 问题背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#2-我们需要什么"><span class="nav-number">3.</span> <span class="nav-text">2. 我们需要什么</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#3-是否有现成的方案"><span class="nav-number">4.</span> <span class="nav-text">3. 是否有现成的方案</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#4-我们的方法"><span class="nav-number">5.</span> <span class="nav-text">4. 我们的方法</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#5-记录元凶的栈"><span class="nav-number">6.</span> <span class="nav-text">5. 记录元凶的栈</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#5-1-hardirq"><span class="nav-number">6.0.0.1.</span> <span class="nav-text">5.1 hardirq</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#5-2-softirq"><span class="nav-number">6.0.0.2.</span> <span class="nav-text">5.2 softirq</span></a></li></ol></li></ol><li class="nav-item nav-level-1"><a class="nav-link" href="#6-softirq-的特殊"><span class="nav-number">7.</span> <span class="nav-text">6. softirq 的特殊</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#7-如何安装"><span class="nav-number">8.</span> <span class="nav-text">7. 如何安装</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#8-如何使用"><span class="nav-number">9.</span> <span class="nav-text">8. 如何使用</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#8-1-打开-trace"><span class="nav-number">9.0.0.1.</span> <span class="nav-text">8.1 打开 trace</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#8-2-关闭-trace"><span class="nav-number">9.0.0.2.</span> <span class="nav-text">8.2 关闭 trace</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#8-3-设置-trace-阈值"><span class="nav-number">9.0.0.3.</span> <span class="nav-text">8.3 设置 trace 阈值</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#8-4-清除栈信息"><span class="nav-number">9.0.0.4.</span> <span class="nav-text">8.4 清除栈信息</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#8-5-查看中断关闭次数的统计信息"><span class="nav-number">9.0.0.5.</span> <span class="nav-text">8.5 查看中断关闭次数的统计信息</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#8-6-修改采样周期"><span class="nav-number">9.0.0.6.</span> <span class="nav-text">8.6 修改采样周期</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#9-案例分析"><span class="nav-number">10.</span> <span class="nav-text">9. 案例分析</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#9-1-hardirq-关闭"><span class="nav-number">10.0.0.1.</span> <span class="nav-text">9.1 hardirq 关闭</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#9-2-softirq-关闭"><span class="nav-number">10.0.0.2.</span> <span class="nav-text">9.2 softirq 关闭</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#9-3-ksoftirqd-延迟"><span class="nav-number">10.0.0.3.</span> <span class="nav-text">9.3 ksoftirqd 延迟</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#10-总结"><span class="nav-number">11.</span> <span class="nav-text">10. 总结</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#更多分享"><span class="nav-number">12.</span> <span class="nav-text">更多分享</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#字节跳动系统部-STE-团队"><span class="nav-number">13.</span> <span class="nav-text">字节跳动系统部 STE 团队</span></a></li></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <a> 粤公网安备44011302003059号 粤ICP备2021068940号</a>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="总访客量">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="总访问量">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+    
+
+<script src="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+
+
+
+<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.css">
+
+
+
+<script src="//cdn.jsdelivr.net/npm/js-md5@0.7.3/src/md5.min.js"></script>
+
+<script>
+  var gitalk = new Gitalk({
+    clientID: 'f11b272cc4efaec58a26',
+    clientSecret: '14ded6181649ec8aed8d601d16bdadcea6a68c88',
+    repo: 'github-pages-comments',
+    owner: 'shankusu2017',
+    admin: ['shankusu2017'],
+    id: md5(location.pathname),
+    
+      language: window.navigator.language || window.navigator.userLanguage,
+    
+    distractionFreeMode: 'true'
+  });
+  gitalk.render('gitalk-container');
+</script>
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  <script>
+    (function(){
+      var bp = document.createElement('script');
+      var curProtocol = window.location.protocol.split(':')[0];
+      bp.src = (curProtocol === 'https') ? 'https://zz.bdstatic.com/linksubmit/push.js' : 'http://push.zhanzhang.baidu.com/push.js';
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(bp, s);
+    })();
+  </script>
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('复制成功');
+        else $(this).text('复制失败');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('复制');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
