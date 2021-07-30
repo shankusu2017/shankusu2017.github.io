@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="zh-CN">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+  <meta name="baidu-site-verification" content="code-legvFikwxc">
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="glibc内存管理——Linux内存管理小结二【引言】   最近在生产环境遇到一个奇怪的现象，nginx占用的虚拟内存和物理内存都很高，并且一直不会下降。    因为服务器本身的业务量并不大，而且对比集群其他服务器nginx才几十兆的内存消耗，第一个想到的就是内存泄漏。但是连续观察了多天，内存也没有进一步上涨，和以前遇过的内存泄漏问题不是很像。   偶然发现了一个特别有用的函数malloc_sta">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux内存管理小结二-glibc内存管理">
+<meta property="og:url" content="http://www.shankusu.me/编程杂谈/glibc内存管理Linux内存管理小结二/index.html">
+<meta property="og:site_name" content="愿星光伴你左右">
+<meta property="og:description" content="glibc内存管理——Linux内存管理小结二【引言】   最近在生产环境遇到一个奇怪的现象，nginx占用的虚拟内存和物理内存都很高，并且一直不会下降。    因为服务器本身的业务量并不大，而且对比集群其他服务器nginx才几十兆的内存消耗，第一个想到的就是内存泄漏。但是连续观察了多天，内存也没有进一步上涨，和以前遇过的内存泄漏问题不是很像。   偶然发现了一个特别有用的函数malloc_sta">
+<meta property="og:locale" content="zh-CN">
+<meta property="og:image" content="http://www.shankusu.me/编程杂谈/glibc内存管理Linux内存管理小结二/1.png">
+<meta property="og:image" content="http://www.shankusu.me/编程杂谈/glibc内存管理Linux内存管理小结二/2.png">
+<meta property="og:image" content="http://www.shankusu.me/编程杂谈/glibc内存管理Linux内存管理小结二/3.png">
+<meta property="og:updated_time" content="2021-07-30T10:18:26.415Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Linux内存管理小结二-glibc内存管理">
+<meta name="twitter:description" content="glibc内存管理——Linux内存管理小结二【引言】   最近在生产环境遇到一个奇怪的现象，nginx占用的虚拟内存和物理内存都很高，并且一直不会下降。    因为服务器本身的业务量并不大，而且对比集群其他服务器nginx才几十兆的内存消耗，第一个想到的就是内存泄漏。但是连续观察了多天，内存也没有进一步上涨，和以前遇过的内存泄漏问题不是很像。   偶然发现了一个特别有用的函数malloc_sta">
+<meta name="twitter:image" content="http://www.shankusu.me/编程杂谈/glibc内存管理Linux内存管理小结二/1.png">
+
+
+
+  <link rel="alternate" href="/atom.xml" title="愿星光伴你左右" type="application/atom+xml">
+
+
+
+  
+  
+  <link rel="canonical" href="http://www.shankusu.me/编程杂谈/glibc内存管理Linux内存管理小结二/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>Linux内存管理小结二-glibc内存管理 | 愿星光伴你左右</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-CN">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">愿星光伴你左右</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="切换导航栏">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>首页</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>分类<span class="badge">39</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-lua">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/lua" rel="section"><i class="menu-item-icon fa fa-fw fa-moon-o"></i> <br>lua</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-go">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/go" rel="section"><i class="menu-item-icon fa fa-fw fa-google"></i> <br>go</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-weekly">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/weekly" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>周记</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-daily">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/daily" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>心语</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-links">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/link" rel="section"><i class="menu-item-icon fa fa-fw fa-external-link"></i> <br>友情链接</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-guestbook">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/guestbook/" rel="section"><i class="menu-item-icon fa fa-fw fa-commenting"></i> <br>留言册</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>关于</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>搜索</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="搜索..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://www.shankusu.me/编程杂谈/glibc内存管理Linux内存管理小结二/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光伴你左右">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="愿星光伴你左右">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">Linux内存管理小结二-glibc内存管理
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          
+          
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+              
+
+              
+                
+
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                
+                  <span class="post-meta-item-text">更新于</span>
+                
+                <time title="修改时间：2021-07-30 18:18:26" itemprop="dateModified" datetime="2021-07-30T18:18:26+08:00">2021-07-30</time>
+              
+            
+          </span>
+
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/编程杂谈/" itemprop="url" rel="index"><span itemprop="name">编程杂谈</span></a></span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             阅读次数： 
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="glibc内存管理——Linux内存管理小结二"><a href="#glibc内存管理——Linux内存管理小结二" class="headerlink" title="glibc内存管理——Linux内存管理小结二"></a>glibc内存管理——Linux内存管理小结二</h1><h1 id="【引言】"><a href="#【引言】" class="headerlink" title="【引言】"></a>【引言】</h1><p>   最近在生产环境遇到一个奇怪的现象，nginx占用的虚拟内存和物理内存都很高，并且一直不会下降。</p>
+<p><img src="1.png" alt="img"></p>
+<p>  因为服务器本身的业务量并不大，而且对比集群其他服务器nginx才几十兆的内存消耗，第一个想到的就是内存泄漏。但是连续观察了多天，内存也没有进一步上涨，和以前遇过的内存泄漏问题不是很像。</p>
+<p>  偶然发现了一个特别有用的函数malloc_stats()，可以打印出进程malloc分配的虚拟内存信息。故gdb attach到其中一个worker进程，调用call malloc_stats()函数，将worker进程的内存分配信息打印出来，默认会输出到nginx的error.log中。 如下所示：</p>
+<p><img src="2.png" alt="img"></p>
+<p>  从图中可以看到，虽然进程malloc了2G左右的内存，但是实际in use的只有28m，这说明其他绝大部分的内存都已经free了，出现了内存空洞，而不是内存泄漏。那到底内存空洞和内存泄漏有什么区别呢？</p>
+<h1 id="【glibc内存管理】"><a href="#【glibc内存管理】" class="headerlink" title="【glibc内存管理】"></a>【glibc内存管理】</h1><p>​    Linux通过brk、mmap/munmap系统调用来操作内存。但是频繁的系统调用对于系统性能是很大的损耗。为了解决这个问题，glibc对系统调用进行了一层封装，相当于一个代理，它实现了一个内存池的功能，提供malloc/free函数给用户调用，也就是ptmalloc。类似有google实现的tcmalloc等。这样用户通过malloc/free函数来操作内存池，减少频繁系统调用带来的性能损耗。当内存池中的空闲内存可以满足用户申请时，优先返回内存池中的内存地址；否则glibc才会通过brk/mmap等系统调用去向系统申请。</p>
+<h2 id="【ptmalloc内存管理三个概念：arena、bin、chunk】"><a href="#【ptmalloc内存管理三个概念：arena、bin、chunk】" class="headerlink" title="【ptmalloc内存管理三个概念：arena、bin、chunk】"></a>【ptmalloc内存管理三个概念：arena、bin、chunk】</h2><h3 id="1-Arena：ptmalloc对进程内存是通过一个个Arena来进行管理的。"><a href="#1-Arena：ptmalloc对进程内存是通过一个个Arena来进行管理的。" class="headerlink" title="1. Arena：ptmalloc对进程内存是通过一个个Arena来进行管理的。"></a>1. Arena：ptmalloc对进程内存是通过一个个Arena来进行管理的。</h3><p>​    在ptmalloc机制下，每个进程都有一个内存主分配区Main_arena和若干个非主分配区Non_Main_arena，主分配区只有一个，非主分配区可以动态增加。主分配区和非主分配区采用环形链表进行管理，每一个分配区采用互斥锁mutex实现多线程访问互斥。在多线程的场景下，如果线程申请内存时当前的分配区都已经被加锁，那么ptmalloc将会生成一个新的非主分配区。</p>
+<p>​    当一个线程调用malloc申请内存时，该线程先查看线程私有变量中是否已经存在一个分配区。如果存在，则对该分配区加锁，加锁成功的话就用该分配区进行内存分配；失败的话则搜索环形链表找一个未加锁的分配区。如果所有分配区都已经加锁，那么malloc会开辟一个新的分配区加入环形链表并加锁，用它来分配内存。释放操作同样需要获得锁才能进行。</p>
+<p>​    这种机制在多线程竞争锁激烈的场景下会带来一个问题：非主分配区开辟越来越多，因为它一旦开辟了就不会释放，一个分配区就是64MB。这样也会导致进程占用的内存越来越多（可能实际使用的并不多）。如果系统配置的ulimit进程最大虚拟内存值不是unlimited，那么当进程占用的内存达到ulimit值，就会core掉。这个情况也可以在pmap -p pid中看到里面有大量的64MB大小的anon内存块。这个问题可以通过设置MALLOC_ARENA_MAX环境变量来限制Arena的最大数量规避。</p>
+<p>​     主分配区可以使用brk和mmap向操作系统申请虚拟内存；但是非主分配区只能通过mmap申请，并且mmap每次申请的单位为64MB（64位系统下），再从中切割出用户所需大小的内存。</p>
+<p>​    主分配区使用brk调用可以访问进程的heap堆区。堆区的内存申请是通过brk调用将堆顶指针往高地址移动实现的，这样brk申请的内存肯定是连续的；释放的时候将堆顶指针往低地址移动（并不保证将free的内存归还给操作系统，需要堆顶出现一块连续的超过阈值大小的空闲内存时才会归还给操作系统）。如果主分配区使用mmap申请内存，那么free时会调用munmap直接将内存归还给操作系统。那么主分配区什么时候使用brk什么时候使用mmap呢？</p>
+<p>​     系统内核有一个阈值DEFAULT_MMAP_THRESHOLD，一般默认为128KB。当malloc申请的内存小于该阈值，glibc会采用brk去向系统申请内存；而申请的内存大于该阈值时，glibc会采用mmap去向系统申请。</p>
+<p>​     但是这样会带来一个问题：我们在程序中释放一个对象是无法保证它的内存是否连续释放的。可能出现先申请的内存，即堆底的内存先释放的情况，因为堆顶的内存还在使用，这时候是不能将堆顶指针往下移的，这时候虽然前面的那块内存已经free来，但是ptmalloc仍然不会将其还给操作系统，而是把它缓存到自己的池子里。这时候内存看上去仍然会被计算在进程的内存使用中，导致进程的内存使用量一直降不下去（如果堆顶的指针一直不释放的话），这即是内存空洞（内存碎片）。理论上这些内存空洞都是可以复用的，如果后面用户又申请同样大小的内存，ptmalloc会将这些空洞内存分配给它。所以在大量申请释放小块内存的场景下，进程容易出现内存空洞的问题。即随着某个时候业务量的激增，进程使用的虚拟内存涨上去了就降不下来了，看着就像是出现了内存泄漏。</p>
+<p>​    但是相比内存泄漏，内存空洞的问题情况相对要好一些，因为内存可以复用，如果后面的业务量不再继续上涨，理论上进程内存使用量是不会继续增多的。</p>
+<h3 id="2-Chunk：ptmalloc使用chunk数据结构来表示一块具体申请或者释放的内存。"><a href="#2-Chunk：ptmalloc使用chunk数据结构来表示一块具体申请或者释放的内存。" class="headerlink" title="2. Chunk：ptmalloc使用chunk数据结构来表示一块具体申请或者释放的内存。"></a>2. Chunk：ptmalloc使用chunk数据结构来表示一块具体申请或者释放的内存。</h3><p>​    也就是说chunk是glibc内存管理的“最小单位”。</p>
+<h3 id="3-Bin：用于管理chunk的数据结构"><a href="#3-Bin：用于管理chunk的数据结构" class="headerlink" title="3. Bin：用于管理chunk的数据结构"></a>3. Bin：用于管理chunk的数据结构</h3><p>​    用户free掉的内存并不是都会马上归还给系统，ptmalloc会统一管理heap和mmap映射区域中的空闲的chunk，当用户进行下一次分配请求时，ptmalloc会首先试图在空闲的chunk中挑选一块给用户，这样就避免了频繁的系统调用，降低了内存分配的开销。ptmalloc将相似大小的chunk用双向链表链接起来，这样的一个链表被称为一个bin。</p>
+<p>​     关于chunk的数据结构细节不进行过多描述，详情可以参考华庭大神的文章：《glibc内存管理》</p>
+<p><a href="https://paper.seebug.org/papers/Archive/refs/heap/glibc" rel="external nofollow noopener noreferrer" target="_blank">     https://paper.seebug.org/papers/Archive/refs/heap/glibc</a>内存管理ptmalloc源代码分析.pdf</p>
+<p><img src="3.png" alt="img"></p>
+<p>bin和chunk的示意图</p>
+<h1 id="【内存空洞和内存泄漏】"><a href="#【内存空洞和内存泄漏】" class="headerlink" title="【内存空洞和内存泄漏】"></a>【内存空洞和内存泄漏】</h1><p>​    简单来说，内存空洞是指进程已经free了内存，但是由于glibc的原因，这部分内存并没有还给操作系统，而是缓存在glibc为进程维护的内存池中。所以在top等工具中看起来这部分内存仍然是进程在使用。而这些内存空洞是可以被进程自身复用的，后续如果有同样大小的malloc请求，glibc会使用这部分空洞的内存进行分配。</p>
+<p>​    而内存泄漏，是进程调用了malloc申请内存，但是没有调用free释放。这样导致进程的内存空间一直上涨，后续的malloc请求无法复用前面申请的内存，直到达到ulimit的限制或者触发OOM。</p>
+<p>​    注意这里说的内存空间申请、释放和上涨都是针对虚拟内存空间来说。只有当申请的虚拟内存空间得到访问，比如对malloc的空间进行初始化，这时候才会将虚拟内存空间映射到物理内存空间。如果物理内存空间出现不足，而后续又有虚拟内存要映射过来，就会出现swap交换，将物理内存中暂时没有用到的数据置换到硬盘上配置的swap空间中。如果连swap空间也不足了，就会触发OOM，甚至系统hang死。</p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/编程杂谈/什么是物理虚共享内存Linux内存管理小结一/" rel="next" title="Linux内存管理小结一-什么是物理/虚拟/共享内存">
+                <i class="fa fa-chevron-left"></i> Linux内存管理小结一-什么是物理/虚拟/共享内存
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+    <div class="comments" id="gitalk-container">
+    </div>
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光伴你左右</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">250</span>
+                    <span class="site-state-item-name">日志</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">39</span>
+                    <span class="site-state-item-name">分类</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">54</span>
+                    <span class="site-state-item-name">标签</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+            <div class="feed-link motion-element">
+              <a href="/atom.xml" rel="alternate">
+                <i class="fa fa-rss"></i>
+                RSS
+              </a>
+            </div>
+          
+
+          
+
+          
+
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#glibc内存管理——Linux内存管理小结二"><span class="nav-number">1.</span> <span class="nav-text">glibc内存管理——Linux内存管理小结二</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#【引言】"><span class="nav-number">2.</span> <span class="nav-text">【引言】</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#【glibc内存管理】"><span class="nav-number">3.</span> <span class="nav-text">【glibc内存管理】</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#【ptmalloc内存管理三个概念：arena、bin、chunk】"><span class="nav-number">3.1.</span> <span class="nav-text">【ptmalloc内存管理三个概念：arena、bin、chunk】</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-Arena：ptmalloc对进程内存是通过一个个Arena来进行管理的。"><span class="nav-number">3.1.1.</span> <span class="nav-text">1. Arena：ptmalloc对进程内存是通过一个个Arena来进行管理的。</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-Chunk：ptmalloc使用chunk数据结构来表示一块具体申请或者释放的内存。"><span class="nav-number">3.1.2.</span> <span class="nav-text">2. Chunk：ptmalloc使用chunk数据结构来表示一块具体申请或者释放的内存。</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-Bin：用于管理chunk的数据结构"><span class="nav-number">3.1.3.</span> <span class="nav-text">3. Bin：用于管理chunk的数据结构</span></a></li></ol></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#【内存空洞和内存泄漏】"><span class="nav-number">4.</span> <span class="nav-text">【内存空洞和内存泄漏】</span></a></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <a> 粤公网安备44011302003059号 粤ICP备2021068940号</a>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="总访客量">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="总访问量">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+    
+
+<script src="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+
+
+
+<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.css">
+
+
+
+<script src="//cdn.jsdelivr.net/npm/js-md5@0.7.3/src/md5.min.js"></script>
+
+<script>
+  var gitalk = new Gitalk({
+    clientID: 'f11b272cc4efaec58a26',
+    clientSecret: '14ded6181649ec8aed8d601d16bdadcea6a68c88',
+    repo: 'github-pages-comments',
+    owner: 'shankusu2017',
+    admin: ['shankusu2017'],
+    id: md5(location.pathname),
+    
+      language: window.navigator.language || window.navigator.userLanguage,
+    
+    distractionFreeMode: 'true'
+  });
+  gitalk.render('gitalk-container');
+</script>
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  <script>
+    (function(){
+      var bp = document.createElement('script');
+      var curProtocol = window.location.protocol.split(':')[0];
+      bp.src = (curProtocol === 'https') ? 'https://zz.bdstatic.com/linksubmit/push.js' : 'http://push.zhanzhang.baidu.com/push.js';
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(bp, s);
+    })();
+  </script>
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('复制成功');
+        else $(this).text('复制失败');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('复制');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
