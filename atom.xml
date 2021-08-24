@@ -6,10 +6,106 @@
   <link href="http://www.shankusu.me/atom.xml" rel="self"/>
   
   <link href="http://www.shankusu.me/"/>
-  <updated>2021-08-23T17:12:32.673Z</updated>
+  <updated>2021-08-24T03:51:11.477Z</updated>
   <id>http://www.shankusu.me/</id>
   
   <generator uri="https://hexo.io/">Hexo</generator>
+  
+  <entry>
+    <title>操作系统基础30-内存交换</title>
+    <link href="http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8030-%E5%86%85%E5%AD%98%E4%BA%A4%E6%8D%A2/"/>
+    <id>http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8030-%E5%86%85%E5%AD%98%E4%BA%A4%E6%8D%A2/</id>
+    <published>2021-08-24T03:50:20.000Z</published>
+    <updated>2021-08-24T03:51:11.477Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="操作系统基础30-内存交换"><a href="#操作系统基础30-内存交换" class="headerlink" title="操作系统基础30-内存交换"></a>操作系统基础30-内存交换</h1><p>2020-12-17 15:21·<a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_detail" rel="external nofollow noopener noreferrer" target="_blank">重学IT的老猫</a></p><p>进程必须在内存中以便执行。不过，进程可以暂时从内存交换到备份存储，当再次执行时再调回到内存中(图 1)。交换有可能让所有进程的总的物理地址空间超过真实系统的物理地址空间，从而增加了系统的多道程序程度。</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/d46d95283c924fd4bbc7d6e3afb4f069?from=pc" alt="操作系统基础30-内存交换"></p><p>图1 使用磁盘作为存储仓库的两个进程的交换</p><h1 id="标准交换"><a href="#标准交换" class="headerlink" title="标准交换"></a>标准交换</h1><p>标准交换在<strong>内存</strong>与<strong>备份存储</strong>之间移动进程，备份存储通常是快速磁盘，它应足够大，以容纳所有用户的所有内存映像的副本，并且它应提供对这些存储器映像的直接访问。<br>系统维护一个可运行的所有进程的就绪队列，它们的映像在备份存储或内存中。当<strong>CPU</strong>调度器决定执行一个进程时，它调用分派器。分派器检查队列中的下一个进程是否在内存中。如果不在，并且没有空闲内存区域，那么分派器会换出当前位于内存中的一个进程，并换入所需进程，然后重新加载寄存器，并且将控制权转移到所选进程。<br>这种交换系统的上下文切换时间相当高。为了理解上下文切换时间的概念，我们举个例子，假设用户进程的大小为 100MB，并且备份存储是传输速度为 50MB/S 的标准硬盘。 100MB 进程传入或传出内存的时间为：<strong>100MB/50MBps = 2s=2000ms。</strong> 交换时间为<strong>2000ms</strong>。由于我们应换出和换入，总的交换时间约为 <strong>4000ms</strong>。(这里，我们忽略其他的磁盘性能问题)<br>请注意，交换时间的主要部分是传输时间。总的传输时间与交换的内存大小成正比。如果我们有这样一个计算机系统，它的内存空间为<strong>4GB</strong>，驻留的操作系统为<strong>1GB</strong>，那么用户进程的最大大小为<strong>3GB</strong>。然而，许多用户进程可能比这小得多，比方说，100MB。相比之下，100MB的进程可以在 <strong>2s</strong>内换出，而换出3GB需要<strong>60s</strong>。显然，知道一个用户进程真正需要的内存空间而不是可能需要的内存空间，是非常有用的。因此，只需要交换<strong>真正使用的内存</strong>，就可以减少交换时间。为有效使用这种方法，用户需要告诉系统它的内存需求情况。因此，具有动态内存需求的进程需要通过系统调用（<strong>request_memory()</strong> 和 <strong>release_memory()</strong>）来通知操作系统它的内存需求变化情况。<br>交换也受到其他因素的约束。如果我们想要换出一个进程，那么应确保该进程是完全处于空闲的。特别关注的是任何等待I/O。当需要换出一个进程以释放内存时，该进程可能正在等待 I/O 操作。然而，如果 <strong>I/O异步访问</strong>用户内存的<strong>I/O缓冲区</strong>，那么该进程就不能换出。假定由于设备忙，I/O 操作在排队等待。如果我们需要换出进程 P1 而换入进程 P2，那么 I/O 操作可能试图使用现在已属于进程 P2 的内存。解决这个问题有两种主要方法：</p><ol><li>不换出等待处理 I/O 的进程;</li><li>I/O 操作的执行只能使用操作系统的缓冲。只有在进程换入时，操作系统缓冲与进程内存之间才能进行数据转移。注意，这种双缓冲本身增加了开销。我们现在需要再次复制数据，从内核内存到用户内存，然后用户进程可以访问它。</li></ol><p>现代操作系统现在并不使用标准交换。它的交换时间太多，提供的执行时间太少，不是合理的内存管理的解决方案。</p><p>然而，一些交换的变种却在许多系统中得以应用，包括 UNIX、Linux 和 Windows。一个常用的变种是：正常情况下，禁止交换；当空闲内存(未被操作系统或进程使用的内存)低于某个阈值时，启用交换。当空闲内存的数量增加了，就停止交换。<br>另一变种是交换部分进程(而不是整个进程)，以降低交换时间。通常，这些交换的变种通常与<strong>虚拟内存</strong>一起工作。</p><h1 id="移动系统的交换"><a href="#移动系统的交换" class="headerlink" title="移动系统的交换"></a>移动系统的交换</h1><p>虽然用于 PC 和服务器的大多数操作系统支持一些交换的变形，移动系统通常不支持任何形式的交换。<br>移动设备通常采用闪存，而不是空间更大的硬盘作为它的永久存储。导致的空间约束是移动操作系统设计者避免交换的原因之一。其他原因包括：闪存写入次数的限制以及内存与闪存之间的吞吐量差。<br>当空闲内存降低到一定阈值以下时，苹果的<strong>iOS</strong>，不是釆用交换，而是要求应用程序自愿放弃分配的内存。只读数据（如代码）可从系统中删除，以后如有必要再从闪存重新加载。已修改的数据（如堆栈）不会被删除。然而，操作系统可以终止任何未能释放足够内存的应用程序。<br>Android 不支持交换，而釆用类似 <strong>iOS</strong> 使用的策略。如果没有足够可用的空闲内存，则它可以终止进程。然而，在终止进程之前，<strong>Android</strong> 将其应用程序状态写到闪存，以便它能快速重新启动。<br>由于这些限制，移动系统的开发人员应小心分配和释放内存，以确保他们的应用程序不会使用太多内存或遭受内存泄漏。注意，iOS 和 Android 支持分页，所以他们确实有内存管理能力。</p><p>参考：《操作系统概念》</p>]]></content>
+    
+    
+      
+      
+    <summary type="html">&lt;h1 id=&quot;操作系统基础30-内存交换&quot;&gt;&lt;a href=&quot;#操作系统基础30-内存交换&quot; class=&quot;headerlink&quot; title=&quot;操作系统基础30-内存交换&quot;&gt;&lt;/a&gt;操作系统基础30-内存交换&lt;/h1&gt;&lt;p&gt;2020-12-17 15:21·&lt;a href=&quot;</summary>
+      
+    
+    
+    
+    <category term="os" scheme="http://www.shankusu.me/categories/os/"/>
+    
+    
+    <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>操作系统基础29-内存管理的概念</title>
+    <link href="http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8029-%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86%E7%9A%84%E6%A6%82%E5%BF%B5/"/>
+    <id>http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8029-%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86%E7%9A%84%E6%A6%82%E5%BF%B5/</id>
+    <published>2021-08-24T03:44:12.000Z</published>
+    <updated>2021-08-24T03:45:07.792Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="操作系统基础29-内存管理的概念"><a href="#操作系统基础29-内存管理的概念" class="headerlink" title="操作系统基础29-内存管理的概念"></a>操作系统基础29-内存管理的概念</h1><p>2020-12-18 03:37·<a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_detail" rel="external nofollow noopener noreferrer" target="_blank">重学IT的老猫</a></p><p>操作系统作为系统资源的管理者，当然也需要对内存进行管理，要管些什么呢?</p><blockquote><p>\1. 操作系统负责内存空间的分配与回收。</p><p>\2. 操作系统需要提供某种技术从逻辑.上对内存空间进行扩充。</p><p>\3. 操作系统需要提供地址转换功能，负责程序的逻辑地址与物理地址的转换。</p><p>\4. 操作系统需要提供内存保护功能。保证各进程在各自存储空间内运行，互不干扰</p></blockquote><h1 id="内存空间的分配与回收"><a href="#内存空间的分配与回收" class="headerlink" title="内存空间的分配与回收"></a>内存空间的分配与回收</h1><p><strong>内存空间的分配与回收</strong>：由<strong>操作系统完成主存储器空间的分配和管理</strong>，使程序员摆脱存储分配麻烦，提高编程效率。</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/ee6d67061c45454c82ea579f2d92e328?from=pc" alt="操作系统基础29-内存管理的概念"></p><h1 id="内存空间的扩展"><a href="#内存空间的扩展" class="headerlink" title="内存空间的扩展"></a>内存空间的扩展</h1><p><strong>内存空间的扩充</strong>：利用虚拟存储技术或者自动覆盖技术，从逻辑上扩充内存。</p><blockquote><p>游戏GTA的大小超过60GB，按理来说这个游戏程序运行之前需要把60GB数据全部放入内存。然而，实际我的电脑内存才4GB， 但为什么这个游戏可以顺利运行呢? 虚拟技术(操作系统的虚拟性)</p></blockquote><h1 id="地址转换"><a href="#地址转换" class="headerlink" title="地址转换"></a>地址转换</h1><p><strong>地址转换</strong>：在多道程序环境下，程序中的逻辑地址与内存中的物理地址不可能一致，因此存储管理器必须提供地址变换功能，把逻辑地址转换成相应的物理地址。</p><p>为了使编程更方便，程序员写程序时应该只需要关注指令、数据的逻辑地址。而<strong>逻辑地址到物理地址的转换(</strong>这个过程称为<strong>地址重定位</strong>(<strong>三种装入方式</strong>)<strong>)</strong>应该由操作系统负责，这样就保证了程序员写程序时不需要关注物理内存的实际情况。</p><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/f779580a6e694c57bed088f05d35e126?from=pc" alt="操作系统基础29-内存管理的概念"></p><h1 id="内存保护"><a href="#内存保护" class="headerlink" title="内存保护"></a>内存保护</h1><p><strong>存储保护</strong>：保证各道作业在各自的存储空间内运行，互不干扰。</p><p>两种方式：</p><ol><li><strong>CPU</strong>中设置一对上，下限寄存器，存放用户作业在主存中的下限和上限，每当<strong>CPU</strong>要访问一个地址时，分别和两个寄存器的值相比，判断有无越界。</li></ol><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/98bb6b34cf904119bea737a5dd7e9834?from=pc" alt="操作系统基础29-内存管理的概念"></p><ol><li>通过采用<strong>重定位寄存器</strong>(或<strong>基址寄存器</strong>)和<strong>界地址寄存器</strong>(又称<strong>限长寄存器</strong>)来实现这种保护，重定位寄存器含最小的物理地址值，界地址寄存器含逻辑地址的最大值，每个逻辑地址值必须小于界地址寄存器，内存管理机构动态的将逻辑地址与界地址寄存器进行比较，如果未发生地址越界。则加上重定位寄存器的值后映射成物理地址，再送交内存单元。</li></ol><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/f3082f4b94624bd8a196d6757df8c1a3?from=pc" alt="操作系统基础29-内存管理的概念"></p>]]></content>
+    
+    
+      
+      
+    <summary type="html">&lt;h1 id=&quot;操作系统基础29-内存管理的概念&quot;&gt;&lt;a href=&quot;#操作系统基础29-内存管理的概念&quot; class=&quot;headerlink&quot; title=&quot;操作系统基础29-内存管理的概念&quot;&gt;&lt;/a&gt;操作系统基础29-内存管理的概念&lt;/h1&gt;&lt;p&gt;2020-12-18 03:</summary>
+      
+    
+    
+    
+    <category term="os" scheme="http://www.shankusu.me/categories/os/"/>
+    
+    
+    <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>操作系统基础28-内存基础知识</title>
+    <link href="http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8028-%E5%86%85%E5%AD%98%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/"/>
+    <id>http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8028-%E5%86%85%E5%AD%98%E5%9F%BA%E7%A1%80%E7%9F%A5%E8%AF%86/</id>
+    <published>2021-08-24T03:42:30.000Z</published>
+    <updated>2021-08-24T03:43:50.243Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="操作系统基础28-内存基础知识"><a href="#操作系统基础28-内存基础知识" class="headerlink" title="操作系统基础28-内存基础知识"></a>操作系统基础28-内存基础知识</h1><p>2020-12-16 05:59·<a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_detail" rel="external nofollow noopener noreferrer" target="_blank">重学IT的老猫</a></p><h1 id="什么是内存，有何作用"><a href="#什么是内存，有何作用" class="headerlink" title="什么是内存，有何作用"></a>什么是内存，有何作用</h1><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/f73fa5bc910441aab424f5f90f574333?from=pc" alt="操作系统基础28-内存基础知识"></p><h1 id="进程运行的原理-指令"><a href="#进程运行的原理-指令" class="headerlink" title="进程运行的原理-指令"></a>进程运行的原理-指令</h1><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/a1580be9b97d4614b0c22efc54294e0e?from=pc" alt="操作系统基础28-内存基础知识"></p><p>我们写的代码要翻译成<strong>CPU</strong>能识别的指令。这些指令会告诉CPU应该去内存的哪个地址存/取数据，这个数据应该做什么样的处理。在这个例子中，指令中直接给出了变量x的实际存放地址(物理地址)。但实际在生成机器指令的时候并不知道该进程的数据会被放到什么位置。所以编译生成的指令中一般是使用<strong>逻辑地址</strong>(相对地址)。</p><h1 id="逻辑地址VS物理地址"><a href="#逻辑地址VS物理地址" class="headerlink" title="逻辑地址VS物理地址"></a>逻辑地址VS物理地址</h1><p>编译时只需确定变量x存放的相对地址是100 ( 也就是说相对于进程在内存中的起始地址而言的地址)。<strong>CPU</strong>想要找到x在内存中的实际存放位置，只需要用进程的起始地址+100即可。<br>相对地址又称<strong>逻辑地址</strong>，绝对地址又称<strong>物理地址</strong>。</p><h1 id="进程运行的基本原理-从写程序到程序运行"><a href="#进程运行的基本原理-从写程序到程序运行" class="headerlink" title="进程运行的基本原理(从写程序到程序运行)"></a>进程运行的基本原理(从写程序到程序运行)</h1><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/2e9e5e6e3edc4188a1868d9f16fafe0a?from=pc" alt="操作系统基础28-内存基础知识"></p><p><strong>编译</strong>：由编译程序将用户源代码编译成若干个目标模块(编译就是把高级语言翻译为机器语言)</p><p><strong>链接</strong>：由链接程序将编译后形成的一组目标模块，以及所需库函数链接在一起，形成一个完整的装入模块。</p><p><strong>装入</strong>(装载) ：由装入程序将装入模块装入内存运行。</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/cffd38bb13d845ad908bdd7e4a1e3b98?from=pc" alt="操作系统基础28-内存基础知识"></p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/419df1b42c084ea58ebec2f133f6ebd8?from=pc" alt="操作系统基础28-内存基础知识"></p><h1 id="装入内存的三种方式"><a href="#装入内存的三种方式" class="headerlink" title="装入内存的三种方式"></a>装入内存的三种方式</h1><p><strong>绝对装入</strong>:在编译时，如果知道程序将放到内存中的哪个位置，编译程序将产生绝对地址的目标代码。装入程序按照装入模块中的地址，将程序和数据装入内存。<br>绝对装入由于逻辑与实际内存地址相同，故不需要对程序和数据的地址进行修改。绝对装入只适用于单道程序环境，绝对地址可由程序员在编译或者汇编时赋予。</p><p><strong>可重定位装入</strong>：在多道程序环境下，多个目标模块的起始地址通常都是从0开始，程序中的其他地址都是相对于起始地址的，此时采用可重定位装入方式，根据内存的目前情况，将装入模块装入到内存的适当位置。装入时对目标程序中指令和数据的修改称为重定位，地址变换通常是在装入时一次完成的。所以又称静态重定位。<br>静态重定位的特点是在一个作业装入内存时，必须分配其要求的全部内存空间，如果没有足够的内存，就不能装入该作业，此外，作业一旦进入内存后，在整个运行期间不能在内存中移动。</p><p><strong>动态运行时装入</strong>：也称为动态重定位，程序在内存中如果发生移动，就需要采用动态的装入方式。编译、链接后的装入模块的地址都是从0开始的。装入程序在把装入模块装入内存后，并不立即把装入模块中的相对地址转换成绝对地址，而是把这种地址转换推迟到程序真正要执行时才进行。因此，装入内存后的所有地址均为相对地址。这种方式需要一个重定位寄存器的支持。<br>动态重定位的特点是可以将程序分配到不连续的存储区中，在程序运行之前可以只装入它的部分代码即可投入运行，然后在程序运行期间，根据需要动态申请分配的内存，便于程序段的共享，可以向用户提供一个比存储空间大得多的地址空间。</p><h1 id="链接的三种方式"><a href="#链接的三种方式" class="headerlink" title="链接的三种方式"></a>链接的三种方式</h1><p><strong>静态链接</strong>:在程序运行之前，先将各目标模块及它们所需的库函数连接成-一个完整的可执行文件(装入模块)，之后不再拆开。</p><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/ceb9562e5e474f799eb94b01268df858?from=pc" alt="操作系统基础28-内存基础知识"></p><p><strong>装入时动态链接</strong>：将用户源程序编译后所得到的一组目标模块，将各目标模块装入内存时，边装入边链接的链接方式。</p><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/5872219551e74c548358d9437e64babd?from=pc" alt="操作系统基础28-内存基础知识"></p><p><strong>运行时动态链接</strong>：对某些目标模块的链接，是在程序执行中需要该目标模块时，才对它进行的链接，其优点是便于修改和更新，便于实现对目标模块的共享。</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/9a73bd18370e46f1bc9b2fe144b454c5?from=pc" alt="操作系统基础28-内存基础知识"></p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/427acdcaa21f4f91a51650fac701432d?from=pc" alt="操作系统基础28-内存基础知识"></p>]]></content>
+    
+    
+      
+      
+    <summary type="html">&lt;h1 id=&quot;操作系统基础28-内存基础知识&quot;&gt;&lt;a href=&quot;#操作系统基础28-内存基础知识&quot; class=&quot;headerlink&quot; title=&quot;操作系统基础28-内存基础知识&quot;&gt;&lt;/a&gt;操作系统基础28-内存基础知识&lt;/h1&gt;&lt;p&gt;2020-12-16 05:59·&lt;</summary>
+      
+    
+    
+    
+    <category term="os" scheme="http://www.shankusu.me/categories/os/"/>
+    
+    
+    <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
+    
+  </entry>
+  
+  <entry>
+    <title>操作系统基础27-存储器管理</title>
+    <link href="http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8027-%E5%AD%98%E5%82%A8%E5%99%A8%E7%AE%A1%E7%90%86/"/>
+    <id>http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8027-%E5%AD%98%E5%82%A8%E5%99%A8%E7%AE%A1%E7%90%86/</id>
+    <published>2021-08-24T03:40:53.000Z</published>
+    <updated>2021-08-24T03:42:07.139Z</updated>
+    
+    <content type="html"><![CDATA[<h1 id="操作系统基础27-存储器管理"><a href="#操作系统基础27-存储器管理" class="headerlink" title="操作系统基础27-存储器管理"></a>操作系统基础27-存储器管理</h1><p>2020-12-15 13:37·<a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_detail" rel="external nofollow noopener noreferrer" target="_blank">重学IT的老猫</a></p><h1 id="前言"><a href="#前言" class="headerlink" title="前言"></a>前言</h1><p>　　在前面学习了处理器调度后，下面接着学习存储器管理，如何对存储器进行有效的管理，直接影响着存储器的利用率和系统性能。</p><h1 id="存储器的层次结构"><a href="#存储器的层次结构" class="headerlink" title="存储器的层次结构"></a>存储器的层次结构</h1><p>　　1.<strong>主存储器</strong></p><p>　　主存储器是计算机系统中的一个主要部件，用于保存进程运行时的程序和数据，CPU的控制部件只能从主存储器中取得指令和数据，数据能够从主存储器中读取并将他们装入到寄存器中，或者从寄存器存入到主存储器，<strong>CPU</strong>与外围设备交换的信息一般也依托于主存储器地址空间。但是，主存储器的访问速度远低于<strong>CPU</strong>执行指令的速度，于是引入了寄存机和高速缓冲。</p><p>　　2 <strong>寄存器</strong></p><p>　　寄存器访问速度最快，能与CPU协调工作，价格昂贵，容量不大，寄存器用于加速存储器的访问速度，如用寄存器存放操作数，或用作地址寄存器加快地址转换速度等。</p><p>　　3 <strong>高速缓存</strong></p><p>　　高速缓存容量大于或远大于寄存器，但小于内存，访问速度高于主内存器，根据程序局部性原理，将主存中一些经常访问的信息存放在高速缓存中，减少访问主存储器的次数，可大幅度提高程序执行速度。通常，进程的程序和数据存放在主存，每当使用时，被临时复制到高速缓存中，当CPU访问一组特定信息时，首先检查它是否在高速缓存中，如果已存在，则直接取出使用，否则，从主存中读取信息。有的计算机系统设置了两级或多级高速缓存，一级缓存速度最高，容量小，二级缓存容量稍大，速度稍慢。</p><p>　　4 <strong>磁盘缓存</strong></p><p>　　磁盘的IO速度远低于对主存的访问速度，因此将频繁使用的一部分磁盘数据和信息暂时存放在磁盘缓存中，可减少访问磁盘的次数，磁盘缓存本身并不是一种实际存在的存储介质，它依托于固定磁盘，提供对主存储器空间的扩充，即<strong>利用主存中的存储空间，来暂存从磁盘中读出或写入的信息</strong>，主存可以看做是辅存的高速缓存，因为，辅存中的数据必须复制到主存方能使用，反之，数据也必须先存在主存中，才能输出到辅存。</p><h1 id="程序的装入和链接"><a href="#程序的装入和链接" class="headerlink" title="程序的装入和链接"></a>程序的装入和链接</h1><p>　　为了使程序能够运行，必须先为之创建进程，而创建进程的第一件事，就是将程序和数据装入内存，如何将一个用户源程序变为一个可在内存中执行的程序，通常要经过如下几步，首先是<strong>编译</strong>(由编译程序将用户源代码编译成若干个目标模块)，其次是<strong>链接</strong>(由链接程序将编译后形成的一组目标模块，以及它们所需要的库函数链接在一起，形成一个完整的装入模块)，最后是<strong>装入</strong>(由装入程序将装入模块装入内存)。</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/2066ba4cf21e419eaaf6184e4e884da1?from=pc" alt="操作系统基础27-存储器管理"></p><p>　　<strong>程序的装入</strong></p><p>　　在装入一个模块到内存时，有绝对装入方式，可重定位装入方式，动态运行时装入方式。</p><p>　　① <strong>绝对装入方式</strong>，如果在编译时知道程序驻留在内存的什么位置，那么，编译程序将产生绝对地址的目标代码，绝对装入方式按照装入模块中的地址，将程序和数据装入内存，装入模块被装入内存后，由于程序中的逻辑地址与实际内存地址完全相同，故不需要对程序和数据的地址进行修改。</p><p>　　② <strong>可重定位装入方式</strong>，由于绝对装入方式只能将目标模块装入到内存中事先指定的位置，在多道程序环境下，编译程序不可能事先知道所编译的目标模块应放在内存的何处，因此，绝对装入方式只适用于单道程序环境，在多道程序环境下，所得到的目标模块的起始地址通常都是以0开始的，程序中的其他地址也都是相对于起始地址计算的，此时应采用可重定位装入方式，根据内存的当前情况，将装入模块装入到内存的适当位置。该方式会使装入模块中的所有逻辑地址与实际装入内存的物理地址不同，需要对数据地址和指令地址进行修改，通常把在装入时对目标程序中指令和数据的修改过程称为<strong>重定位</strong>，又因为<strong>地址变换通常是在装入时一次完成的，以后不再变化，故称为静态重定位</strong>。</p><p>　　③ <strong>动态运行时装入方式</strong>，可重定位装入方式允许将装入模块装入到内存中任何允许的位置，故可用多道程序环境，但这种方式并不允许程序运行时在内存中移动位置，因为，程序在内存中的移动，意味着它的物理位置发生了变化，这就必须对程序和数据的地址进行修改后方能运行。然而，在运行过程中它在内存中的位置可能经常要改变，此时就应该采用动态运行时装入方式。动态运行时的装入程序在把装入程序装入内存后，<strong>并不立即把装入模块中的相对地址转换为绝对地址，而是把这种地址转换推迟到程序真正要执行时才进行</strong>。因此，装入内存后的所有地址都仍是相对地址，为了使地址转换不影响指令的执行速度，需要重定位寄存器的支持。</p><p>　　<strong>程序的链接</strong></p><p>　　源程序经过编译后，可得到一组目标模块，再利用链接程序把这组目标模块链接，形成装入模块，根据链接时间的不同，可把链接分为静态链接(在程序运行之前，先将各目标模块及他们所需的库函数，链接成一个完整的装配模块，以后不再拆开)、装入时动态链接(将用户源程序编译后所得到的一组目标模块，在装入内存时，采用边装入边链接的链接方式)、运行时动态链接(对某些目标模块的链接，是在程序执行中需要盖模块时，才对它进行链接)。</p><p>　　① <strong>静态链接</strong>，在将目标模块装配成一个装入模块时，需要对相对地址进行修改（由于编译程序产生的所有目标模块中，使用的都是相对地址，其起始地址都为0，每个模块中的地址都是相对于起始地址计算的）。也需要变换外部调用符号(将每个模块中所用的外部调用符号都变换为相对地址)，这种先进行链接所<strong>形成的一个完整的装入模块</strong>，又称为<strong>可执行文件</strong>，通常都不再拆开它，要运行时可直接将它装入内存，这种事先进行链接，以后不再拆开的链接方式，称为静态链接方式。</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/dfcb70db2cf048699fa4bba9332514ff?from=pc" alt="操作系统基础27-存储器管理"></p><p>　　② <strong>装入时动态链接</strong>，用户源程序经编译后所得是目标模块，是在<strong>装入内存时边装入边链接</strong>的，即在装入一个目标模块时，若发生一个外部模块调用事件，将引起装入程序去找出相应的外部目标模块，并将它装入内存，装入时动态链接有如下优点，便于修改和更新（各目标模块是分开的存放的，所以要修改或更新各目标模块非常容易），便于实现对目标模块的共享（很容易将一个目标模块链接到几个应用模块上，实现多个应用程序对该模块的共享）</p><p>　　③ <strong>运行时动态链接</strong>，将某些模块的链接推迟到<strong>程序执行时才进行链接</strong>，即在执行过程中，当发现一个被调用模块尚未装入内存时，立即由OS去找到该模块并将之装入内存，把它链接到调用者模块上，凡在执行过程中未被调用到的模块，都不会被调入内存和被链接到装入模块上，这样不仅加快程序的装入过程，同时也节省了大量的内存空间。</p>]]></content>
+    
+    
+      
+      
+    <summary type="html">&lt;h1 id=&quot;操作系统基础27-存储器管理&quot;&gt;&lt;a href=&quot;#操作系统基础27-存储器管理&quot; class=&quot;headerlink&quot; title=&quot;操作系统基础27-存储器管理&quot;&gt;&lt;/a&gt;操作系统基础27-存储器管理&lt;/h1&gt;&lt;p&gt;2020-12-15 13:37·&lt;a hr</summary>
+      
+    
+    
+    
+    <category term="os" scheme="http://www.shankusu.me/categories/os/"/>
+    
+    
+    <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
+    
+  </entry>
   
   <entry>
     <title>操作系统基础26-多级反馈队列调度算法</title>
@@ -388,106 +484,6 @@
       
       
     <summary type="html">&lt;h1 id=&quot;操作系统基础13-进程同步与互斥的概念&quot;&gt;&lt;a href=&quot;#操作系统基础13-进程同步与互斥的概念&quot; class=&quot;headerlink&quot; title=&quot;操作系统基础13-进程同步与互斥的概念&quot;&gt;&lt;/a&gt;操作系统基础13-进程同步与互斥的概念&lt;/h1&gt;&lt;p&gt;20</summary>
-      
-    
-    
-    
-    <category term="os" scheme="http://www.shankusu.me/categories/os/"/>
-    
-    
-    <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>操作系统基础12-进程调度</title>
-    <link href="http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8012-%E8%BF%9B%E7%A8%8B%E8%B0%83%E5%BA%A6/"/>
-    <id>http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8012-%E8%BF%9B%E7%A8%8B%E8%B0%83%E5%BA%A6/</id>
-    <published>2021-08-22T03:13:38.000Z</published>
-    <updated>2021-08-22T03:15:58.585Z</updated>
-    
-    <content type="html"><![CDATA[<h1 id="操作系统基础12-进程调度"><a href="#操作系统基础12-进程调度" class="headerlink" title="操作系统基础12-进程调度"></a>操作系统基础12-进程调度</h1><p>2020-10-30 11:59·<a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_detail" rel="external nofollow noopener noreferrer" target="_blank">重学IT的老猫</a></p><p>前面<a href="https://www.toutiao.com/i6885577093749408260/?group_id=6885577093749408260" rel="external nofollow noopener noreferrer" target="_blank">操作系统基础8</a>和<a href="https://www.toutiao.com/i6886370746575094286/?group_id=6886370746575094286" rel="external nofollow noopener noreferrer" target="_blank">操作系统基础10</a>已经学习关于进程和线程的的基础知识，本次我们继续学习关于操作系统中调度的概念。</p><p>前面学习了线程相关内容，我们知道对于支持线程的操作系统，操作系统实际调度的是内核级线程而非进程。对于术语<strong>进程调度(process scheduling)</strong>或<strong>线程调度(thread scheduling)</strong>常常交替使用，在一般说到调度概念时，采用<strong>进程调度</strong>。</p><h1 id="调度基本概念"><a href="#调度基本概念" class="headerlink" title="调度基本概念"></a>调度基本概念</h1><p>当有一堆任务要处理，但由于资源有限，这些事情没法同时处理。这就需要确定<strong>某种规则</strong>来<strong>决定</strong>处理这些任务的<strong>顺序</strong>，这就是“<strong>调度</strong>”研究的问题。</p><p>在多道程序系统中，进程的数量往往是多于处理机的个数的，这样不可能同时并行地处理各个进程。<strong>处理机调度</strong>，就是从就绪队列中<strong>按照一定的算法选择一个进程</strong>并<strong>将处理机分配给它</strong>运行，以实现进程的并发执行。</p><h1 id="调度队列"><a href="#调度队列" class="headerlink" title="调度队列"></a>调度队列</h1><p>进程在进入系统时，会被加到作业队列，这个队列包括系统内的所有进程。驻留在内存中的、就绪的、等待运行的进程保存在就绪队列上。</p><blockquote><p>就绪队列通常用链表实现；其头节点有两个指针，用于指向链表的第一个和最后一个 PCB 块；每个 PCB 还包括一个指针，指向就绪队列的下一个 PCB</p></blockquote><p>系统还有其他队列。当一个进程被分配了 CPU 后，它执行一段时间，最终退出，或被中断，或等待特定事件发生如 I/O 请求的完成。假设进程向一个共享设备如磁盘发出 I/O 请求。由于系统具有许多进程，磁盘可能忙于其他进程的 I/O 请求，因此该进程可能需要等待磁盘。等待特定 I/O 设备的进程列表，称为<strong>设备队列</strong>。每个设备都有自己的设备队列，如下图</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/537875d2acaa44ad9a28a6405457e0ff?from=pc" alt="操作系统基础12-进程调度"></p><p>就绪队列和各种I/O设备队列</p><p>进程调度通常用队列图来表示，如下图所示。每个矩形框代表一个队列；这里具有两种队列：就绪队列和设备队列。圆圈表示服务队列的资源；箭头表示系统内的进程流向</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/79550357297c479cbba0119f58edc42b?from=pc" alt="操作系统基础12-进程调度"></p><p>进程调度的队列图</p><p>最初，新进程被加到就绪队列；它在就绪队列中等待，直到被选中执行或被分派。当该进程分配到 CPU 并执行时，以下事件可能发生：</p><ul><li>进程可能发出 I/O 请求，并被放到 I/O 队列。</li><li>进程可能创建一个新的子进程，并等待其终止。</li><li>进程可能由于中断而被强制释放 CPU，并被放回到就绪队列。</li></ul><p>对于前面两种情况，进程最终从等待状态切换到就绪状态，并放回到就绪队列。进程重复这一循环直到终止；然后它会从所有队列中删除，其 PCB 和资源也被释放。</p><h1 id="调度的三个层次"><a href="#调度的三个层次" class="headerlink" title="调度的三个层次"></a>调度的三个层次</h1><p>由于内存空间有限，有时无法将用户提交的作业全部放入内存，因此就需要确定某种规则来决定将作业调入内存的顺序。</p><ul><li><strong>高级调度(作业调度)</strong></li></ul><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/d1ea9cd2d8b14837bde427154c196587?from=pc" alt="操作系统基础12-进程调度"></p><p>高级调度</p><p>按一定的原则从外存上处于后备队列的作业中挑选一个(或多个)作业，给它们分配内存等必要资源，并建立相应的进程(建立PCB)，以使它(们)获得竞争处理机的权利。高级调度是辅存(外存)与内存之间的调度。每个作业只调入一次，调出一次。作业调入时会建立相应的PCB，作业调出时才撤销PCB。高级调度主要是调入的问题，因为只有调入的时机需要操作系统来确定，但调出的时机必然是作业运行结束才调出。</p><ul><li><strong>中级调度(内存调度)</strong></li></ul><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/b609fc081ec34d5aa6e43349479f0d82?from=pc" alt="操作系统基础12-进程调度"></p><p>中级调度</p><p><strong>中级调度</strong>就是要决定将哪个处于挂起状态的进程重新调入内存。 一个进程可能会多次被调入、调出内存，因此中级调度发生的频率要比高级调度更高。暂时调到外存等待的进程状态为挂起状态，<strong>PCB</strong>并不会一起调到外存，而是会常住内存。<strong>PCB</strong>会记录进程数据在外存中的存放位置，进程状态等信息，操作系统通过内存中的PCB来保持对各个进程的监控、管理。被挂起的进程PCB会被放到挂起队列中</p><ul><li><strong>低级调度(进程调度)</strong></li></ul><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/bbb4da5d44a44286a3124eefef28cacb?from=pc" alt="操作系统基础12-进程调度"></p><p>低级调度</p><p><strong>低级调度</strong>主要任务是按某种方法和策略从就绪队列中选取一个进程，将处理机分配给它。进程调度是操作系统中最基本的一种调度，在一般的操作系统中都必须配置进程调度。进程调度的频率很高，一般都是毫秒级。</p><h1 id="进程调度的时机"><a href="#进程调度的时机" class="headerlink" title="进程调度的时机"></a>进程调度的时机</h1><ul><li><strong>什么时候需要进程调度？</strong></li></ul><ol><li>主动放弃：</li></ol><p>(1)进程正常终止</p><p>(2)运行过程中发送异常而终止</p><p>(3)主动阻塞(如 等待I/O)</p><p>2.被动放弃：</p><p>(1)分给进程的时间片用完</p><p>(2)有更紧急的事情需要处理(如I、O中断)</p><p>(3)有更高级的进程进入就绪队列</p><ul><li><strong>什么时候不能进行进程调度？</strong></li></ul><ol><li>在处理中断的过程中</li><li>进程在操作系统内核程序临界区</li><li>原子操作过程中(原语)</li></ol><h1 id="进程调度的方式"><a href="#进程调度的方式" class="headerlink" title="进程调度的方式"></a>进程调度的方式</h1><p><strong>非剥夺调度方式</strong>，又称<strong>非抢占方式</strong>。即，只允许进程主动放弃处理机。在运行过程中即便有更紧迫的任务到达，当前进程依然会继续使用处理机。该方式实现简单，系统开销小但是无法及时处理紧急任务，早期的批处理系统采用该方式。</p><p><strong>剥夺调度方式</strong>，又称<strong>抢占方式。</strong>当一个进程正在处理机上执行时，如果有一个更重要或更紧迫的进程需要使用处理机，则立即暂停正在执行的进程，将处理机分配给更重要紧迫的那个进程。该方式可以优先处理更紧急的进程，也可实现让各进程按时间片轮流执行的功能(通过时钟中断)。适合与分时操作系统，实时操作系统。</p>]]></content>
-    
-    
-      
-      
-    <summary type="html">&lt;h1 id=&quot;操作系统基础12-进程调度&quot;&gt;&lt;a href=&quot;#操作系统基础12-进程调度&quot; class=&quot;headerlink&quot; title=&quot;操作系统基础12-进程调度&quot;&gt;&lt;/a&gt;操作系统基础12-进程调度&lt;/h1&gt;&lt;p&gt;2020-10-30 11:59·&lt;a href=&quot;</summary>
-      
-    
-    
-    
-    <category term="os" scheme="http://www.shankusu.me/categories/os/"/>
-    
-    
-    <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
-    
-    <category term="进程调度" scheme="http://www.shankusu.me/tags/进程调度/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>操作系统基础11-关于多核编程</title>
-    <link href="http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8011-%E5%85%B3%E4%BA%8E%E5%A4%9A%E6%A0%B8%E7%BC%96%E7%A8%8B/"/>
-    <id>http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8011-%E5%85%B3%E4%BA%8E%E5%A4%9A%E6%A0%B8%E7%BC%96%E7%A8%8B/</id>
-    <published>2021-08-22T03:06:27.000Z</published>
-    <updated>2021-08-22T03:07:33.361Z</updated>
-    
-    <content type="html"><![CDATA[<p>2020-10-26 12:43·<a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_detail" rel="external nofollow noopener noreferrer" target="_blank">重学IT的老猫</a></p><p>之前，<strong>CPU</strong>的性能还主要取决于CPU的主频，经过超<strong>摩尔定律</strong>的发展后，没过多长时间CPU的主频速度就已接近“极限”，使得单单靠提高CPU的主频来提升性能变得非常困难。</p><p>目前，Intel、AMD等CPU生产商都转而采用了多核技术来提升CPU性能。系统设计趋势是将多个计算核放到单个芯片。无论多个计算核是在多个CPU芯片上还是在单个CPU芯片上，我们称之为<strong>多核</strong>(<strong>multicore</strong>)或<strong>多处理器</strong>（<strong>multiprocessor</strong>）系统。</p><p>双核处理器 = 一个处理器上包含两个内核</p><p>多核处理器 = 一个处理器上包含两个或多个内核</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/21f062d4bd7a4c82bd63b2bbf2009e53?from=pc" alt="操作系统基础11-关于多核编程"></p><p>多线程编程提供机制，以便更有效地使用这些多个计算核和改进的并发性。考虑一个应用，它有 4 个线程。对于单核系统，并发仅仅意味着线程随着时间推移交错执行(如下图)，因为处理核只能同一时间执行单个线程。</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/83f9861fd2014783b80091b69d4a4fce?from=pc" alt="操作系统基础11-关于多核编程"></p><p>单核系统上的并发执行</p><p>对于多核系统，并发表示线程能够并行运行，因为系统可以为每个核分配一个单独线程(如下图)</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/25955408e3b049b98dbfdaf9f21caed2?from=pc" alt="操作系统基础11-关于多核编程"></p><p>多核系统上的并行执行</p><p><strong>并行性</strong>(<strong>parallelism</strong>)和<strong>并发性</strong>(<strong>concurrency</strong>)</p><p>并行系统可以同时执行多个任务。相比之下，并发系统支持多个任务，允许所有任务都能取得进展。因此，没有并行，并发也是可能的。</p><p>在 <strong>SMP</strong>(<strong>Symmetrical Multi-Processing 对称多处理</strong>) 和多核架构出现之前，大多数计算机系统只有单个处理器。CPU 调度器通过快速切换系统内的进程，以便允许每个进程取得进展，从而提供并行假象。这些进程并发运行，而非并行运行。</p><p>随着系统线程数量从几十个到几千上万个，CPU 设计人员通过增加硬件来改善线程性能的提高系统性能。现代 Intel CPU 的每个核经常支持两个线程，这种支持意味着，可以将多个线程加载到处理核以便快速切换。毫无疑问，多核计算机将继续增加多核数量和硬件线程支持。</p><h1 id="编程挑战"><a href="#编程挑战" class="headerlink" title="编程挑战"></a>编程挑战</h1><p>多核系统趋势继续迫使系统设计人员和应用程序开发人员更好地使用多个计算核。操作系统设计人员必须编写调度算法利用多个处理核以便允许并行执行，如上图(多核系统上的并行执行)。对于应用程序开发人员来说，挑战是修改现有程序和设计新的程序以便利用多线程。</p><p>一般而言，多核系统编程有五个方面的挑战：</p><ol><li>识别任务：这涉及分析应用程序，查找区域以便分为独立的、并发的任务。在理想情况下，任务是互相独立的，因此可以在多核上并行运行。</li><li>平衡：在识别可以并行运行任务时，程序员还应确保任务执行同等价值的工作。在有些情况下，有的任务与其他任务相比，可能对整个任务的贡献并不多；采用单独核来执行这个任务就不值得了。</li><li>数据分割：正如应用程序要分为单独任务，由任务访问和操作的数据也应划分以便运行在单独的核上。</li><li>数据依赖：任务访问的数据必须分析多个任务之间的依赖关系。当一个任务依赖于另一个任务的数据时，程序员必须确保任务执行是同步的，以适应数据依赖性。</li><li>测试与调试：当一个程序并行运行于多核时，许多不同的执行路径是可能的。测试与调试这样的并发程序比测试和调试单线程的应用程序自然更加困难。</li></ol><p>由于这些挑战，许多软件开发人员认为，多核系统的出现将需要一个全新方法来设计未来软件系统。同样，许多计算机科学教育者也认为：软件开发课程应当强调平行编程。</p><h1 id="并行类型"><a href="#并行类型" class="headerlink" title="并行类型"></a>并行类型</h1><ul><li><strong>数据并行(data parallelism)</strong></li><li>数据并行注重将数据分布于多个计算核上，并在每个核上执行相同操作。例如，考虑一下对大小为 <strong>N</strong> 的数组的内容进行求和。对于单核系统，一个线程只能简单相加元素 <strong>[0]</strong>…<strong>[N-1]</strong>。不过，对于双核系统，<strong>线程 A</strong> 运行在核 <strong>0</strong> 上，相加元素 <strong>[0]</strong>…<strong>[N/2-1]</strong>；而<strong>线程 B</strong>，运行在核 <strong>1</strong> 上，相加元素 <strong>[N/2]</strong>…<strong>[N-1]</strong>。这两个线程可并行运行在各自的计算核上。</li><li><strong>任务并行(task parallelism)</strong></li><li>任务并行涉及将任务（线程）而不是数据分配到多个计算核。每个线程都执行一个独特的操作。<strong>不同线程</strong>可以操作<strong>相同的数据</strong>，或者也可以操作<strong>不同的数据</strong>。再考虑刚才的例子。与那个情况相反，一个并行任务的例子可能涉及两个线程，每个线程对元素数组执行一个唯一的统计操作。再次，线程在单独计算核上并行操作，但是每个执行一个独特操作。</li><li>从根本上说，<strong>数据并行</strong>涉及分布数据到多个核，而<strong>任务并行</strong>分布多个任务到多个核。然而，在实践中，应用程序很少严格遵循数据或任务并行。在大多数情况下，应用程序混合使用这两个策略。</li></ul><h1 id="并行的两个重要定律"><a href="#并行的两个重要定律" class="headerlink" title="并行的两个重要定律"></a>并行的两个重要定律</h1><ul><li>Amdahl定律（阿尔达尔定律）</li></ul><blockquote><p>Amdahl定律定义了串行系统并行化后的加速比的计算公式和理论上限，就是将一个串行系统改造成并行系统后，或者增加多个CPU之后，系统执行速度提升有多少。</p></blockquote><p>加速比定义：加速比=优化前系统耗时/优化后系统耗时</p><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/0805bc05d82f4a2aa6f14b1b3d5cd5bc?from=pc" alt="操作系统基础11-关于多核编程"></p><p>总结：增加CPU处理器的数量并不一定能起到有效的作用，合理增加并行处理器数量，才能以最小的投入，得到最大的加速比。</p><ul><li>Gustafson定律（古斯塔夫森）</li></ul><blockquote><p>Gustafson定律主要说明处理器个数，串行比例和加速比之间的关系。</p></blockquote><p>Gustafson定律假设优化后的的执行时间为：a+b。其中a为串行执行时间、b为并行执行时间，那么优化前的执行时间为：a+nb。其中n为CPU的个数，有n个CPU，那么并行所耗时间就需要递增n倍。</p><p>只要有足够的并行化，那么加速比和CPU个数成正比</p><blockquote><p>Amdahl定律和Gustafson定律说明加速比的角度是不同的，Amdahl定律说明光增加CPU的个数是没有意义的，还必须增加串行化比例才行。而Gustafson定律说明如果串行化比例一定的情况下，增加CPU，那么系统的性能就会提升。总的来说，如果系统通过多核CPU、并行化处理来提升性能的话，需要做两件事情：控制好串行化和CPU个数。</p></blockquote>]]></content>
-    
-    
-      
-      
-    <summary type="html">&lt;p&gt;2020-10-26 12:43·&lt;a href=&quot;https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_deta</summary>
-      
-    
-    
-    
-    <category term="os" scheme="http://www.shankusu.me/categories/os/"/>
-    
-    
-    <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>操作系统基础10-线程及多线程模型</title>
-    <link href="http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8010-%E7%BA%BF%E7%A8%8B%E5%8F%8A%E5%A4%9A%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B/"/>
-    <id>http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%8010-%E7%BA%BF%E7%A8%8B%E5%8F%8A%E5%A4%9A%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B/</id>
-    <published>2021-08-21T12:26:22.000Z</published>
-    <updated>2021-08-21T12:27:59.983Z</updated>
-    
-    <content type="html"><![CDATA[<h1 id="操作系统基础10-线程及多线程模型"><a href="#操作系统基础10-线程及多线程模型" class="headerlink" title="操作系统基础10-线程及多线程模型"></a>操作系统基础10-线程及多线程模型</h1><p>2020-10-23 14:42·<a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_detail" rel="external nofollow noopener noreferrer" target="_blank">重学IT的老猫</a></p><h1 id="什么是线程"><a href="#什么是线程" class="headerlink" title="什么是线程"></a>什么是线程</h1><p><strong>线程</strong>（<strong>thread</strong>）是操作系统能够进行运算调度的最小单位。它被包含在<strong>进程</strong>之中，是进程中的<strong>实际运作单位</strong>。一条线程指的是进程中一个单一顺序的控制流，一个进程中可以并发多个线程，每条线程并行执行不同的任务。</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/98e426876ea547458598243c032ee558?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>线程与进程关系</p><p>在早期的操作系统中并没有线程的概念，<strong>进程</strong>是能拥有资源和独立运行的最小单位，也是程序执行的最小单位。任务调度采用的是<strong>时间片轮转</strong>的抢占式调度方式，而<strong>进程</strong>是任务调度的最小单位，每个进程有各自独立的一块内存，使得各个进程之间内存地址相互隔离。</p><p>　　后来，随着计算机的发展，对<strong>CPU</strong>的要求越来越高，<strong>进程</strong>之间的切换开销较大，已经无法满足越来越复杂的程序的要求了。于是就发明了<strong>线程</strong>，线程是程序执行中一个单一的顺序控制流程，是程序执行流的最小单元，是处理器调度和分派的基本单位。一个进程可以有一个或多个线程，各个线程之间共享程序的内存空间(也就是所在进程的内存空间)。</p><p>一个标准的<strong>线程</strong>由<strong>线程ID</strong>、当前<strong>指令指针</strong>(PC)、<strong>寄存器</strong>和<strong>堆栈</strong>组成。而<strong>进程</strong>由内存空间(代码、数据、进程空间、打开的文件)和一个或多个线程组成。</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/f0fac542a81044f5a90c969407a69632?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>单线程与多线程</p><h1 id="引入线程机制后的变化"><a href="#引入线程机制后的变化" class="headerlink" title="引入线程机制后的变化"></a>引入线程机制后的变化</h1><ul><li><strong>资源分配、调度</strong></li></ul><p>传统进程机制中，进程是资源分配、调度的基本单位，引入线程后，进程是资源分 配的基本单位，线程是调度的基本单位。</p><ul><li><strong>并发性</strong></li></ul><p>传统进程机制中，只能进程间并发，引入线程后，各线程间也能并发，提供了并发度。</p><ul><li><strong>系统开销</strong></li></ul><p>传统进程间并发，需要切换进程的运行环境，系统开销很大，线程间并发，如果是同一进程内线程切换，则不需要切换进程环境，系统开销小。<strong>线程上下文</strong>切换比<strong>进程上下文</strong>切换要快得多，因此，引入线程后，并发所带来的系统开销减小。</p><h1 id="线程的实现"><a href="#线程的实现" class="headerlink" title="线程的实现"></a>线程的实现</h1><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/3ab003dbab124c5a94383e2c18b5f2a4?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>分为两大类：用户级线程、内核级线程</p><ul><li>用户级线程(<strong>User-Level Thread</strong>, <strong>ULT</strong>)</li></ul><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/490431b5020f444c9527917aa099a483?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>用户级线程</p><p>用户级线程由应用程序通过<strong>线程库</strong>实现。所有的<strong>线程管理工作</strong>都由<strong>应用程序负责</strong>(包括线程切换)。用户级线程中，线程切换可以在<strong>用户模式下即可完成</strong>，无需操作系统内核支持。在用户看来，是有多个线程。但在操作系统内核看来，并未意识到线程的存在。可以这样理解，用户级线程就是从用户视角看所看到的线程。</p><ul><li>内核级线程(<strong>Kernel-Level Thread,</strong> <strong>KLT</strong>)</li></ul><p>内核级线程的管理工作由<strong>操作系统内核</strong>完成。线程调度、切换等工作都有内核负责，因此内核级线程的切换必然需要在<strong>内核模式</strong>下才能完成。可以这样理解，内核级线程就是从操作系统内核视角看所看到的线程。</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/99f647c51d7a40b48b8b0cd1dd89cb78?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>内核级线程</p><p>在同时支持用户级线程和内核级线程的系统中，可采用二者组合的方式：将<strong>n</strong>个用户级线程映射到<strong>m</strong>个内核级线程上(<strong>n&gt;=m</strong>)</p><p>操作系统只“<strong>看得见</strong>”内核级线程，因此只有<strong>内核级线程</strong>才是处理机分配的单位。</p><p>如下这个模型：该进程有两个内核级线程，三个用户级线程，在用户看来，这个进程中有三个线程。但即使该进程在一个4核处理机的计算机上运行，也最多只能被分配到两个核，最多只能有两个用户线程并行执行。</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/de57a2b78e6049739c25e3c626081aa1?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>用户级线程与内核级线程的组合</p><h1 id="多线程模型"><a href="#多线程模型" class="headerlink" title="多线程模型"></a>多线程模型</h1><p>上面提过的，在同时支持用户级线程和内核级线程的系统中，用户级线程和内核级线程之间存在映射关系，这引出了“<strong>多线程模型</strong>”问题。</p><ul><li><strong>多对一模型</strong></li></ul><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/c73ec0f259aa4fe48b19ac1efb2b7cd8?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>多对一模型</p><p><strong>多对一模型</strong>映射多个用户级线程到一个内核级线程。每个用户级线程只对应一个内核级线程。线程管理是由用户空间的线程库来完成，因此效率更高。但是，如果一个线程执行阻塞系统调用，那么整个进程将会阻塞。再者，因为任一时间只有一个线程可以访问内核，所以多个线程不能并行(<strong>parallel)</strong>运行在多个处理核系统上。</p><ul><li><strong>一对一模型</strong></li></ul><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/916501c0983840f4bfe7e4f35b6f21cb?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>一对一模型</p><p><strong>一对一模型</strong>映射每个用户级线程到一个内核级线程。该模型在一个线程执行阻塞系统调用时，能够运行另一个线程继续执行，所以它提供了比多对一模型更好的并发功能；它也允许多个线程并行运行在多核处理器系统上。这种模型唯一的缺点是，创建一个用户线程就要创建一个相应的内核线程。由于创建内核线程的开销会影响应用程序的性能，所以这种模型的大多数实现限制了系统支持的线程数量。Linux、Windows操作系统的家族，都实现了一对一模型。</p><ul><li><strong>多对多模型</strong></li></ul><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/84b5c3ede2b546e582b7a35643e627be?from=pc" alt="操作系统基础10-线程及多线程模型"></p><p>多对多模型</p><p><strong>多对多模型</strong>：<strong>n</strong>个用户级线程映射到<strong>m</strong>个内核级线程(<strong>n&gt;=m</strong>)。每个用户级线程对应同样数量或更少数量的内核级线程。该模型克服了多对一模型并发度不高的缺点，又克服了一对一模型中创建内核开销太大的缺点。可以说多对多模型集多对一、一对一模型二者的所长。</p><h1 id="线程库"><a href="#线程库" class="headerlink" title="线程库"></a>线程库</h1><p><strong>线程库</strong>(<strong>thread library</strong>)为程序员提供创建和管理线程的API。实现线程库的主要方法有两种。</p><p>第一种方法：在用户空间中提供一个没有内核支持的库。这种库的所有代码和数据结构都位于用户空间中。调用该库内的一个函数只是导致了用户空间内的一个<strong>本地函数</strong>的调用，而不是内核的<strong>系统调用。</strong></p><p>第二种方法：实现由操作系统直接支持的内核级的一个库。库内的代码和数据结构位于内核空间。调用库中的一个API函数通常会导致对内核的系统调用。</p><p>三种主要线程库：<strong>Pthreads、Windows、Java</strong></p><p><strong>Pthreads</strong>作为<strong>POSIX</strong>标准的扩展，可以提供<strong>用户级</strong>和<strong>内核级</strong>线程库。可移植操作系统接口（<strong>Portable Operating System Interface</strong>，缩写为<strong><em>POSIX</em></strong>），<strong>POSIX</strong>是由IEEE的一组标准组成，其目标是提供一套大体上基于<strong>Unix</strong>的可移植操作系统标准。<strong>Linux</strong>是与<strong>POSIX</strong>兼容的。</p><p><strong>Windows</strong>线程库是用于Windows操作系统的<strong>内核级线程库</strong>。</p><p><strong>Java</strong>线程API允许线程在Java程序中直接创建和管理。由于<strong>Java</strong>虚拟机(<strong>JVM</strong>)实例运行在宿主操作系统之上，<strong>Java</strong>线程API通过采用宿主系统的线程库来实现。意味着在<strong>Windows</strong>系统上，Java线程通过采用Windows API来实现，而在<strong>UNIX</strong>和<strong>Linux</strong>系统中采用<strong>Pthreads</strong>来实现。</p>]]></content>
-    
-    
-      
-      
-    <summary type="html">&lt;h1 id=&quot;操作系统基础10-线程及多线程模型&quot;&gt;&lt;a href=&quot;#操作系统基础10-线程及多线程模型&quot; class=&quot;headerlink&quot; title=&quot;操作系统基础10-线程及多线程模型&quot;&gt;&lt;/a&gt;操作系统基础10-线程及多线程模型&lt;/h1&gt;&lt;p&gt;2020-10-23</summary>
-      
-    
-    
-    
-    <category term="os" scheme="http://www.shankusu.me/categories/os/"/>
-    
-    
-    <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
-    
-    <category term="线程" scheme="http://www.shankusu.me/tags/线程/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>操作系统基础9-进程通信IPC</title>
-    <link href="http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%809-%E8%BF%9B%E7%A8%8B%E9%80%9A%E4%BF%A1IPC/"/>
-    <id>http://www.shankusu.me/os/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F%E5%9F%BA%E7%A1%809-%E8%BF%9B%E7%A8%8B%E9%80%9A%E4%BF%A1IPC/</id>
-    <published>2021-08-21T09:54:41.000Z</published>
-    <updated>2021-08-21T09:57:06.478Z</updated>
-    
-    <content type="html"><![CDATA[<h1 id="操作系统基础9-进程通信IPC"><a href="#操作系统基础9-进程通信IPC" class="headerlink" title="操作系统基础9-进程通信IPC"></a>操作系统基础9-进程通信IPC</h1><p>2020-10-21 18:00·<a href="https://www.toutiao.com/c/user/token/MS4wLjABAAAAQN9l7B0O7YxEym7_bMZQaTheh3CQz_W6SC-j3N36vPo/?source=tuwen_detail" rel="external nofollow noopener noreferrer" target="_blank">重学IT的老猫</a></p><h1 id="什么是进程通信？"><a href="#什么是进程通信？" class="headerlink" title="什么是进程通信？"></a>什么是进程通信？</h1><p><strong>进程通信(Interprocess Communication</strong>)就是指进程之间的信息交换。</p><p><strong>进程</strong>是分配系统资源的单位(包括内存地址空间) ，各个进程拥有的内存地址空间相互独立，为了保证安全， 操作系统中规定一个进程不能直接访问另一个进程的地址空间。如下图中的进程1就不能直接访问进程2的地址空间。</p><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/4214af89df0b43f5b0e794177b1a0976?from=pc" alt="操作系统基础9-进程通信IPC"></p><p>但是进程之间的信息交换又是必须要实现的。比如微信发送图片时，就是微信这个进程和手机管理图片的进程间的通信， 取出图片并且进行发送。</p><h1 id="进程通信的方式"><a href="#进程通信的方式" class="headerlink" title="进程通信的方式"></a>进程通信的方式</h1><p>主要分为三种：<strong>管道通信</strong>，<strong>消息传递</strong>，<strong>共享存储</strong></p><ul><li><strong>管道通信</strong>：进程间基于内存文件的一种通信机制</li></ul><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/930d9294370a4f0aae9cabe789bfaba0?from=pc" alt="操作系统基础9-进程通信IPC"></p><p>管道通信</p><p><strong>管道</strong>：指用于连接读写进程的一个共享文件，又名<strong>pipe</strong>文件。其实就是在内存中开辟的一个大小固定的缓冲区。管道又可以分为<strong>匿名管道</strong>、<strong>命名管道。</strong></p><p>在Linux下，管道是由pipe这个函数创建的，<strong>fd[0]</strong> 用于读，<strong>fd[1]</strong> 用于写。</p><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/387255ce0f1b4e0c9a5c0fba62c6b7cd?from=pc" alt="操作系统基础9-进程通信IPC"></p><p><strong>匿名管道</strong>：只支持半双工通信（单向交替传输）；只能用于父子进程或兄弟进程之间，必须用于具有亲缘关系的进程间的通信<strong>。</strong>是特殊的文件，存在于内存。</p><p><strong>命名管道(named pipe</strong>或<strong>FIFO)</strong>：可以在<strong>无关的进程</strong>之间交换数据。以一种特殊设备文件形式存在于文件系统中，可以通过文件路径名来指出。<strong>FIFO</strong> 常用于客户-服务器应用程序中，<strong>FIFO</strong> 用作汇聚点，在客户进程和服务器进程之间传递数据。</p><p><strong>消息传递</strong></p><p>消息队列，是消息的链接表，存放在<strong>内核</strong>中。一个消息队列由一个标识符来标识。</p><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/75c6657aaa7748c587acf695a80706f4?from=pc" alt="操作系统基础9-进程通信IPC"></p><p>消息传递模型</p><p>进程间的数据交换以格式化的消息（<strong>Message</strong>）为单位。进程通过操作系统提供的“<strong>发送/接收消息</strong>”两个原语进行数据交换。是由操作系统维护的以字节序列为基本单位的通信机制。</p><p><img src="https://p3-tt.byteimg.com/origin/pgc-image/0b2158d6d21742cd8dc2ce3e9502b5f1?from=pc" alt="操作系统基础9-进程通信IPC"></p><p>相比于 FIFO，消息队列具有以下优点：</p><ol><li>消息队列可以独立于读写进程存在，从而避免了 <strong>FIFO</strong> 中同步管道的打开和关闭时可能产生的困难；</li><li>避免了 <strong>FIFO</strong> 的同步阻塞问题，不需要进程自己提供同步方法；</li><li>读进程可以根据消息类型有选择地接收消息，而不像 <strong>FIFO</strong> 那样只能默认地接收。</li></ol><p>消息传递方式也分为两种，分别是<strong>直接通信方式</strong>和<strong>间接通信方式</strong>。</p><p><strong>直接通信方式</strong></p><p>进程通信采用消息传递的直接通信方式时，消息会直接挂到接收进程的消息缓冲队列上。<br>举个例子：假如，进程1给进程2发送了两个消息。那进程2的消息缓冲队列如下。</p><p><img src="https://p1-tt.byteimg.com/origin/pgc-image/93ec6c4ae4a841a4a59ddd7c2ed0d7f2?from=pc" alt="操作系统基础9-进程通信IPC"></p><p><strong>间接通信方式</strong></p><p>进程通信采用消息传递的间接通信方式时，发送进程会把消息发送到一个<strong>中间实体</strong>(信箱)中，而接收进程通过某些方法可以取得属于自己的消息，因此，这种方式也被称为”<strong>信箱通信方式</strong>“。</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/8c82d5aa61d24b09b23351d9475507c9?from=pc" alt="操作系统基础9-进程通信IPC"></p><ul><li><strong>共享存储</strong></li></ul><p>共享存储就是操作系统另外分配一个内存区域用于进程间的通信，这就是共享空间，两个进程都可以访问这个共享空间， 但是两个进程对共享空间的访问必须是互斥的，即同一时间段只能有一个进程访问这个空间。 操作系统只负责提供共享空间和同步互斥工具。(有关进程的同步、互斥后续专门来说)</p><p><img src="https://p6-tt.byteimg.com/origin/pgc-image/017640eaa6a845cda3d7d9edc71a45fa?from=pc" alt="操作系统基础9-进程通信IPC"></p><p>共享存储模型</p><p>然后共享存储又分为基于数据结构的共享和基于存储区的共享。</p><p>1.基于数据结构的共享：比如它的共享空间只能放一个长度为10的数组，数据量比较小，存储的数据形式也有限制。 所以这种方式速度慢，限制多， 是一种低级通信</p><p>2.基于存储区的共享：此时操作系统只负责提供内存，然后由进程来控制数据的形式和存放位置。所以这种方式速度更快，是一种高级的共享方式</p>]]></content>
-    
-    
-      
-      
-    <summary type="html">&lt;h1 id=&quot;操作系统基础9-进程通信IPC&quot;&gt;&lt;a href=&quot;#操作系统基础9-进程通信IPC&quot; class=&quot;headerlink&quot; title=&quot;操作系统基础9-进程通信IPC&quot;&gt;&lt;/a&gt;操作系统基础9-进程通信IPC&lt;/h1&gt;&lt;p&gt;2020-10-21 18:00·&lt;</summary>
       
     
     
