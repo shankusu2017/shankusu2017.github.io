@@ -1,0 +1,1858 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="zh-CN">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+  <meta name="baidu-site-verification" content="code-legvFikwxc">
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="深入理解Linux IO模型(二)原创 Pearl Pearl的仲夏夜之梦;) 6月13日 为何使用epollselect的缺陷epoll的提出epoll的原理数据结构实现原理高效原因epoll的API创建epoll控制epoll等待epoll使用epoll API触发方式水平触发(Level Triggered, LT)边缘触发(Edge Triggered, ET)两者对比Reference">
+<meta name="keywords" content="os,linux,epoll,select">
+<meta property="og:type" content="article">
+<meta property="og:title" content="深入理解Linux IO模型(二)">
+<meta property="og:url" content="http://www.shankusu.me/os/深入理解LinuxIO模型二/index.html">
+<meta property="og:site_name" content="愿星光伴你左右">
+<meta property="og:description" content="深入理解Linux IO模型(二)原创 Pearl Pearl的仲夏夜之梦;) 6月13日 为何使用epollselect的缺陷epoll的提出epoll的原理数据结构实现原理高效原因epoll的API创建epoll控制epoll等待epoll使用epoll API触发方式水平触发(Level Triggered, LT)边缘触发(Edge Triggered, ET)两者对比Reference">
+<meta property="og:locale" content="zh-CN">
+<meta property="og:image" content="http://www.shankusu.me/os/深入理解LinuxIO模型二/1.png">
+<meta property="og:image" content="http://www.shankusu.me/os/深入理解LinuxIO模型二/2.png">
+<meta property="og:image" content="http://www.shankusu.me/os/深入理解LinuxIO模型二/3.png">
+<meta property="og:image" content="http://www.shankusu.me/os/深入理解LinuxIO模型二/4.png">
+<meta property="og:image" content="http://www.shankusu.me/os/深入理解LinuxIO模型二/5.png">
+<meta property="og:updated_time" content="2021-08-26T10:15:04.887Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="深入理解Linux IO模型(二)">
+<meta name="twitter:description" content="深入理解Linux IO模型(二)原创 Pearl Pearl的仲夏夜之梦;) 6月13日 为何使用epollselect的缺陷epoll的提出epoll的原理数据结构实现原理高效原因epoll的API创建epoll控制epoll等待epoll使用epoll API触发方式水平触发(Level Triggered, LT)边缘触发(Edge Triggered, ET)两者对比Reference">
+<meta name="twitter:image" content="http://www.shankusu.me/os/深入理解LinuxIO模型二/1.png">
+
+
+
+  <link rel="alternate" href="/atom.xml" title="愿星光伴你左右" type="application/atom+xml">
+
+
+
+  
+  
+  <link rel="canonical" href="http://www.shankusu.me/os/深入理解LinuxIO模型二/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>深入理解Linux IO模型(二) | 愿星光伴你左右</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-CN">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">愿星光伴你左右</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="切换导航栏">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>首页</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>分类<span class="badge">44</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-lua">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/lua" rel="section"><i class="menu-item-icon fa fa-fw fa-moon-o"></i> <br>lua</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-go">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/go" rel="section"><i class="menu-item-icon fa fa-fw fa-google"></i> <br>go</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-redis">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/redis" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>redis</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-cs">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/cs" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>cs</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-tcpip">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/tcpip" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>tcpip</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-os">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/os" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>os</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-leetcode">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/leetcode" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>leetcode</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-weekly">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/weekly" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>周记</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-daily">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/daily" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>日记</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-links">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/link" rel="section"><i class="menu-item-icon fa fa-fw fa-external-link"></i> <br>友情链接</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-面试">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/面试" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>面试</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>关于</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>搜索</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="搜索..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://www.shankusu.me/os/深入理解LinuxIO模型二/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光伴你左右">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="愿星光伴你左右">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">深入理解Linux IO模型(二)
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          
+          
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+              
+
+              
+                
+
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                
+                  <span class="post-meta-item-text">更新于</span>
+                
+                <time title="修改时间：2021-08-26 18:15:04" itemprop="dateModified" datetime="2021-08-26T18:15:04+08:00">2021-08-26</time>
+              
+            
+          </span>
+
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/os/" itemprop="url" rel="index"><span itemprop="name">os</span></a></span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             阅读次数： 
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h1 id="深入理解Linux-IO模型-二"><a href="#深入理解Linux-IO模型-二" class="headerlink" title="深入理解Linux IO模型(二)"></a>深入理解Linux IO模型(二)</h1><p>原创 Pearl <a href="javascript:void(0" target="_blank" rel="noopener">Pearl的仲夏夜之梦</a>;) <em>6月13日</em></p>
+<p>为何使用epollselect的缺陷epoll的提出epoll的原理数据结构实现原理高效原因epoll的API创建epoll控制epoll等待epoll使用epoll API触发方式水平触发(Level Triggered, LT)边缘触发(Edge Triggered, ET)两者对比Reference</p>
+<p>接着前文《深入理解Linux IO模型(一)》，本文深入分析IO多路复用模型中的epoll。</p>
+<blockquote>
+<ol>
+<li>本文为了描述方便，统一用读操作讲述，写操作同理。</li>
+<li>本文为了撰写方便，统一将I/O写成了IO。</li>
+<li>欢迎指正文中的错误。</li>
+</ol>
+</blockquote>
+<h3 id="为何使用epoll"><a href="#为何使用epoll" class="headerlink" title="为何使用epoll"></a>为何使用epoll</h3><p>Nginx在几十万并发连接下，是如何做到高效利用服务器资源的？答案是epoll。</p>
+<p>设想一个场景：有100万用户同时与一个网络应用进程保持着TCP连接，而每一时刻只有几十或几百个TCP连接是活跃的（网络应用进程接收到TCP报文），那么在这个时刻，进程只需要处理这100万个连接中的这些活跃的连接即可。那么，内核和应用进程如何协同，才能高效地处理这种情况呢？</p>
+<h4 id="select的缺陷"><a href="#select的缺陷" class="headerlink" title="select的缺陷"></a>select的缺陷</h4><p>应用进程是否在每次调用系统调用，询问内核有事件发生的TCP连接时，把这100万个连接告诉内核，由内核找出其中有事件发生的TCP连接呢？<br>这正是select的做法。</p>
+<p>select有明显的缺陷，因为这100万个TCP连接中，大部分是没有事件发生的。如果应用程序每次收集事件时，都把这100万个socket fd传给内核。有以下问题：</p>
+<ol>
+<li>导致用户空间到内核空间的大量复制。</li>
+<li>内核需要遍历所有的socket fd，判断哪些有事件到来。</li>
+<li>应用进程仍需要遍历所有的socket fd，来判断哪些socket fd可读。</li>
+</ol>
+<p>所以select限制了同时监听的socket fd数量，最多只能同时处理1024个并发连接。</p>
+<h4 id="epoll的提出"><a href="#epoll的提出" class="headerlink" title="epoll的提出"></a>epoll的提出</h4><p>epoll在内核中申请了一片内存空间。</p>
+<p>epoll的做法是，把应用程序的一个select调用分成三部分：</p>
+<ol>
+<li>调用epoll_create创建一个epoll对象</li>
+<li>调用epoll_ctl向epoll对象添加这100万个socket fd</li>
+<li>调用epoll_wait等待收集发生事件的连接</li>
+</ol>
+<p>这样，只要在应用进程启动时，建立1个epoll对象(下文用epfd表示)，并在TCP连接到来和断开的时候，对epfd添加和删除事件就可以了（也可以修改）。<br>应用进程调用epoll_wait时，不需要向内核空间传递这100万个连接，内核也不需要遍历全部的连接。所以epoll_wait很高效。</p>
+<h3 id="epoll的原理"><a href="#epoll的原理" class="headerlink" title="epoll的原理"></a>epoll的原理</h3><p>当应用进程调用epoll_create时，内核会在内核空间创建一个独立的eventpoll结构体对象，用于维护使用epoll_ctl向其添加的事件。</p>
+<h4 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h4><p>epoll的数据结构如图所示。eventpoll有两个核心的数据结构：</p>
+<ol>
+<li>红黑树(rbr)：维护通过epoll_ctl添加的事件。</li>
+<li>就绪链表(rdllist)：保存就绪的事件，当事件发生时，由内核的中断处理程序插入该就绪链表。</li>
+</ol>
+<p><img src="1.png" alt="图片"></p>
+<blockquote>
+<p>说明: 这张图来自于《深入理解Nginx》，网上很多博客用了这张图，但是这张图关于就绪链表的描述有个小错误。”红黑树中每个节点都是基于epitem结构中的rdllink成员”应该改成”就绪链表中每个节点都是基于epitem结构中的rdllink成员”。</p>
+</blockquote>
+<figure class="highlight gauss"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">1</span><span class="comment">// 这里只列出了成员rbr、rdllist，它们和epoll的使用密切相关</span></span><br><span class="line"> <span class="number">2</span><span class="keyword">struct</span> eventpoll &#123;</span><br><span class="line"> <span class="number">3</span>  ...</span><br><span class="line"> <span class="number">4</span>  <span class="comment">// 红黑树的根节点，这棵树中存储着所有添加到epoll中的事件，即这个epoll监控的事件</span></span><br><span class="line"> <span class="number">5</span>  <span class="keyword">struct</span> <span class="type">rb_root</span> rbr;</span><br><span class="line"> <span class="number">6</span></span><br><span class="line"> <span class="number">7</span>  <span class="comment">// 双向链表rdllist保存着要通过epoll_wait返回给应用程序的满足条件的事件</span></span><br><span class="line"> <span class="number">8</span>  <span class="keyword">struct</span> <span class="type">list_head</span> rdllist;</span><br><span class="line"> <span class="number">9</span>  ...</span><br><span class="line"><span class="number">10</span>&#125;;</span><br><span class="line"> <span class="number">1</span><span class="keyword">struct</span> epitem &#123;</span><br><span class="line"> <span class="number">2</span>  ...</span><br><span class="line"> <span class="number">3</span>  <span class="comment">// 红黑树节点</span></span><br><span class="line"> <span class="number">4</span>  <span class="keyword">struct</span> <span class="type">rb_node</span> rbn;</span><br><span class="line"> <span class="number">5</span>  <span class="comment">// 双向链表节点</span></span><br><span class="line"> <span class="number">6</span>  <span class="keyword">struct</span> <span class="type">list_head</span> rdllink;</span><br><span class="line"> <span class="number">7</span>  <span class="comment">// 事件句柄等信息</span></span><br><span class="line"> <span class="number">8</span>  <span class="keyword">struct</span> <span class="type">epoll_filefd</span> ffd;</span><br><span class="line"> <span class="number">9</span>  <span class="comment">// 指向其所属的eventpoll对象</span></span><br><span class="line"><span class="number">10</span>  <span class="keyword">struct</span> <span class="type">eventpoll</span> *ep;</span><br><span class="line"><span class="number">11</span>  <span class="comment">// 期待的事件类型</span></span><br><span class="line"><span class="number">12</span>  <span class="keyword">struct</span> <span class="type">epoll_event</span> event;</span><br><span class="line"><span class="number">13</span>  ...</span><br><span class="line"><span class="number">14</span>&#125;</span><br></pre></td></tr></table></figure>
+<h4 id="实现原理"><a href="#实现原理" class="headerlink" title="实现原理"></a>实现原理</h4><p>在epoll中，为每个事件都建立一个epitem结构体对象。<br>这些事件都会添加到rbr红黑树中（重复添加的事件可以通过红黑树高效地识别出来）。从红黑树中查找事件非常快。</p>
+<p>所有添加到epoll对象中的事件都会与设备驱动程序（如网卡驱动程序）建立回调关系，当相应的事件发生时，会调用回调函数（中断处理程序）。这个回调函数在内核叫<code>ep_poll_callback</code>，回调函数会把就绪的事件写入rdllist双向链表中。</p>
+<p>当应用程序调用epoll_wait检查是否有事件发生的连接时，内核只是检查eventpoll对象的rdllist双向链表是否有epitem元素而已。如果rdllist链表不为空，内核把这里的事件复制到用户空间，同时返回对应的事件数量。</p>
+<h4 id="高效原因"><a href="#高效原因" class="headerlink" title="高效原因"></a>高效原因</h4><p>最后总结分析下epoll之所以可以处理百万级别的并发连接，而且效率很高的原因。</p>
+<ol>
+<li>应用程序在调用系统调用epoll_create创建epoll时，内核为它开辟了一片内存空间。把listen fd存在里面，以及当每次来客户端请求，三次握手后建立的client fd都会存在内核态的这个内存空间。这样不同于select，避免了用户空间和内核空间之间重复传递fd的过程。</li>
+<li>应用程序要知道哪些事件可读了，不同于在select中应用程序需要主动遍历所有fd，内核只是将就绪列表中的事件复制到用户空间的event数组中（应用程序提前申请好的内存），这样应用程序只需要遍历这些就绪的事件。</li>
+<li>就绪事件是怎么放入就绪列表的？答案是epoll利用了事件驱动。当数据包进入网卡，网卡将数据包通过DMA方式写入内存。网卡raise硬件中断IRQ，通知CPU有数据包到来了。CPU查询中断向量表，得到中断服务程序的指针，这个中断服务程序会调用网卡驱动程序。这里的中断服务程序是事先注册的，所以也可以理解CPU根据中断号回调中断处理程序，从内存读取数据，得到事件的fd，写入就绪列表rdllist中。</li>
+</ol>
+<blockquote>
+<p>这里用到了上一篇《深入理解Linux IO模型(一)》写到的硬中断，不熟悉的可以看一下。</p>
+</blockquote>
+<p>从程序的本质上看，程序是否有更好的并发，是看少浪费了什么。<br>CPU、内存、硬盘、网络带宽的利用率决定程序是不是能应对更复杂的场景。<br>当遇到高并发问题，怀疑程序在服务器上运转不良好时，一定要回过头看硬件有没有被充分利用，有没有浪费硬件资源。<br>CPU在执行什么事情的指令，决定了它的利用率。<br>select需要CPU在内核模式下（CPU的一种执行模式）主动去遍历所有描述符，这样CPU浪费在了遍历上。而epoll靠的是硬件中断，利用中断把就绪fd写入就绪列表。更充分发挥了硬件，不浪费CPU。这是epoll高效的最大原因。</p>
+<h3 id="epoll的API"><a href="#epoll的API" class="headerlink" title="epoll的API"></a>epoll的API</h3><p>epoll提供给应用程序的系统调用API有三个。</p>
+<ul>
+<li>创建epoll：epoll_create系统调用</li>
+<li>控制epoll：epoll_ctl系统调用</li>
+<li>等待epoll：epoll_wait系统调用</li>
+</ul>
+<h4 id="创建epoll"><a href="#创建epoll" class="headerlink" title="创建epoll"></a>创建epoll</h4><p>创建epoll，指的是在内核空间创建一颗红黑树（平衡二叉树）的根节点root。它返回一个fd（下文用epfd指代），用来标识这个epoll对象。这个root根节点与epfd相对应。如图所示。</p>
+<p><img src="2.png" alt="图片"></p>
+<p>API如下：</p>
+<figure class="highlight basic"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>/** </span><br><span class="line"><span class="symbol">2 </span>* @param size 告诉epoll要处理的大致事件数量，而不是能处理的事件最大数量。</span><br><span class="line"><span class="symbol">3 </span>* </span><br><span class="line"><span class="symbol">4 </span>* @returns 返回一个epoll句柄（即一个文件描述符） </span><br><span class="line"><span class="symbol">5 </span>*/</span><br><span class="line"><span class="number">6</span><span class="keyword">int</span> epoll_create(<span class="keyword">int</span> size);</span><br></pre></td></tr></table></figure>
+<p>调用方法：</p>
+<figure class="highlight lsl"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>int epfd = epoll_create(<span class="number">1000</span>);</span><br></pre></td></tr></table></figure>
+<h4 id="控制epoll"><a href="#控制epoll" class="headerlink" title="控制epoll"></a>控制epoll</h4><p>控制epoll，指的是以下三种操作:</p>
+<ul>
+<li>注册新的事件到epoll</li>
+<li>修改已经注册的事件</li>
+<li>删除一个注册到epoll的事件</li>
+</ul>
+<p>添加某事件的时候，事件被插到红黑树的某个节点，并且与相应的设备驱动程序建立回调关系。当事件发生后，内核中断处理程序调用这个回调函数，将事件添加到就绪链表。</p>
+<p>API如下:</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">1</span><span class="string">/**</span></span><br><span class="line"> <span class="number">2</span><span class="string">*</span> <span class="string">@param</span> <span class="string">epfd</span> <span class="string">用epoll_create所创建的epoll实例</span></span><br><span class="line"> <span class="number">3</span><span class="string">*</span> <span class="string">@param</span> <span class="string">op</span> <span class="string">表示对epoll监控描述符控制的动作</span></span><br><span class="line"> <span class="number">4</span><span class="string">*</span></span><br><span class="line"> <span class="number">5</span><span class="string">*</span> <span class="string">EPOLL_CTL_ADD(添加新的事件到epoll中)</span></span><br><span class="line"> <span class="number">6</span><span class="string">*</span> <span class="string">EPOLL_CTL_MOD(修改已经注册到epoll中的事件)</span></span><br><span class="line"> <span class="number">7</span><span class="string">*</span> <span class="string">EPOLL_CTL_DEL(删除epoll中的事件)</span></span><br><span class="line"> <span class="number">8</span><span class="string">*</span></span><br><span class="line"> <span class="number">9</span><span class="string">*</span> <span class="string">@param</span> <span class="string">fd</span> <span class="string">待监测的连接fd</span></span><br><span class="line"><span class="number">10</span><span class="string">*</span> <span class="string">@param</span> <span class="string">event</span> <span class="string">告诉内核需要监听的事件(包括类型)，指向epoll_event的指针</span></span><br><span class="line"><span class="number">11</span><span class="string">*</span></span><br><span class="line"><span class="number">12</span><span class="string">*</span> <span class="string">@returns</span> <span class="string">成功返回0，失败返回-1,</span> <span class="string">errno查看错误信息</span></span><br><span class="line"><span class="number">13</span><span class="string">*/</span></span><br><span class="line"><span class="string">14int</span> <span class="string">epoll_ctl(int</span> <span class="string">epfd,</span> <span class="string">int</span> <span class="string">op,</span> <span class="string">int</span> <span class="string">fd,</span></span><br><span class="line"><span class="string">15struct</span> <span class="string">epoll_event</span> <span class="string">*event);</span></span><br><span class="line"><span class="number">16</span></span><br><span class="line"><span class="string">17struct</span> <span class="string">epoll_event</span> <span class="string">&#123;</span></span><br><span class="line"><span class="number">18</span>  <span class="string">__uint32_t</span> <span class="string">events;</span> <span class="string">//</span> <span class="string">epoll</span> <span class="string">事件</span></span><br><span class="line"><span class="number">19</span>  <span class="string">epoll_data_t</span> <span class="string">data;</span> <span class="string">//</span> <span class="string">用户传递的数据</span></span><br><span class="line"><span class="number">20</span><span class="string">&#125;</span></span><br><span class="line"><span class="number">21</span></span><br><span class="line"><span class="string">22typedef</span> <span class="string">union</span> <span class="string">epoll_data</span> <span class="string">&#123;</span></span><br><span class="line"><span class="number">23</span>  <span class="string">void</span> <span class="string">*ptr;</span></span><br><span class="line"><span class="number">24</span>  <span class="string">int</span> <span class="string">fd;</span> <span class="string">//</span> <span class="string">监听的事件fd</span></span><br><span class="line"><span class="number">25</span>  <span class="string">uint32_t</span> <span class="string">u32;</span></span><br><span class="line"><span class="number">26</span>  <span class="string">uint64_t</span> <span class="string">u64;</span></span><br><span class="line"><span class="number">27</span><span class="string">&#125;</span> <span class="string">epoll_data_t;</span></span><br></pre></td></tr></table></figure>
+<p>关于epoll_event，具体介绍下。上文介绍过epoll为每个事件创建epitem对象，在结构体epitem中有一个成员epoll_event。</p>
+<p>epoll_event.events的取值包括：<br>EPOLLIN：表示对应的连接上有数据可以读出（TCP连接的远端主动关闭连接，也相当于可读事件，因为要处理发过来的FIN包）<br>EPOLLOUT：表示对应的连接上可以写入数据发送<br>EPOLLRDHUP：表示TCP连接的远端关闭或半关闭连接<br>EPOLLPR：表示对应的链接上有紧急数据需要读<br>EPOLLERR：表示对应的连接发生错误<br>EPOLLHUP：表示对应的连接被挂起<br>EPOLLET：表示将处罚方式设置为边缘触发（ET），系统默认为水平触发（LT）<br>EPOLLONESHOT：表示对这个事件只处理一次，下次需要处理时需要重新加入epoll</p>
+<p>调用方法:</p>
+<figure class="highlight haxe"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>struct epoll_event <span class="keyword">new</span><span class="type">_event</span>;</span><br><span class="line"><span class="number">2</span></span><br><span class="line"><span class="number">3</span><span class="keyword">new</span><span class="type">_event</span>.events = EPOLLIN | EPOLLOUT;</span><br><span class="line"><span class="number">4</span><span class="keyword">new</span><span class="type">_event</span>.data.fd = <span class="number">5</span>;</span><br><span class="line"><span class="number">5</span></span><br><span class="line"><span class="number">6</span>epoll_ctl(epfd, EPOLL_CTL_ADD, <span class="number">5</span>, &amp;<span class="keyword">new</span><span class="type">_event</span>);</span><br></pre></td></tr></table></figure>
+<p>在用户空间创建一个IO事件，绑定到某个fd上，然后把该事件的fd添加到内核中的epoll红黑树中。当fd可读或可写时，触发的是epoll_event。如图所示。</p>
+<p><img src="3.png" alt="图片"></p>
+<h4 id="等待epoll"><a href="#等待epoll" class="headerlink" title="等待epoll"></a>等待epoll</h4><p>收集在epoll监控的事件中已经发生的事件，内核会检查就绪链表中是否有存在添加过的事件，如果没有任何事件发生，最多等待timeout毫秒后返回（在timeout设置&gt;0的情况下）。返回值表示当前发生的事件个数。</p>
+<p>API如下:</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">1</span><span class="string">/**</span></span><br><span class="line"> <span class="number">2</span><span class="string">*</span></span><br><span class="line"> <span class="number">3</span><span class="string">*</span> <span class="string">@param</span> <span class="string">epfd</span> <span class="string">用epoll_create所创建的epoll实例</span></span><br><span class="line"> <span class="number">4</span><span class="string">*</span> <span class="string">@param</span> <span class="string">event</span> <span class="string">从内核得到的就绪的事件集合</span></span><br><span class="line"> <span class="number">5</span><span class="string">*</span> <span class="string">@param</span> <span class="string">maxevents</span> <span class="string">本次可以返回的最大事件数目，通常与预分配的event数组大小相等</span></span><br><span class="line"> <span class="number">6</span><span class="string">*</span> <span class="string">注意:</span> <span class="string">值不能大于创建epoll_create()时的size</span></span><br><span class="line"> <span class="number">7</span><span class="string">*</span> <span class="string">@param</span> <span class="string">timeout</span> <span class="string">等待IO事件发生的超时时间</span></span><br><span class="line"> <span class="number">8</span><span class="string">*</span> <span class="number">-1</span><span class="string">:</span> <span class="string">永久阻塞</span></span><br><span class="line"> <span class="number">9</span><span class="string">*</span> <span class="attr">0:</span> <span class="string">如果就绪链表rdllist为空，立即返回，不会等待，即非阻塞</span></span><br><span class="line"><span class="number">10</span><span class="string">*</span> <span class="string">&gt;0:</span> <span class="string">指定最多等待的时间，单位毫秒</span></span><br><span class="line"><span class="number">11</span><span class="string">*</span></span><br><span class="line"><span class="number">12</span><span class="string">*</span> <span class="string">@returns</span> <span class="string">成功:</span> <span class="string">有多少文件描述符就绪,时间到时返回0</span></span><br><span class="line"><span class="number">13</span><span class="string">*</span> <span class="string">失败:</span> <span class="number">-1</span><span class="string">,</span> <span class="string">errno</span> <span class="string">查看错误</span></span><br><span class="line"><span class="number">14</span><span class="string">*/</span></span><br><span class="line"><span class="string">15int</span> <span class="string">epoll_wait(int</span> <span class="string">epfd,</span> <span class="string">struct</span> <span class="string">epoll_event</span> <span class="string">*event,</span></span><br><span class="line"><span class="number">16</span>               <span class="string">int</span> <span class="string">maxevents,</span> <span class="string">int</span> <span class="string">timeout);</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>注意: epoll_event不能是空指针，内核只是负责把内核空间中就绪链表的数据复制到用户空间的event数组中，不会去帮忙分配内存，所以用户空间需要自己提前分配内存。</p>
+</blockquote>
+<p>调用方法:</p>
+<figure class="highlight lsl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">1</span>struct epoll_event my_event[<span class="number">1000</span>];</span><br><span class="line"><span class="number">2</span></span><br><span class="line"><span class="number">3</span>int event_cnt = epoll_wait(epfd, my_event, <span class="number">1000</span>, <span class="number">-1</span>);</span><br></pre></td></tr></table></figure>
+<p>如图所示。应用程序调用epoll_wait后，进入阻塞状态。当内核检测到new_event或event1绑定的fd可读了，内核把就绪的event事件拷贝到用户空间的my_event数组。应用程序只需要遍历my_event，取出对应的事件和fd，知道是可读了，然后堵塞调用recv(fd)读数据。</p>
+<p><img src="4.png" alt="图片"></p>
+<h3 id="使用epoll-API"><a href="#使用epoll-API" class="headerlink" title="使用epoll API"></a>使用epoll API</h3><p>一个简单的使用epoll API的编程架构如下。</p>
+<figure class="highlight lsl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"> <span class="number">1</span><span class="comment">// 创建epoll fd，最多可接收1000个事件</span></span><br><span class="line"> <span class="number">2</span>int epfd = epoll_crete(<span class="number">1000</span>);</span><br><span class="line"> <span class="number">3</span></span><br><span class="line"> <span class="number">4</span><span class="comment">// 将listen_fd添加进epoll中</span></span><br><span class="line"> <span class="number">5</span>epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &amp;listen_event);</span><br><span class="line"> <span class="number">6</span></span><br><span class="line"> <span class="number">7</span>while (<span class="number">1</span>) &#123;</span><br><span class="line"> <span class="number">8</span>  <span class="comment">// 阻塞等待epoll中的事件fd触发</span></span><br><span class="line"> <span class="number">9</span>  int active_cnt = epoll_wait(epfd, events, <span class="number">1000</span>, <span class="number">-1</span>);</span><br><span class="line"><span class="number">10</span></span><br><span class="line"><span class="number">11</span>  for (i = <span class="number">0</span> ; i &lt; active_cnt; i++) &#123;</span><br><span class="line"><span class="number">12</span>    if (evnets[i].data.fd == listen_fd) &#123;</span><br><span class="line"><span class="number">13</span>      <span class="comment">// 表示新的客户端连接请求到来</span></span><br><span class="line"><span class="number">14</span>      <span class="comment">// 调用accept进行三次握手，创建client_fd</span></span><br><span class="line"><span class="number">15</span>      <span class="comment">// 并将client_fd加进epoll中</span></span><br><span class="line"><span class="number">16</span>    &#125;</span><br><span class="line"><span class="number">17</span>    else if (events[i].events &amp; EPOLLIN) &#123;</span><br><span class="line"><span class="number">18</span>      <span class="comment">// 表示不是新的客户端连接，可读客户端发来的数据</span></span><br><span class="line"><span class="number">19</span>      <span class="comment">// client_fd就绪可读，对此fd进行读操作</span></span><br><span class="line"><span class="number">20</span>    &#125;</span><br><span class="line"><span class="number">21</span>    else if (events[i].events &amp; EPOLLOUT) &#123;</span><br><span class="line"><span class="number">22</span>      <span class="comment">// 表示不是新的客户端连接，可把数据回写客户端</span></span><br><span class="line"><span class="number">23</span>      <span class="comment">// client_fd就绪可写，对此fd进行写操作</span></span><br><span class="line"><span class="number">24</span>    &#125;</span><br><span class="line"><span class="number">25</span>  &#125;</span><br><span class="line"><span class="number">26</span>&#125;</span><br></pre></td></tr></table></figure>
+<p>如图所示，是一个服务器使用epoll的常规流程。</p>
+<p><img src="5.png" alt="图片"></p>
+<h3 id="触发方式"><a href="#触发方式" class="headerlink" title="触发方式"></a>触发方式</h3><p>epoll有两种工作模式：水平触发和边缘触发。默认情况下，epoll采用水平触发模式。</p>
+<h4 id="水平触发-Level-Triggered-LT"><a href="#水平触发-Level-Triggered-LT" class="headerlink" title="水平触发(Level Triggered, LT)"></a>水平触发(Level Triggered, LT)</h4><p>如果应用程序阻塞在epoll_wait，当内核有事件发生的时候，内核把已经触发的事件队列复制到用户空间。如果应用程序本次没有完成读操作，下一次epoll_wait会再次返回该事件。<br>即只要一个事件对应的套接字缓冲区还有数据，就总能从epoll_wait中获取这个事件。</p>
+<p>优点：事件不会丢掉，除非应用程序处理完毕。保证事件的完整性。<br>缺点：如果应用程序不处理这个事件，就导致内核每次都把该事件从内核空间拷贝到用户空间，系统调用消耗性能。</p>
+<h4 id="边缘触发-Edge-Triggered-ET"><a href="#边缘触发-Edge-Triggered-ET" class="headerlink" title="边缘触发(Edge Triggered, ET)"></a>边缘触发(Edge Triggered, ET)</h4><p>如果应用程序阻塞在epoll_wait，当内核有事件发生的时候，内核把已经触发的事件队列复制到用户空间。如果应用程序本次没有完成读操作，下一次epoll_wait不再会返回该事件。<br>即如果这次没有把这个事件对应的套接字缓冲区处理完，在这个套接字没有新的事件再次到来时，无法再次从epoll_wait调用中获取到这个事件。</p>
+<p>优点：内核不会重复把该事件从内核空间拷贝到用户空间。保证性能。<br>缺点：如果应用程序没有处理完毕，事件会被丢掉。导致事件不完整。</p>
+<h4 id="两者对比"><a href="#两者对比" class="headerlink" title="两者对比"></a>两者对比</h4><p>在水平触发模式下，开发基于epoll的应用要简单一些，不太容易出错。而在边缘触发模式下，当事件发生时，如果没有彻底地将缓冲区数据处理完，则会导致缓冲区中的用户请求得不到响应。</p>
+<h3 id="Reference"><a href="#Reference" class="headerlink" title="Reference"></a>Reference</h3><p>深入理解Nginx（第2版）<a href="https://book.douban.com/subject/26745255/" rel="external nofollow noopener noreferrer" target="_blank">https://book.douban.com/subject/26745255/</a><br><a href="https://mp.weixin.qq.com/s/kWDKpgmcOQFjoBAK3LyPTg" rel="external nofollow noopener noreferrer" target="_blank">https://mp.weixin.qq.com/s/kWDKpgmcOQFjoBAK3LyPTg</a></p>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/os/" rel="tag"> <i class="fa fa-tag"></i> os</a>
+          
+            <a href="/tags/linux/" rel="tag"> <i class="fa fa-tag"></i> linux</a>
+          
+            <a href="/tags/epoll/" rel="tag"> <i class="fa fa-tag"></i> epoll</a>
+          
+            <a href="/tags/select/" rel="tag"> <i class="fa fa-tag"></i> select</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/os/深入理解LinuxIO模型一/" rel="next" title="深入理解Linux IO模型(一)">
+                <i class="fa fa-chevron-left"></i> 深入理解Linux IO模型(一)
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+    <div class="comments" id="gitalk-container">
+    </div>
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光伴你左右</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">344</span>
+                    <span class="site-state-item-name">日志</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">44</span>
+                    <span class="site-state-item-name">分类</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">79</span>
+                    <span class="site-state-item-name">标签</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+            <div class="feed-link motion-element">
+              <a href="/atom.xml" rel="alternate">
+                <i class="fa fa-rss"></i>
+                RSS
+              </a>
+            </div>
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+            </div>
+          
+
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#深入理解Linux-IO模型-二"><span class="nav-number">1.</span> <span class="nav-text">深入理解Linux IO模型(二)</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#为何使用epoll"><span class="nav-number">1.0.1.</span> <span class="nav-text">为何使用epoll</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#select的缺陷"><span class="nav-number">1.0.1.1.</span> <span class="nav-text">select的缺陷</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#epoll的提出"><span class="nav-number">1.0.1.2.</span> <span class="nav-text">epoll的提出</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#epoll的原理"><span class="nav-number">1.0.2.</span> <span class="nav-text">epoll的原理</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#数据结构"><span class="nav-number">1.0.2.1.</span> <span class="nav-text">数据结构</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#实现原理"><span class="nav-number">1.0.2.2.</span> <span class="nav-text">实现原理</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#高效原因"><span class="nav-number">1.0.2.3.</span> <span class="nav-text">高效原因</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#epoll的API"><span class="nav-number">1.0.3.</span> <span class="nav-text">epoll的API</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#创建epoll"><span class="nav-number">1.0.3.1.</span> <span class="nav-text">创建epoll</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#控制epoll"><span class="nav-number">1.0.3.2.</span> <span class="nav-text">控制epoll</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#等待epoll"><span class="nav-number">1.0.3.3.</span> <span class="nav-text">等待epoll</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#使用epoll-API"><span class="nav-number">1.0.4.</span> <span class="nav-text">使用epoll API</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#触发方式"><span class="nav-number">1.0.5.</span> <span class="nav-text">触发方式</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#水平触发-Level-Triggered-LT"><span class="nav-number">1.0.5.1.</span> <span class="nav-text">水平触发(Level Triggered, LT)</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#边缘触发-Edge-Triggered-ET"><span class="nav-number">1.0.5.2.</span> <span class="nav-text">边缘触发(Edge Triggered, ET)</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#两者对比"><span class="nav-number">1.0.5.3.</span> <span class="nav-text">两者对比</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Reference"><span class="nav-number">1.0.6.</span> <span class="nav-text">Reference</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">  <a href="http://www.miitbeian.gov.cn" rel="external nofollow noopener noreferrer" target="_blank">粤ICP备2021068940号 </a>&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="总访客量">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="总访问量">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+    
+
+<script src="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+
+
+
+<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.css">
+
+
+
+<script src="//cdn.jsdelivr.net/npm/js-md5@0.7.3/src/md5.min.js"></script>
+
+<script>
+  var gitalk = new Gitalk({
+    clientID: 'f11b272cc4efaec58a26',
+    clientSecret: '14ded6181649ec8aed8d601d16bdadcea6a68c88',
+    repo: 'github-pages-comments',
+    owner: 'shankusu2017',
+    admin: ['shankusu2017'],
+    id: md5(location.pathname),
+    
+      language: window.navigator.language || window.navigator.userLanguage,
+    
+    distractionFreeMode: 'true'
+  });
+  gitalk.render('gitalk-container');
+</script>
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  <script>
+    (function(){
+      var bp = document.createElement('script');
+      var curProtocol = window.location.protocol.split(':')[0];
+      bp.src = (curProtocol === 'https') ? 'https://zz.bdstatic.com/linksubmit/push.js' : 'http://push.zhanzhang.baidu.com/push.js';
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(bp, s);
+    })();
+  </script>
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('复制成功');
+        else $(this).text('复制失败');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('复制');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
