@@ -1,0 +1,1843 @@
+<!DOCTYPE html>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<html class="theme-next pisces use-motion" lang="zh-CN">
+<head><meta name="generator" content="Hexo 3.9.0">
+  <meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+
+  <meta name="google-site-verification" content="Nv4EPBwO6-mm1Xyh93E09YE8G_eccSMleXPSjzOfB8Y">
+
+
+
+
+
+
+
+  <meta name="baidu-site-verification" content="code-legvFikwxc">
+
+
+
+  
+  
+  <link rel="stylesheet" href="/lib/fancybox/source/jquery.fancybox.css">
+
+
+
+
+
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2">
+
+<link rel="stylesheet" href="/css/main.css?v=7.1.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon.ico?v=7.1.0">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=7.1.0" color="#222">
+
+
+
+
+
+
+
+<script id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '/',
+    scheme: 'Pisces',
+    version: '7.1.0',
+    sidebar: {"position":"left","display":"post","offset":12,"onmobile":false,"dimmer":false},
+    back2top: true,
+    back2top_sidebar: false,
+    fancybox: true,
+    fastclick: false,
+    lazyload: false,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+  
+
+
+
+
+  <meta name="description" content="原文链接 MARCH 10, 2011   In my previous article, I took a superficial look at how Redis starts up and prepares itself to process commands. In this article, I’ll follow a GET and a SET command as they mov">
+<meta name="keywords" content="redis">
+<meta property="og:type" content="article">
+<meta property="og:title" content="More Redis internals: Tracing a GET &amp; SET">
+<meta property="og:url" content="http://www.shankusu.me/redis/more-redis-internals-racing-get-set/index.html">
+<meta property="og:site_name" content="愿星光伴你左右">
+<meta property="og:description" content="原文链接 MARCH 10, 2011   In my previous article, I took a superficial look at how Redis starts up and prepares itself to process commands. In this article, I’ll follow a GET and a SET command as they mov">
+<meta property="og:locale" content="zh-CN">
+<meta property="og:image" content="https://www.pauladamsmith.com/images/redis.png">
+<meta property="og:updated_time" content="2021-09-01T17:28:07.005Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="More Redis internals: Tracing a GET &amp; SET">
+<meta name="twitter:description" content="原文链接 MARCH 10, 2011   In my previous article, I took a superficial look at how Redis starts up and prepares itself to process commands. In this article, I’ll follow a GET and a SET command as they mov">
+<meta name="twitter:image" content="https://www.pauladamsmith.com/images/redis.png">
+
+
+
+  <link rel="alternate" href="/atom.xml" title="愿星光伴你左右" type="application/atom+xml">
+
+
+
+  
+  
+  <link rel="canonical" href="http://www.shankusu.me/redis/more-redis-internals-racing-get-set/">
+
+
+
+<script id="page.configurations">
+  CONFIG.page = {
+    sidebar: "",
+  };
+</script>
+
+  <title>More Redis internals: Tracing a GET & SET | 愿星光伴你左右</title>
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .motion-element,
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-title { opacity: initial; }
+
+  .use-motion .logo,
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-CN">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/" class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">愿星光伴你左右</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+    
+    
+  </div>
+
+  <div class="site-nav-toggle">
+    <button aria-label="切换导航栏">
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  
+    <ul id="menu" class="menu">
+      
+        
+        
+        
+          
+          <li class="menu-item menu-item-home">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/" rel="section"><i class="menu-item-icon fa fa-fw fa-home"></i> <br>首页</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-categories">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/" rel="section"><i class="menu-item-icon fa fa-fw fa-th"></i> <br>分类<span class="badge">44</span></a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-lua">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/lua" rel="section"><i class="menu-item-icon fa fa-fw fa-moon-o"></i> <br>lua</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-go">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/go" rel="section"><i class="menu-item-icon fa fa-fw fa-google"></i> <br>go</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-redis">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/redis" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>redis</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-cs">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/cs" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>cs</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-tcpip">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/tcpip" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>tcpip</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-os">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/os" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>os</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-leetcode">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/leetcode" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>leetcode</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-weekly">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/weekly" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>周记</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-daily">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/daily" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>日记</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-links">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/link" rel="section"><i class="menu-item-icon fa fa-fw fa-external-link"></i> <br>友情链接</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-面试">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/categories/面试" rel="section"><i class="menu-item-icon fa fa-fw fa-book"></i> <br>面试</a>
+
+  </li>
+        
+        
+        
+          
+          <li class="menu-item menu-item-about">
+
+    
+    
+    
+      
+    
+
+    
+      
+    
+
+    <a href="/about/" rel="section"><i class="menu-item-icon fa fa-fw fa-user"></i> <br>关于</a>
+
+  </li>
+
+      
+      
+        <li class="menu-item menu-item-search">
+          
+            <a href="javascript:;" class="popup-trigger">
+          
+            
+              <i class="menu-item-icon fa fa-search fa-fw"></i> <br>搜索</a>
+        </li>
+      
+    </ul>
+  
+
+  
+
+  
+    <div class="site-search">
+      
+  <div class="popup search-popup local-search-popup">
+  <div class="local-search-header clearfix">
+    <span class="search-icon">
+      <i class="fa fa-search"></i>
+    </span>
+    <span class="popup-btn-close">
+      <i class="fa fa-times-circle"></i>
+    </span>
+    <div class="local-search-input-wrapper">
+      <input autocomplete="off" placeholder="搜索..." spellcheck="false" type="text" id="local-search-input">
+    </div>
+  </div>
+  <div id="local-search-result"></div>
+</div>
+
+
+
+    </div>
+  
+</nav>
+
+
+
+  
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+            
+
+          
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="http://www.shankusu.me/redis/more-redis-internals-racing-get-set/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content>
+      <meta itemprop="description" content="愿星光伴你左右">
+      <meta itemprop="image" content="/uploads/avatar.jpg">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="愿星光伴你左右">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">More Redis internals: Tracing a GET & SET
+
+              
+            
+          </h1>
+        
+
+        <div class="post-meta">
+          
+          
+          <span class="post-time">
+
+            
+            
+            
+
+            
+
+            
+              
+
+              
+                
+
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                
+                  <span class="post-meta-item-text">更新于</span>
+                
+                <time title="修改时间：2021-09-02 01:28:07" itemprop="dateModified" datetime="2021-09-02T01:28:07+08:00">2021-09-02</time>
+              
+            
+          </span>
+
+
+          
+            <span class="post-category">
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">分类于</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing"><a href="/categories/redis/" itemprop="url" rel="index"><span itemprop="name">redis</span></a></span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+            
+          
+
+          
+          
+
+          
+            <span class="post-meta-divider">|</span>
+            <span class="post-meta-item-icon">
+            <i class="fa fa-eye"></i>
+             阅读次数： 
+            <span class="busuanzi-value" id="busuanzi_value_page_pv"></span>
+            </span>
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <p><a href="https://www.pauladamsmith.com/blog/2011/03/redis_get_set.html" rel="external nofollow noopener noreferrer" target="_blank">原文链接</a></p>
+<p>MARCH 10, 2011 </p>
+<p><img src="https://www.pauladamsmith.com/images/redis.png" alt="img"></p>
+<p>In my <a href="https://www.pauladamsmith.com/articles/redis-under-the-hood.html" rel="external nofollow noopener noreferrer" target="_blank">previous article</a>, I took a superficial look at how Redis starts up and prepares itself to process commands. In this article, I’ll follow a <code>GET</code> and a <code>SET</code> command as they move from client through the server and back. The <code>GET</code> will be for a key that doesn’t exist, and the <code>SET</code> will set that key. Then I’ll look quickly at a subsequent <code>GET</code> and how it differs.</p>
+<p>As before, I’m exploring Redis with the source code open in my editor and indexed with a <code>tags</code> file, and the Redis server running under <code>gdb</code> in another terminal.</p>
+<p>Caveat: this article was written against the codebase of Redis 2.2.1. With respect to my previous article, for a list of what has changed in Redis since I wrote it, see this <a href="http://news.ycombinator.com/item?id=2301804" rel="external nofollow noopener noreferrer" target="_blank">comment on HN</a>.</p>
+<p><strong>Edit:</strong> I made two minor changes based on feedback—Redis keys are not Redis objects, they are <code>sds</code> strings; and you don’t have to hack the Makefile to compile without optimizations.</p>
+<h1 id="GET"><a href="#GET" class="headerlink" title="GET"></a>GET</h1><p>Let’s execute the command <code>get users:1234</code> on Redis.</p>
+<h2 id="Preparing"><a href="#Preparing" class="headerlink" title="Preparing"></a>Preparing</h2><p>If you inspect certain variables under <code>gdb</code>, you might not get what you want. Instead you see a message like “.” This is because the compiler has optimized the machine code in such a fashion that the portion of memory you wanted to look at that was never used, at least for the variable under inspection. To make stepping through the code and inspecting a little easier, we make sure that Redis is not compiled with optimizations. You can do this by either building Redis with the following invocation:</p>
+<figure class="highlight ebnf"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="attribute">make noopt</span></span><br></pre></td></tr></table></figure>
+<p>or by setting an environment variable:</p>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">OPTIMIZATION</span>= make</span><br></pre></td></tr></table></figure>
+<h2 id="Sending-the-command-from-the-client"><a href="#Sending-the-command-from-the-client" class="headerlink" title="Sending the command from the client"></a>Sending the command from the client</h2><p>If we look at the <code>repl</code> loop of redis-cli, we see that it uses the <code>linenoise</code> library to split the arguments of the command. It dispatches on the first argument. The loop checks for client commands that aren’t processed as a command by the Redis server, like <code>exit</code>/<code>quit</code>, <code>clear</code> (to clear the screen), and <code>connect</code> (which is a way to connect to a specified Redis server on host port, instead of the default host of 127.0.0.1 and port of 6379.</p>
+<p>Any other argument is considered the name of a command to send to the server. The remaining arguments are the arugments for that command.</p>
+<p>We’re trying to get the on-the-wire representation of the <code>get users:1234</code> command. redis-cli uses a <code>redisContext</code> struct to encapsulate the state of the connection to the server, as well as the output buffer where the command in the form of the Redis protocol is written for sending to the server. We know from reading the source of hiredis (the Redis C client library that the redis-cli program is built on) that the <code>obuf</code> field is where the raw command is stored:</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta"># hiredis.h:107</span></span><br><span class="line"><span class="comment">/* Context for a connection to Redis */</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> <span class="title">redisContext</span> &#123;</span></span><br><span class="line">    <span class="keyword">int</span> fd;</span><br><span class="line">    <span class="keyword">int</span> flags;</span><br><span class="line">    <span class="keyword">char</span> *obuf; <span class="comment">/* Write buffer */</span></span><br><span class="line">    <span class="keyword">int</span> err; <span class="comment">/* Error flags, 0 when there is no error */</span></span><br><span class="line">    <span class="keyword">char</span> *errstr; <span class="comment">/* String representation of error when applicable */</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">/* Function set for reply buildup and reply reader */</span></span><br><span class="line">    redisReplyObjectFunctions *fn;</span><br><span class="line">    <span class="keyword">void</span> *reader;</span><br><span class="line">&#125; redisContext;</span><br></pre></td></tr></table></figure>
+<p>If we set a breakpoint on <code>cliReadReply</code>, we can inspect the output buffer and see exactly how the command looks as a bytestring bound for the server.</p>
+<figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">client $ gdb src/redis-cli</span><br><span class="line">(gdb) b cliReadReply</span><br><span class="line">(gdb) run</span><br><span class="line">Starting program: /home/paul/src/redis-2.2.0-RC2/src/redis-cli </span><br><span class="line">Reading symbols <span class="keyword">for</span> shared libraries +. done</span><br><span class="line">redis&gt; <span class="builtin-name">get</span> users:1234</span><br><span class="line"></span><br><span class="line">Breakpoint 1, cliReadReply (<span class="attribute">output_raw_strings</span>=0) at redis-cli.c:421</span><br><span class="line">421         <span class="keyword">if</span> (redisGetReply(context,&amp;_reply) != REDIS_OK) &#123;</span><br><span class="line">(gdb) p context-&gt;obuf </span><br><span class="line"><span class="variable">$1</span> = 0x100102428 <span class="string">"*2\r\n<span class="variable">$3</span>\r\nget\r\n<span class="variable">$10</span>\r\nusers:1234\r\n"</span></span><br></pre></td></tr></table></figure>
+<p>We see that the Redis command <code>get users:1234</code> as entered in our client is translated to <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code>. Any Redis client is going to convert our command expressed in its respective syntax to the same on-the-wire format. So in Python:</p>
+<figure class="highlight ruby"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&gt;&gt;</span>&gt; redis_client.get(<span class="string">'users:1234'</span>)</span><br></pre></td></tr></table></figure>
+<p>will send the same <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code> bytestring to the server.</p>
+<p>Let’s print that bytestring to screen and render those `\r\n’s as line feeds so we can see an expanded view and get a better look at the protocol.</p>
+<figure class="highlight gams"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">*2</span></span><br><span class="line"><span class="meta"><span class="meta-keyword">$3</span></span></span><br><span class="line">get</span><br><span class="line"><span class="meta"><span class="meta-keyword">$10</span></span></span><br><span class="line">users:<span class="number">1234</span></span><br></pre></td></tr></table></figure>
+<p>The first bit is <code>*2</code>, which tells us that the arity of the command, including the command name, is 2. That is, the server should expect two arguments to follow.</p>
+<p>The next bit is <code>$3</code>, which means that the length of the first argument in bytes is 3. The argument itself follows, our command name, <code>get</code>.</p>
+<p>The next bit after that is <code>$10</code>, so the length in bytes of the second argument is 10. Our one and only argument to the command is next, <code>users:1234</code>, the key we are trying to <code>get</code>.</p>
+<h2 id="Receiving-the-command-on-the-server"><a href="#Receiving-the-command-on-the-server" class="headerlink" title="Receiving the command on the server"></a>Receiving the command on the server</h2><p>If you remember from the last article, <code>readQueryFromClient</code> is a good place to set a breakpoint in your debugger on the server side for inspecting an inbound client command.</p>
+<figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">server $ gdb src/redis-server</span><br><span class="line">(gdb) b readQueryFromClient</span><br><span class="line">Breakpoint 1 at 0x100011445: file networking.c, line 882.</span><br><span class="line">(gdb) <span class="builtin-name">run</span> redis.conf</span><br><span class="line">Starting program: /home/paul/src/redis-2.2.0-RC2/src/redis-server redis.conf</span><br><span class="line">Reading symbols <span class="keyword">for</span> shared libraries +. done</span><br><span class="line">[63700] 01 Mar 11:04:40 *<span class="built_in"> Server </span>started, Redis version 2.2.1</span><br><span class="line">[63700] 01 Mar 11:04:40 * The<span class="built_in"> server </span>is now ready <span class="keyword">to</span> accept connections on<span class="built_in"> port </span>6379</span><br></pre></td></tr></table></figure>
+<p>Now back in the terminal with the client running in the debugger, continue to send the command to the server, which will stop at the breakpoint we set.</p>
+<figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># client</span></span><br><span class="line">(gdb) c</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line"><span class="comment"># server</span></span><br><span class="line">Breakpoint 1, readQueryFromClient (<span class="attribute">el</span>=0x100200000, <span class="attribute">fd</span>=5, <span class="attribute">privdata</span>=0x100804e00, <span class="attribute">mask</span>=1) at networking.c:801</span><br><span class="line">801     void readQueryFromClient(aeEventLoop <span class="number">*e</span>l, int fd, void *privdata, int mask) &#123;</span><br></pre></td></tr></table></figure>
+<p>Let’s step to the following line:</p>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># src/networking.c:808</span></span><br><span class="line"><span class="attr">nread</span> = read(fd, buf, REDIS_IOBUF_LEN)<span class="comment">;</span></span><br></pre></td></tr></table></figure>
+<p>If we step to here in our debugger, we see that the server read 30 bytes. If you count the number of bytes in our Redis protocol-encoded command, <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code>, you’ll see it’s 30. Just for good measure, let’s look at the 30 bytes beginning at the memory location pointed to by <code>buf</code>:</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">(gdb)</span> <span class="string">p</span> <span class="string">nread</span></span><br><span class="line"><span class="number">30</span></span><br><span class="line"><span class="string">(gdb)</span> <span class="string">x/30cb</span> <span class="string">buf</span></span><br><span class="line"><span class="attr">0x7fff5fbfeaf0:</span> <span class="number">42</span> <span class="string">'*'</span>  <span class="number">50</span> <span class="string">'2'</span>  <span class="number">13</span> <span class="string">'\r'</span> <span class="number">10</span> <span class="string">'\n'</span> <span class="number">36</span> <span class="string">'$'</span>  <span class="number">51</span> <span class="string">'3'</span>  <span class="number">13</span> <span class="string">'\r'</span> <span class="number">10</span> <span class="string">'\n'</span></span><br><span class="line"><span class="attr">0x7fff5fbfeaf8:</span> <span class="number">71</span> <span class="string">'G'</span>  <span class="number">69</span> <span class="string">'E'</span>  <span class="number">84</span> <span class="string">'T'</span>  <span class="number">13</span> <span class="string">'\r'</span> <span class="number">10</span> <span class="string">'\n'</span> <span class="number">36</span> <span class="string">'$'</span>  <span class="number">49</span> <span class="string">'1'</span>  <span class="number">48</span> <span class="string">'0'</span></span><br><span class="line"><span class="attr">0x7fff5fbfeb00:</span> <span class="number">13</span> <span class="string">'\r'</span> <span class="number">10</span> <span class="string">'\n'</span> <span class="number">117</span> <span class="string">'u'</span> <span class="number">115</span> <span class="string">'s'</span> <span class="number">101</span> <span class="string">'e'</span> <span class="number">114</span> <span class="string">'r'</span> <span class="number">115</span> <span class="string">'s'</span> <span class="number">58</span> <span class="string">':'</span></span><br><span class="line"><span class="attr">0x7fff5fbfeb08:</span> <span class="number">49</span> <span class="string">'1'</span>  <span class="number">50</span> <span class="string">'2'</span>  <span class="number">51</span> <span class="string">'3'</span>  <span class="number">52</span> <span class="string">'4'</span>  <span class="number">13</span> <span class="string">'\r'</span> <span class="number">10</span> <span class="string">'\n'</span></span><br></pre></td></tr></table></figure>
+<p>And we can see our whole command bytestring is there, byte by byte.</p>
+<p>The server has now read in the entirety of our command in one step. (Because we had a relatively short command, one that fits inside a kernel buffer, and we are the only client on a loopback network device, this is the case, but it need not be. Since Redis is event-driven, this function, <code>readQueryFromClient</code>, is called whenever there are bytes from buffers to be read. If our command was particularly long, or there was a lot of network contention, the command may take more than one I/O event before it is fully read. For this reason, Redis builds up a buffer per client and appends bytes to it on each call to this function. It only proceeds with processing the command when it has been fully read. But we don’t need to consider this in our simple example, so we will proceed.)</p>
+<p>We’re going to elide the processing of the input buffer. This is the point where the server takes the Redis protocol-encoded bytestring of our request and unpacks it into arguments on the client struct object. If you are interested in the details of that parsing, examine the function <code>processMultibulkBuffer</code> in <code>networking.c</code>. All we are interested in at this point is that the <code>argc</code> member of the client object is the number of command arguments (counting the command name itself) and <code>argv</code> is a pointer to the list of arguments.</p>
+<p>The bit of code we care at this point is <code>processCommand</code>. The first thing the server does is look up the command in its command table (see “Setting up command table” in the previous article, but note that this lookup is now O(1), see the HN thread linked above). Assuming the command is found (which our <code>get</code> will be), the server will double-check that the arity of the command as defined in the command table matches the number of arguments received from the client (<code>c-&gt;argc</code>).</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"># redis.c:<span class="number">998</span></span><br><span class="line"><span class="function"><span class="title">cmd</span> = lookupCommand(c-&gt;</span><span class="function"><span class="title">argv</span>[0]-&gt;</span>ptr);</span><br><span class="line"><span class="keyword">if</span> (!cmd) &#123;</span><br><span class="line">    addReplyErrorFormat(c,<span class="string">"unknown command '%s'"</span>,</span><br><span class="line">        (<span class="function"><span class="title">char</span>*)c-&gt;</span><span class="function"><span class="title">argv</span>[0]-&gt;</span>ptr);</span><br><span class="line">    return REDIS_OK;</span><br><span class="line">&#125; <span class="function"><span class="title">else</span> <span class="keyword">if</span> ((cmd-&gt;</span><span class="function"><span class="title">arity</span> &gt; 0 &amp;&amp; cmd-&gt;</span><span class="function"><span class="title">arity</span> != c-&gt;</span>argc) ||</span><br><span class="line">           (<span class="function"><span class="title">c</span>-&gt;</span><span class="function"><span class="title">argc</span> &lt; -cmd-&gt;</span>arity)) &#123;</span><br><span class="line">    addReplyErrorFormat(c,<span class="string">"wrong number of arguments for '%s' command"</span>,</span><br><span class="line">        <span class="function"><span class="title">cmd</span>-&gt;</span><span class="keyword">name</span>);</span><br><span class="line">    return REDIS_OK;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>Skip down to the end of <code>processCommand</code>. Because our humble <code>get</code> is not a “multi” command like <code>mget</code>, <code>mset</code>, etc., it doesn’t require queue-like processing of the underlying multiple commands, so we go right to <code>call</code>, which is where our command is dispatched.</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"># redis.c:<span class="number">953</span></span><br><span class="line">void call(redisClient *c, struct redisCommand *cmd) &#123;</span><br><span class="line">    long long dirty;</span><br><span class="line"></span><br><span class="line">    dirty = server.dirty;</span><br><span class="line">    <span class="function"><span class="title">cmd</span>-&gt;</span>proc(c);</span><br><span class="line">    dirty = server.dirty-dirty;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (server.appendonly &amp;&amp; dirty)</span><br><span class="line">        <span class="function"><span class="title">feedAppendOnlyFile</span>(cmd,c-&gt;</span><span class="function"><span class="title">db</span>-&gt;</span><span class="function"><span class="title">id</span>,c-&gt;</span><span class="function"><span class="title">argv</span>,c-&gt;</span>argc);</span><br><span class="line">    <span class="function"><span class="title">if</span> ((dirty || cmd-&gt;</span>flags &amp; REDIS_CMD_FORCE_REPLICATION) &amp;&amp;</span><br><span class="line">        listLength(server.slaves))</span><br><span class="line">        <span class="function"><span class="title">replicationFeedSlaves</span>(server.slaves,c-&gt;</span><span class="function"><span class="title">db</span>-&gt;</span><span class="function"><span class="title">id</span>,c-&gt;</span><span class="function"><span class="title">argv</span>,c-&gt;</span>argc);</span><br><span class="line">    <span class="keyword">if</span> (listLength(server.monitors))</span><br><span class="line">        <span class="function"><span class="title">replicationFeedMonitors</span>(server.monitors,c-&gt;</span><span class="function"><span class="title">db</span>-&gt;</span><span class="function"><span class="title">id</span>,c-&gt;</span><span class="function"><span class="title">argv</span>,c-&gt;</span>argc);</span><br><span class="line">    server.stat_numcommands++;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>Let’s focus on line 952, <code>cmd-&gt;proc(c);</code>. This is Redis’s dynamic dispatching of command function calling. Redis makes this clean and simple by encapsulating commands and giving all the actual underlying command functions the same function signature, taking our client object, which carries the payload of our command’s arguments. So we’re interested in looking into the details of the Redis command object and the actual function that will handle our <code>get</code>.</p>
+<figure class="highlight tcl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># redis.h:504</span></span><br><span class="line">struct redisCommand &#123;</span><br><span class="line">    char *name;</span><br><span class="line">    redisCommandProc *<span class="keyword">proc</span>;</span><br><span class="line"><span class="title">    int</span> arity;</span><br><span class="line"><span class="title">    int</span> flags;</span><br><span class="line">    /*<span class="title"> Use</span> a<span class="title"> function</span> to<span class="title"> determine</span> which<span class="title"> keys</span> need<span class="title"> to</span> be<span class="title"> loaded</span></span><br><span class="line"><span class="title"></span>     *<span class="title"> in</span> the<span class="title"> background</span> prior<span class="title"> to</span> executing<span class="title"> this</span> command.<span class="title"> Takes</span> precedence</span><br><span class="line">     *<span class="title"> over</span> vm_firstkey<span class="title"> and</span> others,<span class="title"> ignored</span> when<span class="title"> NULL</span> */</span><br><span class="line"><span class="title">    redisVmPreloadProc</span> *vm_preload_proc;</span><br><span class="line">    /*<span class="title"> What</span> keys<span class="title"> should</span> be<span class="title"> loaded</span> in<span class="title"> background</span> when<span class="title"> calling</span> this<span class="title"> command?</span> */</span><br><span class="line"><span class="title">    int</span> vm_firstkey; /*<span class="title"> The</span> first<span class="title"> argument</span> that's<span class="title"> a</span> key (0 =<span class="title"> no</span> keys) */</span><br><span class="line"><span class="title">    int</span> vm_lastkey;  /*<span class="title"> THe</span> last<span class="title"> argument</span> that's<span class="title"> a</span> key */</span><br><span class="line"><span class="title">    int</span> vm_keystep;  /*<span class="title"> The</span> step<span class="title"> between</span> first<span class="title"> and</span> last<span class="title"> key</span> */</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<p>If we pop up to the top of <code>redis.c</code>, we see the definition of the Redis command table, and our <code>get</code> is the first entry.</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta"># redis.c:71</span></span><br><span class="line"><span class="class"><span class="keyword">struct</span> <span class="title">redisCommand</span> <span class="title">readonlyCommandTable</span>[] = &#123;</span></span><br><span class="line">    &#123;<span class="string">"get"</span>,getCommand,<span class="number">2</span>,<span class="number">0</span>,<span class="literal">NULL</span>,<span class="number">1</span>,<span class="number">1</span>,<span class="number">1</span>&#125;,</span><br></pre></td></tr></table></figure>
+<p><code>getCommand</code> is the function that does the actual work for our command. It’s a thin wrapper for <code>getGenericCommand</code>.</p>
+<figure class="highlight swift"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"># t_string.<span class="built_in">c</span>:<span class="number">62</span></span><br><span class="line">int getGenericCommand(redisClient *<span class="built_in">c</span>) &#123;</span><br><span class="line">    robj *o;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> ((o = lookupKeyReadOrReply(<span class="built_in">c</span>,<span class="built_in">c</span>-&gt;argv[<span class="number">1</span>],shared.nullbulk)) == <span class="type">NULL</span>)</span><br><span class="line">        <span class="keyword">return</span> <span class="type">REDIS_OK</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (o-&gt;type != <span class="type">REDIS_STRING</span>) &#123;</span><br><span class="line">        addReply(<span class="built_in">c</span>,shared.wrongtypeerr);</span><br><span class="line">        <span class="keyword">return</span> <span class="type">REDIS_ERR</span>;</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        addReplyBulk(<span class="built_in">c</span>,o);</span><br><span class="line">        <span class="keyword">return</span> <span class="type">REDIS_OK</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">void getCommand(redisClient *<span class="built_in">c</span>) &#123;</span><br><span class="line">    getGenericCommand(<span class="built_in">c</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>The arguments to <code>lookupKeyReadOrReply</code> are the client object, the key <code>users:1234</code> we’re trying to look up, and an object, <code>shared.nullbulk</code> that will be the default reply to the client if the key is not found.</p>
+<figure class="highlight gauss"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta"># db.c:58</span></span><br><span class="line">robj *<span class="built_in">lookupKeyReadOrReply</span>(redisClient *c, robj *<span class="built_in">key</span>, robj *reply) &#123;</span><br><span class="line">    robj *o = <span class="built_in">lookupKeyRead</span>(c-&gt;db, <span class="built_in">key</span>);</span><br><span class="line">    <span class="keyword">if</span> (!o) <span class="built_in">addReply</span>(c,reply);</span><br><span class="line">    <span class="keyword">return</span> o;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><code>lookupKeyRead</code> is a thin wrapper for <code>lookupKey</code> that handles removing keys that have been set to expire.</p>
+<p>Now we get to the heart of the <code>get</code> command – looking up the key in the database.</p>
+<figure class="highlight kotlin"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"># db.c:<span class="number">9</span></span><br><span class="line">robj *lookupKey(redisDb *db, robj *key) &#123;</span><br><span class="line">    dictEntry *de = dictFind(db-&gt;dict,key-&gt;ptr);</span><br><span class="line">    <span class="keyword">if</span> (de) &#123;</span><br><span class="line">        robj *<span class="keyword">val</span> = dictGetEntryVal(de);</span><br><span class="line"></span><br><span class="line">        <span class="comment">/* Update the access time for the aging algorithm.</span></span><br><span class="line"><span class="comment">         * Don't do it if we have a saving child, as this will trigger</span></span><br><span class="line"><span class="comment">         * a copy on write madness. */</span></span><br><span class="line">        <span class="keyword">if</span> (server.bgsavechildpid == -<span class="number">1</span> &amp;&amp; server.bgrewritechildpid == -<span class="number">1</span>)</span><br><span class="line">            <span class="keyword">val</span>-&gt;lru = server.lruclock;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (server.vm_enabled) &#123;</span><br><span class="line">            <span class="keyword">if</span> (<span class="keyword">val</span>-&gt;storage == REDIS_VM_MEMORY ||</span><br><span class="line">                <span class="keyword">val</span>-&gt;storage == REDIS_VM_SWAPPING)</span><br><span class="line">            &#123;</span><br><span class="line">                <span class="comment">/* If we were swapping the object out, cancel the operation */</span></span><br><span class="line">                <span class="keyword">if</span> (<span class="keyword">val</span>-&gt;storage == REDIS_VM_SWAPPING)</span><br><span class="line">                    vmCancelThreadedIOJob(<span class="keyword">val</span>);</span><br><span class="line">            &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                int notify = (<span class="keyword">val</span>-&gt;storage == REDIS_VM_LOADING);</span><br><span class="line"></span><br><span class="line">                <span class="comment">/* Our value was swapped on disk. Bring it at home. */</span></span><br><span class="line">                redisAssert(<span class="keyword">val</span>-&gt;type == REDIS_VMPOINTER);</span><br><span class="line">                <span class="keyword">val</span> = vmLoadObject(<span class="keyword">val</span>);</span><br><span class="line">                dictGetEntryVal(de) = <span class="keyword">val</span>;</span><br><span class="line"></span><br><span class="line">                <span class="comment">/* Clients blocked by the VM subsystem may be waiting for</span></span><br><span class="line"><span class="comment">                 * this key... */</span></span><br><span class="line">                <span class="keyword">if</span> (notify) handleClientsBlockedOnSwappedKey(db,key);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        server.stat_keyspace_hits++;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">val</span>;</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        server.stat_keyspace_misses++;</span><br><span class="line">        <span class="keyword">return</span> NULL;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>Redis uses its own hash table implementation to store keys and their values in memory. Inside the <code>db</code> object, the field <code>dict</code> is a pointer to the hash value for the current Redis database (remember there can be up to 16 separate databases in a single Redis server instance, indexed by number).</p>
+<p>First, Redis calls <code>dictFind</code> with the database’s hash table and a pointer to the key’s bytestring. <code>dictFind</code> looks up the hash of the key in the table, using a standard algorithm that should be familiar to anyone who’s implemented a hash table (check out <code>dict.c</code> starting at line 391 if you’re interested, the table is an array with linked lists for colliding hashes).</p>
+<p>If the key is found in the table, <code>dictFind</code> returns a pointer to the entry in the table. Otherwise, it returns <code>NULL</code>. Back in <code>lookupKey</code>, if the entry is not null, Redis retrieves the value (i.e., the Redis object our key references) from the hash table via <code>dictGetEntryVal</code> and takes care of a bit of bookkeeping for expiry and VM, if the key was found, and stats in either case (hits and misses). If the entry was <code>NULL</code>, then <code>lookupKey</code> also returns <code>NULL</code>; we’ll see how this is handled by Redis for a reply to the client when the key is not found, which is the case for us at this stage.</p>
+<p>With the value of <code>lookupKey</code>, we’ll go back up the stack to our callers. Back to <code>lookupKeyReadOrReply</code>, we look at line 60:</p>
+<figure class="highlight gcode"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr"># t_string.c:60</span></span><br><span class="line">        <span class="keyword">if</span> <span class="comment">(!o)</span> addReply<span class="comment">(c,reply)</span>;</span><br></pre></td></tr></table></figure>
+<p>Since we got <code>NULL</code> from <code>lookupKey</code> this time, we call <code>addReply</code>. The value of <code>reply</code> here comes from the call in <code>getGenericCommand</code>, and it is <code>shared.nullbulk</code>. This field in the global struct object <code>shared</code> is initialize thusly:</p>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># redis.c:712</span></span><br><span class="line"><span class="attr">shared.nullbulk</span> = createObject(REDIS_STRING,sdsnew(<span class="string">"$-1\r\n"</span>))<span class="comment">;</span></span><br></pre></td></tr></table></figure>
+<p>We can see that it is a Redis string object who’s on-the-wire value is <code>$-1\r\n</code>, meaning a length of -1, Redis’s way of indicating null to a client, according to the protocol.</p>
+<p><code>addReply</code> builds the reply to the client. It does this by first setting up a write event on the main event loop listener with <code>_installWriteEvent</code>. This makes sure that the reply is written out to the client connection when there are bytes present in the buffer. Next, Redis adds the reply to the client’s buffer. If the reply object were an non-string value like an integer, or a list, or a set, Redis would first decode it to a bytestring that can be serialized to, for example, on a socket. Redis string objects are encoded “raw,” or as-is. The <code>nullbulk</code> object is technically a string object, so no decoding is necessary in our case. In any case, the reply bytestring is copied to the client’s reply buffer with <code>_addReplyToBuffer</code>, which for all intents and purposes completes the execution of our <code>get</code> command on the server.</p>
+<p>The client will read the on-the-wire reply of <code>$-1\r\n</code> and know that it is a string reply of length -1, and therefore is the null (or “nil,” in the context of <code>redis-cli</code>) object, and to convert that into the appropriate object for the language of the client. Back to our <code>redis-cli</code> client patiently waiting for a reply from our breakpointed server, which we continue from, that looks like:</p>
+<figure class="highlight lisp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">(<span class="name">nil</span>)</span><br><span class="line">redis&gt;</span><br></pre></td></tr></table></figure>
+<h1 id="SET"><a href="#SET" class="headerlink" title="SET"></a>SET</h1><p>The <code>set</code> command proceeds much the same way as the <code>get</code>, up to the point of command dispatching on the server.</p>
+<figure class="highlight routeros"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># client</span></span><br><span class="line">redis&gt; <span class="builtin-name">set</span> users:1234 <span class="string">"Paul Smith"</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># server</span></span><br><span class="line">Breakpoint 1, readQueryFromClient (<span class="attribute">el</span>=0x100400000, <span class="attribute">fd</span>=6, <span class="attribute">privdata</span>=0x100805e00, <span class="attribute">mask</span>=1) at networking.c:801</span><br><span class="line">801     void readQueryFromClient(aeEventLoop <span class="number">*e</span>l, int fd, void *privdata, int mask) &#123;</span><br><span class="line">(gdb) n</span><br><span class="line">802         redisClient <span class="number">*c</span> = (redisClient*) privdata;</span><br><span class="line">(gdb) n</span><br><span class="line">808         nread = read(fd, buf, REDIS_IOBUF_LEN);</span><br><span class="line">(gdb) n</span><br><span class="line">809         <span class="keyword">if</span> (nread == -1) &#123;</span><br><span class="line">(gdb) <span class="builtin-name">print</span> nread</span><br><span class="line"><span class="variable">$1</span> = 47</span><br><span class="line">(gdb) x/47cb buf</span><br><span class="line">0x7fff5fbfeba0: 42 <span class="string">'*'</span>  51 <span class="string">'3'</span>  13 <span class="string">'\r'</span> 10 <span class="string">'\n'</span> 36 <span class="string">'$'</span>  51 <span class="string">'3'</span>  13 <span class="string">'\r'</span> 10 <span class="string">'\n'</span></span><br><span class="line">0x7fff5fbfeba8: 115 <span class="string">'s'</span> 101 <span class="string">'e'</span> 116 <span class="string">'t'</span> 13 <span class="string">'\r'</span> 10 <span class="string">'\n'</span> 36 <span class="string">'$'</span>  49 <span class="string">'1'</span>  48 <span class="string">'0'</span></span><br><span class="line">0x7fff5fbfebb0: 13 <span class="string">'\r'</span> 10 <span class="string">'\n'</span> 117 <span class="string">'u'</span> 115 <span class="string">'s'</span> 101 <span class="string">'e'</span> 114 <span class="string">'r'</span> 115 <span class="string">'s'</span> 58 <span class="string">':'</span></span><br><span class="line">0x7fff5fbfebb8: 49 <span class="string">'1'</span>  50 <span class="string">'2'</span>  51 <span class="string">'3'</span>  52 <span class="string">'4'</span>  13 <span class="string">'\r'</span> 10 <span class="string">'\n'</span> 36 <span class="string">'$'</span>  49 <span class="string">'1'</span></span><br><span class="line">0x7fff5fbfebc0: 48 <span class="string">'0'</span>  13 <span class="string">'\r'</span> 10 <span class="string">'\n'</span> 80 <span class="string">'P'</span>  97 <span class="string">'a'</span>  117 <span class="string">'u'</span> 108 <span class="string">'l'</span> 32 <span class="string">' '</span></span><br><span class="line">0x7fff5fbfebc8: 83 <span class="string">'S'</span>  109 <span class="string">'m'</span> 105 <span class="string">'i'</span> 116 <span class="string">'t'</span> 104 <span class="string">'h'</span> 13 <span class="string">'\r'</span> 10 <span class="string">'\n'</span></span><br><span class="line">(gdb) <span class="builtin-name">print</span> (char *)buf</span><br><span class="line"><span class="variable">$2</span> = 0x7fff5fbfeba0 <span class="string">"*3\r\n<span class="variable">$3</span>\r\nset\r\n<span class="variable">$10</span>\r\nusers:1234\r\n<span class="variable">$10</span>\r\nPaul Smith\r\n"</span></span><br></pre></td></tr></table></figure>
+<p>This time, our protocol-encoded bytestring is 47 bytes long, owing to the extra argument “Paul Smith” and the length tag it requires. Also notice the leading <code>*3</code> indicates there are three arguments: <code>set</code>, <code>users:1234</code>, <code>Paul Smith</code>.</p>
+<p>Let’s skip ahead now to the point in <code>call</code> in <code>redis.c</code>, after the command has been looked-up in the command table and the server is about ready to call the underlying <code>proc</code> function with the client object argument. The <code>set</code> command, in the form of a <code>redisCommand</code> struct, looks like this:</p>
+<figure class="highlight 1c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta"># redis.c:73</span></span><br><span class="line">&#123;<span class="string">"set"</span>,setCommand,<span class="number">3</span>,REDIS_CMD_DENYOOM,<span class="literal">NULL</span>,<span class="number">0</span>,<span class="number">0</span>,<span class="number">0</span>&#125;,</span><br></pre></td></tr></table></figure>
+<p>Notice that the arity of the command is 3, which includes the leading command name, plus key and value, and matches what we expect from the client. The <code>set</code> command has a flag that <code>get</code> did not: the constant <code>REDIS_CMD_DENYOOM</code> means that, in out-of-memory situations where Redis can’t allocate any more memory, the execution of the command should be denied. (The absence of this flag means that Redis can continue to serve client “read” requests like <code>get</code> even when the server can no longer write any new data.)</p>
+<p>I set a breakpoint on <code>setCommand</code> and let the server continue running until that point:</p>
+<figure class="highlight llvm"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"># server</span><br><span class="line">(gdb) b setCommand</span><br><span class="line">Breakpoint <span class="number">2</span> at <span class="number">0x10001a6e2</span>: file t_string.<span class="keyword">c</span>, line <span class="number">48</span>.</span><br><span class="line">(gdb) <span class="keyword">c</span></span><br><span class="line">Continuing.</span><br><span class="line">Breakpoint <span class="number">2</span>, setCommand (<span class="keyword">c</span>=<span class="number">0x100805e00</span>) at t_string.<span class="keyword">c</span>:<span class="number">48</span></span><br><span class="line"><span class="number">48</span>          <span class="keyword">c</span>-&gt;argv[<span class="number">2</span>] = tryObjectEncoding(<span class="keyword">c</span>-&gt;argv[<span class="number">2</span>])<span class="comment">;</span></span><br></pre></td></tr></table></figure>
+<p>Incidentally, you can inspect the values of the client’s command arguments at any time, with a simple <code>gdb</code> invocation. The arguments are of type <code>robj</code>, which has a field <code>ptr</code> that is a pointer to the actual value in memory. Since in our <code>set</code> case these are strings, we can inspect them by typecasting to <code>char *</code> like so:</p>
+<figure class="highlight xl"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">(<span class="function"><span class="title">gdb</span>) p (char *)c-&gt;</span><span class="function"><span class="title">argv</span>[0]-&gt;</span>ptr</span><br><span class="line">$<span class="number">10</span> = <span class="number">0</span>x10032ae78 <span class="string">"set"</span></span><br><span class="line">(<span class="function"><span class="title">gdb</span>) p (char *)c-&gt;</span><span class="function"><span class="title">argv</span>[1]-&gt;</span>ptr</span><br><span class="line">$<span class="number">11</span> = <span class="number">0</span>x10032b068 <span class="string">"users:1234"</span></span><br><span class="line">(<span class="function"><span class="title">gdb</span>) p (char *)c-&gt;</span><span class="function"><span class="title">argv</span>[2]-&gt;</span>ptr</span><br><span class="line">$<span class="number">12</span> = <span class="number">0</span>x10032b098 <span class="string">"Paul Smith"</span></span><br></pre></td></tr></table></figure>
+<p>The first thing the server does in <code>setCommand</code> is encode the value being set with <code>tryObjectEncoding</code>. It will try to create an efficient encoding if the bytestring can be interpreted as an integer, for example. This can save space especially in the case where many numbers are being stored. Additionally, Redis will try to reuse shared integers as values instead of allocating resources for new ones – see the previous article for more on the creation and use of shared integers.</p>
+<p>Once the value being set has been encoded, <code>setGenericCommand</code> is called (<code>set</code> shares <code>setGenericCommand</code> with the <code>setnx</code> and <code>setex</code> commands). From here, <code>dbAdd</code> is called, with the client, key, and value as arguments. <code>dbAdd</code> will only add the value to the database’s hash table if the key does not already exist. In our case, since the key <code>users:1234</code> does not exist, the value of <code>dictFind</code> is null, and the function proceeds to add the value with <code>dictAdd</code>.</p>
+<p><code>dictAdd</code> takes the dictionary hash table, key, and value as arguments. It uses <code>_dictKeyIndex</code> to find the index of a free slot in the hash table for our new entry. See the implementation in <code>dict.c</code> and <code>dict.h</code> for the details of key hashing, and the structure of the dictionary and its component hash tables (each Redis dictionary contains two hash tables in order to provide incremental rehashing as the dictionary grows). <code>dictAdd</code> allocates memory for the new entry and stores it in the new index.</p>
+<p>The server returns back up the stack from <code>dictAdd</code> and <code>dbAdd</code> to <code>setGenericCommand</code>, where it increments the reference count on our new value. Redis uses reference counting in order to free memory used by values that have been deleted or have expired. It then “touches” the key so that if any clients are <code>watch</code>ing the key, the next <code>exec</code> command will fail. It also increments the server’s <code>dirty</code> flag, which it uses to determine when to write out the dump file to disk. Finally, it writes out the reply to the client, which is a shared object, <code>shared.ok</code>. This is special Redis string object in the protocol that consists of the bytestring “+OK\r\n”. Clients will typically convert this into the equivalent “true” value for their language.</p>
+<h1 id="GET-redux"><a href="#GET-redux" class="headerlink" title="GET redux"></a>GET redux</h1><p>Our key is now set, so we can try the <code>get users:1234</code> command again and see how it differs for a found key.</p>
+<figure class="highlight stata"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"># <span class="keyword">db</span>.c:9</span><br><span class="line">robj *lookupKey(redisDb *<span class="keyword">db</span>, robj *key) &#123;</span><br><span class="line">    dictEntry *<span class="keyword">de</span> = dictFind(<span class="keyword">db</span>-&gt;dict,key-&gt;ptr);</span><br><span class="line">    <span class="keyword">if</span> (<span class="keyword">de</span>) &#123;</span><br><span class="line">        robj *val = dictGetEntryVal(<span class="keyword">de</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// ... skipping the lru &amp; vm parts ... </span></span><br><span class="line"></span><br><span class="line">        server.stat_keyspace_hits++;</span><br><span class="line">        <span class="keyword">return</span> val;</span><br></pre></td></tr></table></figure>
+<p>The point where a <code>get</code> on an existing key and a <code>get</code> on a non-existent key differ is line 11, where the <code>de</code> entry in the database’s dictionary is found. <code>dictGetEntryVal</code> is a simple macro for accessing the field in the <code>de</code> struct that carries the value associated with the key. Redis updates its statistics to indicate a key hit and returns the value object.</p>
+<p>Again, as with the key miss from above (remember the null value is a Redis object, too), the value is decoded into the Redis bytestring protocol. This is the response to the client, and we have concluded our <code>GET</code>/<code>SET</code>/<code>GET</code> dance.</p>
+<h4 id="Recent-posts"><a href="#Recent-posts" class="headerlink" title="Recent posts"></a>Recent posts</h4><ul>
+<li><a href="https://www.pauladamsmith.com/blog/2011/01/bluecollarleague.html" rel="external nofollow noopener noreferrer" target="_blank">The All-Blue-Collar League</a></li>
+<li><a href="https://www.pauladamsmith.com/blog/2011/04/floppy.html" rel="external nofollow noopener noreferrer" target="_blank">A partial list of metaphors, visual and otherwise, anti-skeuomorphism zealots have to tackle to reach utopia</a></li>
+</ul>
+<h4 id="About"><a href="#About" class="headerlink" title="About"></a>About</h4><p>Paul Smith is a software engineer. <a href="https://www.pauladamsmith.com/about.html" rel="external nofollow noopener noreferrer" target="_blank">More …</a></p>
+<ul>
+<li><strong><a href="tel:13124924668" rel="external nofollow noopener noreferrer" target="_blank">+1-312-492-4668</a></strong></li>
+<li><strong><a href="mailto:paulsmith@gmail.com" rel="external nofollow noopener noreferrer" target="_blank">paulsmith@gmail.com</a></strong></li>
+</ul>
+<p>ⓒ Paul Smith</p>
+<h4 id="Elsewhere"><a href="#Elsewhere" class="headerlink" title="Elsewhere"></a>Elsewhere</h4><ul>
+<li><a href="https://twitter.com/paulsmith" rel="external nofollow noopener noreferrer" target="_blank">@paulsmith</a></li>
+<li><a href="http://www.flickr.com/photos/psmith" rel="external nofollow noopener noreferrer" target="_blank">Flickr</a></li>
+</ul>
+
+      
+    </div>
+
+    
+
+    
+    
+    
+    
+      <div style="text-align:center;color: #ccc;font-size:14px;">-------------本文结束 <i class="fa fa-heart"></i> 感谢阅读-------------</div>
+
+    
+
+    
+
+    
+      
+    
+    
+
+    
+
+    <footer class="post-footer">
+      
+        <div class="post-tags">
+          
+            <a href="/tags/redis/" rel="tag"> <i class="fa fa-tag"></i> redis</a>
+          
+        </div>
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/redis/redis-under-the-hood/" rel="next" title="under the hood">
+                <i class="fa fa-chevron-left"></i> under the hood
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+  </div>
+
+
+          </div>
+          
+
+  
+    <div class="comments" id="gitalk-container">
+    </div>
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            文章目录
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            站点概览
+          </li>
+        </ul>
+      
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <img class="site-author-image" itemprop="image" src="/uploads/avatar.jpg" alt>
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <div class="site-description motion-element" itemprop="description">愿星光伴你左右</div>
+          </div>
+
+          
+            <nav class="site-state motion-element">
+              
+                <div class="site-state-item site-state-posts">
+                
+                  <a href="/archives">
+                
+                    <span class="site-state-item-count">347</span>
+                    <span class="site-state-item-name">日志</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-categories">
+                  
+                    
+                      <a href="/categories/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">44</span>
+                    <span class="site-state-item-name">分类</span>
+                  </a>
+                </div>
+              
+
+              
+                
+                
+                <div class="site-state-item site-state-tags">
+                  
+                    
+                      <a href="/tags/">
+                    
+                  
+                    
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                      
+                    
+                    <span class="site-state-item-count">79</span>
+                    <span class="site-state-item-name">标签</span>
+                  </a>
+                </div>
+              
+            </nav>
+          
+
+          
+            <div class="feed-link motion-element">
+              <a href="/atom.xml" rel="alternate">
+                <i class="fa fa-rss"></i>
+                RSS
+              </a>
+            </div>
+          
+
+          
+
+          
+            <div class="links-of-author motion-element">
+              
+                <span class="links-of-author-item">
+                  
+                  
+                    
+                  
+                  
+                    
+                  
+                  <a href="mailto:shankusu2017@gmail.com" title="E-Mail &rarr; mailto:shankusu2017@gmail.com" rel="external nofollow noopener noreferrer" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+                </span>
+              
+            </div>
+          
+
+          
+
+          
+          
+
+          
+            
+          
+          
+
+        </div>
+      </div>
+
+      
+      <!--noindex-->
+        <div class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+            
+            
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#GET"><span class="nav-number">1.</span> <span class="nav-text">GET</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#Preparing"><span class="nav-number">1.1.</span> <span class="nav-text">Preparing</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Sending-the-command-from-the-client"><span class="nav-number">1.2.</span> <span class="nav-text">Sending the command from the client</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Receiving-the-command-on-the-server"><span class="nav-number">1.3.</span> <span class="nav-text">Receiving the command on the server</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#SET"><span class="nav-number">2.</span> <span class="nav-text">SET</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#GET-redux"><span class="nav-number">3.</span> <span class="nav-text">GET redux</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#Recent-posts"><span class="nav-number">3.0.0.1.</span> <span class="nav-text">Recent posts</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#About"><span class="nav-number">3.0.0.2.</span> <span class="nav-text">About</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Elsewhere"><span class="nav-number">3.0.0.3.</span> <span class="nav-text">Elsewhere</span></a></li></ol></li></ol></div>
+            
+
+          </div>
+        </div>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+  
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">  <a href="http://www.miitbeian.gov.cn" rel="external nofollow noopener noreferrer" target="_blank">粤ICP备2021068940号 </a>&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love" id="animate">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder"></span>
+
+  
+
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+<div class="busuanzi-count">
+  <script async src="https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-user"></i>
+    </span>
+    <span class="site-uv" title="总访客量">
+      <span class="busuanzi-value" id="busuanzi_value_site_uv"></span>
+    </span>
+  
+
+  
+    <span class="post-meta-divider">|</span>
+  
+
+  
+    <span class="post-meta-item-icon">
+      <i class="fa fa-eye"></i>
+    </span>
+    <span class="site-pv" title="总访问量">
+      <span class="busuanzi-value" id="busuanzi_value_site_pv"></span>
+    </span>
+  
+</div>
+
+
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+    
+
+    
+  </div>
+
+  
+
+<script>
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/jquery/index.js?v=2.1.3"></script>
+
+  
+  <script src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+
+  
+  <script src="/lib/fancybox/source/jquery.fancybox.pack.js"></script>
+
+
+  
+
+
+  <script src="/js/utils.js?v=7.1.0"></script>
+
+  <script src="/js/motion.js?v=7.1.0"></script>
+
+
+
+  
+  
+
+
+  <script src="/js/affix.js?v=7.1.0"></script>
+
+  <script src="/js/schemes/pisces.js?v=7.1.0"></script>
+
+
+
+  
+  <script src="/js/scrollspy.js?v=7.1.0"></script>
+<script src="/js/post-details.js?v=7.1.0"></script>
+
+
+
+  
+
+
+  <script src="/js/next-boot.js?v=7.1.0"></script>
+
+
+  
+
+  
+
+  
+
+  
+
+
+  
+    
+
+<script src="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.js"></script>
+
+
+
+<link rel="stylesheet" href="//cdn.jsdelivr.net/npm/gitalk@1/dist/gitalk.min.css">
+
+
+
+<script src="//cdn.jsdelivr.net/npm/js-md5@0.7.3/src/md5.min.js"></script>
+
+<script>
+  var gitalk = new Gitalk({
+    clientID: 'f11b272cc4efaec58a26',
+    clientSecret: '14ded6181649ec8aed8d601d16bdadcea6a68c88',
+    repo: 'github-pages-comments',
+    owner: 'shankusu2017',
+    admin: ['shankusu2017'],
+    id: md5(location.pathname),
+    
+      language: window.navigator.language || window.navigator.userLanguage,
+    
+    distractionFreeMode: 'true'
+  });
+  gitalk.render('gitalk-container');
+</script>
+
+  
+
+
+  
+  <script>
+    // Popup Window;
+    var isfetched = false;
+    var isXml = true;
+    // Search DB path;
+    var search_path = "search.xml";
+    if (search_path.length === 0) {
+      search_path = "search.xml";
+    } else if (/json$/i.test(search_path)) {
+      isXml = false;
+    }
+    var path = "/" + search_path;
+    // monitor main search box;
+
+    var onPopupClose = function (e) {
+      $('.popup').hide();
+      $('#local-search-input').val('');
+      $('.search-result-list').remove();
+      $('#no-result').remove();
+      $(".local-search-pop-overlay").remove();
+      $('body').css('overflow', '');
+    }
+
+    function proceedsearch() {
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay"></div>')
+        .css('overflow', 'hidden');
+      $('.search-popup-overlay').click(onPopupClose);
+      $('.popup').toggle();
+      var $localSearchInput = $('#local-search-input');
+      $localSearchInput.attr("autocapitalize", "none");
+      $localSearchInput.attr("autocorrect", "off");
+      $localSearchInput.focus();
+    }
+
+    // search function;
+    var searchFunc = function(path, search_id, content_id) {
+      'use strict';
+
+      // start loading animation
+      $("body")
+        .append('<div class="search-popup-overlay local-search-pop-overlay">' +
+          '<div id="search-loading-icon">' +
+          '<i class="fa fa-spinner fa-pulse fa-5x fa-fw"></i>' +
+          '</div>' +
+          '</div>')
+        .css('overflow', 'hidden');
+      $("#search-loading-icon").css('margin', '20% auto 0 auto').css('text-align', 'center');
+
+      
+
+      $.ajax({
+        url: path,
+        dataType: isXml ? "xml" : "json",
+        async: true,
+        success: function(res) {
+          // get the contents from search data
+          isfetched = true;
+          $('.popup').detach().appendTo('.header-inner');
+          var datas = isXml ? $("entry", res).map(function() {
+            return {
+              title: $("title", this).text(),
+              content: $("content",this).text(),
+              url: $("url" , this).text()
+            };
+          }).get() : res;
+          var input = document.getElementById(search_id);
+          var resultContent = document.getElementById(content_id);
+          var inputEventFunction = function() {
+            var searchText = input.value.trim().toLowerCase();
+            var keywords = searchText.split(/[\s\-]+/);
+            if (keywords.length > 1) {
+              keywords.push(searchText);
+            }
+            var resultItems = [];
+            if (searchText.length > 0) {
+              // perform local searching
+              datas.forEach(function(data) {
+                var isMatch = false;
+                var hitCount = 0;
+                var searchTextCount = 0;
+                var title = data.title.trim();
+                var titleInLowerCase = title.toLowerCase();
+                var content = data.content.trim().replace(/<[^>]+>/g,"");
+                
+                var contentInLowerCase = content.toLowerCase();
+                var articleUrl = decodeURIComponent(data.url).replace(/\/{2,}/g, '/');
+                var indexOfTitle = [];
+                var indexOfContent = [];
+                // only match articles with not empty titles
+                if(title != '') {
+                  keywords.forEach(function(keyword) {
+                    function getIndexByWord(word, text, caseSensitive) {
+                      var wordLen = word.length;
+                      if (wordLen === 0) {
+                        return [];
+                      }
+                      var startPosition = 0, position = [], index = [];
+                      if (!caseSensitive) {
+                        text = text.toLowerCase();
+                        word = word.toLowerCase();
+                      }
+                      while ((position = text.indexOf(word, startPosition)) > -1) {
+                        index.push({position: position, word: word});
+                        startPosition = position + wordLen;
+                      }
+                      return index;
+                    }
+
+                    indexOfTitle = indexOfTitle.concat(getIndexByWord(keyword, titleInLowerCase, false));
+                    indexOfContent = indexOfContent.concat(getIndexByWord(keyword, contentInLowerCase, false));
+                  });
+                  if (indexOfTitle.length > 0 || indexOfContent.length > 0) {
+                    isMatch = true;
+                    hitCount = indexOfTitle.length + indexOfContent.length;
+                  }
+                }
+
+                // show search results
+
+                if (isMatch) {
+                  // sort index by position of keyword
+
+                  [indexOfTitle, indexOfContent].forEach(function (index) {
+                    index.sort(function (itemLeft, itemRight) {
+                      if (itemRight.position !== itemLeft.position) {
+                        return itemRight.position - itemLeft.position;
+                      } else {
+                        return itemLeft.word.length - itemRight.word.length;
+                      }
+                    });
+                  });
+
+                  // merge hits into slices
+
+                  function mergeIntoSlice(text, start, end, index) {
+                    var item = index[index.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    var hits = [];
+                    var searchTextCountInSlice = 0;
+                    while (position + word.length <= end && index.length != 0) {
+                      if (word === searchText) {
+                        searchTextCountInSlice++;
+                      }
+                      hits.push({position: position, length: word.length});
+                      var wordEnd = position + word.length;
+
+                      // move to next position of hit
+
+                      index.pop();
+                      while (index.length != 0) {
+                        item = index[index.length - 1];
+                        position = item.position;
+                        word = item.word;
+                        if (wordEnd > position) {
+                          index.pop();
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    searchTextCount += searchTextCountInSlice;
+                    return {
+                      hits: hits,
+                      start: start,
+                      end: end,
+                      searchTextCount: searchTextCountInSlice
+                    };
+                  }
+
+                  var slicesOfTitle = [];
+                  if (indexOfTitle.length != 0) {
+                    slicesOfTitle.push(mergeIntoSlice(title, 0, title.length, indexOfTitle));
+                  }
+
+                  var slicesOfContent = [];
+                  while (indexOfContent.length != 0) {
+                    var item = indexOfContent[indexOfContent.length - 1];
+                    var position = item.position;
+                    var word = item.word;
+                    // cut out 100 characters
+                    var start = position - 20;
+                    var end = position + 80;
+                    if(start < 0){
+                      start = 0;
+                    }
+                    if (end < position + word.length) {
+                      end = position + word.length;
+                    }
+                    if(end > content.length){
+                      end = content.length;
+                    }
+                    slicesOfContent.push(mergeIntoSlice(content, start, end, indexOfContent));
+                  }
+
+                  // sort slices in content by search text's count and hits' count
+
+                  slicesOfContent.sort(function (sliceLeft, sliceRight) {
+                    if (sliceLeft.searchTextCount !== sliceRight.searchTextCount) {
+                      return sliceRight.searchTextCount - sliceLeft.searchTextCount;
+                    } else if (sliceLeft.hits.length !== sliceRight.hits.length) {
+                      return sliceRight.hits.length - sliceLeft.hits.length;
+                    } else {
+                      return sliceLeft.start - sliceRight.start;
+                    }
+                  });
+
+                  // select top N slices in content
+
+                  var upperBound = parseInt('1');
+                  if (upperBound >= 0) {
+                    slicesOfContent = slicesOfContent.slice(0, upperBound);
+                  }
+
+                  // highlight title and content
+
+                  function highlightKeyword(text, slice) {
+                    var result = '';
+                    var prevEnd = slice.start;
+                    slice.hits.forEach(function (hit) {
+                      result += text.substring(prevEnd, hit.position);
+                      var end = hit.position + hit.length;
+                      result += '<b class="search-keyword">' + text.substring(hit.position, end) + '</b>';
+                      prevEnd = end;
+                    });
+                    result += text.substring(prevEnd, slice.end);
+                    return result;
+                  }
+
+                  var resultItem = '';
+
+                  if (slicesOfTitle.length != 0) {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + highlightKeyword(title, slicesOfTitle[0]) + "</a>";
+                  } else {
+                    resultItem += "<li><a href='" + articleUrl + "' class='search-result-title'>" + title + "</a>";
+                  }
+
+                  slicesOfContent.forEach(function (slice) {
+                    resultItem += "<a href='" + articleUrl + "'>" +
+                      "<p class=\"search-result\">" + highlightKeyword(content, slice) +
+                      "...</p>" + "</a>";
+                  });
+
+                  resultItem += "</li>";
+                  resultItems.push({
+                    item: resultItem,
+                    searchTextCount: searchTextCount,
+                    hitCount: hitCount,
+                    id: resultItems.length
+                  });
+                }
+              })
+            };
+            if (keywords.length === 1 && keywords[0] === "") {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-search fa-5x"></i></div>'
+            } else if (resultItems.length === 0) {
+              resultContent.innerHTML = '<div id="no-result"><i class="fa fa-frown-o fa-5x"></i></div>'
+            } else {
+              resultItems.sort(function (resultLeft, resultRight) {
+                if (resultLeft.searchTextCount !== resultRight.searchTextCount) {
+                  return resultRight.searchTextCount - resultLeft.searchTextCount;
+                } else if (resultLeft.hitCount !== resultRight.hitCount) {
+                  return resultRight.hitCount - resultLeft.hitCount;
+                } else {
+                  return resultRight.id - resultLeft.id;
+                }
+              });
+              var searchResultList = '<ul class=\"search-result-list\">';
+              resultItems.forEach(function (result) {
+                searchResultList += result.item;
+              })
+              searchResultList += "</ul>";
+              resultContent.innerHTML = searchResultList;
+            }
+          }
+
+          if ('auto' === 'auto') {
+            input.addEventListener('input', inputEventFunction);
+          } else {
+            $('.search-icon').click(inputEventFunction);
+            input.addEventListener('keypress', function (event) {
+              if (event.keyCode === 13) {
+                inputEventFunction();
+              }
+            });
+          }
+
+          // remove loading animation
+          $(".local-search-pop-overlay").remove();
+          $('body').css('overflow', '');
+
+          proceedsearch();
+        }
+      });
+    }
+
+    // handle and trigger popup window;
+    $('.popup-trigger').click(function(e) {
+      e.stopPropagation();
+      if (isfetched === false) {
+        searchFunc(path, 'local-search-input', 'local-search-result');
+      } else {
+        proceedsearch();
+      };
+    });
+
+    $('.popup-btn-close').click(onPopupClose);
+    $('.popup').click(function(e){
+      e.stopPropagation();
+    });
+    $(document).on('keyup', function (event) {
+      var shouldDismissSearchPopup = event.which === 27 &&
+        $('.search-popup').is(':visible');
+      if (shouldDismissSearchPopup) {
+        onPopupClose();
+      }
+    });
+  </script>
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  <script>
+    (function(){
+      var bp = document.createElement('script');
+      var curProtocol = window.location.protocol.split(':')[0];
+      bp.src = (curProtocol === 'https') ? 'https://zz.bdstatic.com/linksubmit/push.js' : 'http://push.zhanzhang.baidu.com/push.js';
+      var s = document.getElementsByTagName("script")[0];
+      s.parentNode.insertBefore(bp, s);
+    })();
+  </script>
+
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+<script>
+  $('.highlight').each(function(i, e) {
+    var $wrap = $('<div>').addClass('highlight-wrap');
+    $(e).after($wrap);
+    $wrap.append($('<button>').addClass('copy-btn').append('复制').on('click', function(e) {
+      var code = $(this).parent().find('.code').find('.line').map(function(i, e) {
+        return $(e).text();
+      }).toArray().join('\n');
+      var ta = document.createElement('textarea');
+      var yPosition = window.pageYOffset || document.documentElement.scrollTop;
+      ta.style.top = yPosition + 'px'; // Prevent page scroll
+      ta.style.position = 'absolute';
+      ta.style.opacity = '0';
+      ta.readOnly = true;
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, code.length);
+      ta.readOnly = false;
+      var result = document.execCommand('copy');
+      
+        if (result) $(this).text('复制成功');
+        else $(this).text('复制失败');
+      
+      ta.blur(); // For iOS
+      $(this).blur();
+    })).on('mouseleave', function(e) {
+      var $b = $(this).find('.copy-btn');
+      setTimeout(function() {
+        $b.text('复制');
+      }, 300);
+    }).append(e);
+  })
+</script>
+
+
+  
+
+  
+
+</body>
+</html>
