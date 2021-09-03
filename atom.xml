@@ -6,10 +6,39 @@
   <link href="http://www.shankusu.me/atom.xml" rel="self"/>
   
   <link href="http://www.shankusu.me/"/>
-  <updated>2021-09-03T05:07:10.645Z</updated>
+  <updated>2021-09-03T09:44:25.373Z</updated>
   <id>http://www.shankusu.me/</id>
   
   <generator uri="https://hexo.io/">Hexo</generator>
+  
+  <entry>
+    <title>分布式系统的Raft算法</title>
+    <link href="http://www.shankusu.me/%E5%88%86%E5%B8%83%E5%BC%8F/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E7%9A%84Raft%E7%AE%97%E6%B3%95/"/>
+    <id>http://www.shankusu.me/%E5%88%86%E5%B8%83%E5%BC%8F/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E7%9A%84Raft%E7%AE%97%E6%B3%95/</id>
+    <published>2021-09-03T09:38:11.000Z</published>
+    <updated>2021-09-03T09:44:25.373Z</updated>
+    
+    <content type="html"><![CDATA[<p>　　过去, Paxos一直是分布式协议的标准，但是Paxos难于理解，更难以实现，Google的分布式锁系统Chubby作为Paxos实现曾经遭遇到很多坑。</p><p>　　来自Stanford的新的分布式协议研究称为Raft，它是一个为真实世界应用建立的协议，主要注重协议的落地性和可理解性。</p><p>　　在了解Raft之前，我们先了解Consensus一致性这个概念，它是指多个服务器在状态达成一致，但是在一个分布式系统中，因为各种意外可能，有的服务器可能会崩溃或变得不可靠，它就不能和其他服务器达成一致状态。这样就需要一种Consensus协议，一致性协议是为了确保容错性，也就是即使系统中有一两个服务器当机，也不会影响其处理过程。</p><p>　　为了以容错方式达成一致，我们不可能要求所有服务器100%都达成一致状态，只要超过半数的大多数服务器达成一致就可以了，假设有N台服务器，N/2 +1 就超过半数，代表大多数了。</p><p>　　Paxos和Raft都是为了实现Consensus一致性这个目标，这个过程如同选举一样，参选者需要说服大多数选民(服务器)投票给他，一旦选定后就跟随其操作。Paxos和Raft的区别在于选举的具体过程不同。</p><p>　　在Raft中，任何时候一个服务器可以扮演下面角色之一：</p><ol><li>Leader: 处理所有客户端交互，日志复制等，一般一次只有一个Leader.</li><li>Follower: 类似选民，完全被动</li><li>Candidate候选人: 类似Proposer律师，可以被选为一个新的领导人。</li></ol><p>Raft阶段分为两个，首先是选举过程，然后在选举出来的领导人带领进行正常操作，比如日志复制等。下面用图示展示这个过程：</p><ol><li>任何一个服务器都可以成为一个候选者Candidate，它向其他服务器Follower发出要求选举自己的请求：</li></ol><p><img src="raft1.png" alt="img"></p><ol start="2"><li>其他服务器同意了，发出OK。</li></ol><p><img src="raft2.png" alt="img"></p><p>注意如果在这个过程中，有一个Follower当机，没有收到请求选举的要求，因此候选者可以自己选自己，只要达到N/2 + 1 的大多数票，候选人还是可以成为Leader的。</p><ol start="3"><li>这样这个候选者就成为了Leader领导人，它可以向选民也就是Follower们发出指令，比如进行日志复制。</li></ol><p><img src="raft3.png" alt="img"></p><ol start="4"><li>以后通过心跳进行日志复制的通知</li></ol><p><img src="raft4.png" alt="img"></p><ol start="5"><li>如果一旦这个Leader当机崩溃了，那么Follower中有一个成为候选者，发出邀票选举。</li></ol><p><img src="raft5.png" alt="img"></p><ol start="6"><li>Follower同意后，其成为Leader，继续承担日志复制等指导工作：</li></ol><p><img src="raft6.png" alt="img"></p><p>值得注意的是，整个选举过程是有一个时间限制的，如下图：</p><p><img src="raft7.png" alt="img"></p><p>　　Splite Vote是因为如果同时有两个候选人向大家邀票，这时通过类似加时赛来解决，两个候选者在一段timeout比如300ms互相不服气的等待以后，因为双方得到的票数是一样的，一半对一半，那么在300ms以后，再由这两个候选者发出邀票，这时同时的概率大大降低，那么首先发出邀票的的候选者得到了大多数同意，成为领导者Leader，而另外一个候选者后来发出邀票时，那些Follower选民已经投票给第一个候选者，不能再投票给它，它就成为落选者了，最后这个落选者也成为普通Follower一员了。</p><h2 id="日志复制"><a href="#日志复制" class="headerlink" title="日志复制"></a>日志复制</h2><p>　　下面以日志复制为例子说明Raft算法，假设Leader领导人已经选出，这时客户端发出增加一个日志的要求，比如日志是”sally”：</p><p><img src="raft8.png" alt="img"></p><ol start="2"><li>Leader要求Followe遵从他的指令，都将这个新的日志内容追加到他们各自日志中：</li></ol><p><img src="raft9.png" alt="img"></p><p>3.大多数follower服务器将日志写入磁盘文件后，确认追加成功，发出Commited Ok:</p><p><img src="raft10.png" alt="img"></p><ol start="4"><li>在下一个心跳heartbeat中，Leader会通知所有Follwer更新commited 项目。</li></ol><p>对于每个新的日志记录，重复上述过程。</p><p>如果在这一过程中，发生了网络分区或者网络通信故障，使得Leader不能访问大多数Follwers了，那么Leader只能正常更新它能访问的那些Follower服务器，而大多数的服务器Follower因为没有了Leader，他们重新选举一个候选者作为Leader，然后这个Leader作为代表于外界打交道，如果外界要求其添加新的日志，这个新的Leader就按上述步骤通知大多数Followers，如果这时网络故障修复了，那么原先的Leader就变成Follower，在失联阶段这个老Leader的任何更新都不能算commit，都回滚，接受新的Leader的新的更新。</p><p>总结：目前几乎所有语言都已经有支持Raft算法的库包，具体可参考：<a href="http://raftconsensus.github.io/" rel="external nofollow noopener noreferrer" target="_blank">raftconsensus.github.io</a></p><p><a href="http://thesecretlivesofdata.com/raft/" rel="external nofollow noopener noreferrer" target="_blank">英文动画演示Raft</a></p><h3 id="CAP定理"><a href="#CAP定理" class="headerlink" title="CAP定理"></a><a href="https://www.jdon.com/37625" rel="external nofollow noopener noreferrer" target="_blank">CAP定理</a></h3><h3 id="分布式Paxos算法"><a href="#分布式Paxos算法" class="headerlink" title="分布式Paxos算法"></a><a href="https://www.jdon.com/artichect/paxos.html" rel="external nofollow noopener noreferrer" target="_blank">分布式Paxos算法</a></h3><h3 id="ZooKeeper在服务发现中应用"><a href="#ZooKeeper在服务发现中应用" class="headerlink" title="ZooKeeper在服务发现中应用"></a><a href="http://www.jdon.com/artichect/zookeeper.html" rel="external nofollow noopener noreferrer" target="_blank">ZooKeeper在服务发现中应用</a></h3><h3 id="分布式事务"><a href="#分布式事务" class="headerlink" title="分布式事务"></a><a href="https://www.jdon.com/transaction.html" rel="external nofollow noopener noreferrer" target="_blank">分布式事务</a></h3>]]></content>
+    
+    
+      
+      
+    <summary type="html">&lt;p&gt;　　过去, Paxos一直是分布式协议的标准，但是Paxos难于理解，更难以实现，Google的分布式锁系统Chubby作为Paxos实现曾经遭遇到很多坑。&lt;/p&gt;
+&lt;p&gt;　　来自Stanford的新的分布式协议研究称为Raft，它是一个为真实世界应用建立的协议，主要注重协</summary>
+      
+    
+    
+    
+    <category term="redis" scheme="http://www.shankusu.me/categories/redis/"/>
+    
+    <category term="分布式" scheme="http://www.shankusu.me/categories/分布式/"/>
+    
+    
+    <category term="分布式" scheme="http://www.shankusu.me/tags/分布式/"/>
+    
+    <category term="raft" scheme="http://www.shankusu.me/tags/raft/"/>
+    
+  </entry>
   
   <entry>
     <title>股票投资建议</title>
@@ -481,30 +510,6 @@
     
     
     <category term="os" scheme="http://www.shankusu.me/tags/os/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>两数字之和</title>
-    <link href="http://www.shankusu.me/leetcode/%E4%B8%A4%E6%95%B0%E5%AD%97%E4%B9%8B%E5%92%8C/"/>
-    <id>http://www.shankusu.me/leetcode/%E4%B8%A4%E6%95%B0%E5%AD%97%E4%B9%8B%E5%92%8C/</id>
-    <published>2021-08-24T17:04:23.000Z</published>
-    <updated>2021-08-24T17:09:22.516Z</updated>
-    
-    <content type="html"><![CDATA[<h3 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h3><p>给定一个整数数组 nums 和一个整数目标值 target，请你在该数组中找出 和为目标值 target  的那 两个 整数，并返回它们的数组下标。</p><p>你可以假设每种输入只会对应一个答案。但是，数组中同一个元素在答案里不能重复出现。</p><p>你可以按任意顺序返回答案。</p><h3 id="实例"><a href="#实例" class="headerlink" title="实例"></a>实例</h3><p>示例 1：</p><p>输入：nums = [2,7,11,15], target = 9<br>输出：[0,1]<br>解释：因为 nums[0] + nums[1] == 9 ，返回 [0, 1] 。<br>示例 2：</p><p>输入：nums = [3,2,4], target = 6<br>输出：[1,2]<br>示例 3：</p><p>输入：nums = [3,3], target = 6<br>输出：[0,1]</p><h3 id="解答"><a href="#解答" class="headerlink" title="解答"></a>解答</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * Note: The returned array must be malloced, assume caller calls free().</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="function"><span class="keyword">int</span>* <span class="title">twoSum</span><span class="params">(<span class="keyword">int</span>* nums, <span class="keyword">int</span> numsSize, <span class="keyword">int</span> target, <span class="keyword">int</span>* returnSize)</span></span>&#123;</span><br><span class="line">    <span class="keyword">int</span> *ret = <span class="built_in">malloc</span>(<span class="keyword">sizeof</span>(<span class="keyword">int</span>)*<span class="number">2</span>);</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">int</span> i = <span class="number">0</span>; i &lt; numsSize; ++i) &#123;</span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">int</span> j = i+<span class="number">1</span>; j &lt; numsSize; ++j) &#123;</span><br><span class="line">            <span class="keyword">if</span> (nums[i] + nums[j] == target) &#123;</span><br><span class="line">                ret[<span class="number">0</span>] = i;</span><br><span class="line">                ret[<span class="number">1</span>] = j;</span><br><span class="line">                *returnSize = <span class="number">2</span>;</span><br><span class="line">                <span class="keyword">return</span> ret;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    *returnSize = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">NULL</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure><p><a href="https://leetcode-cn.com/problems/two-sum/" rel="external nofollow noopener noreferrer" target="_blank">上述转载自力扣</a></p>]]></content>
-    
-    
-      
-      
-    <summary type="html">&lt;h3 id=&quot;场景描述&quot;&gt;&lt;a href=&quot;#场景描述&quot; class=&quot;headerlink&quot; title=&quot;场景描述&quot;&gt;&lt;/a&gt;场景描述&lt;/h3&gt;&lt;p&gt;给定一个整数数组 nums 和一个整数目标值 target，请你在该数组中找出 和为目标值 target  的那 两个 整数</summary>
-      
-    
-    
-    
-    <category term="leetcode" scheme="http://www.shankusu.me/categories/leetcode/"/>
-    
-    
-    <category term="leetcode" scheme="http://www.shankusu.me/tags/leetcode/"/>
     
   </entry>
   
