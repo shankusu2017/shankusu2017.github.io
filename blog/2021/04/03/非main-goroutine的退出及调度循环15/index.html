@@ -1,0 +1,613 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>非main goroutine的退出及调度循环（15） - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="非main goroutine的退出及调度循环（15）">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="非main goroutine的退出及调度循环（15） - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E6%8A%80%E6%9C%AF/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-code"></i> <br />技术
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E7%AC%94%E8%AE%B0/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />笔记
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />归档
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/03/%E9%9D%9Emain-goroutine%E7%9A%84%E9%80%80%E5%87%BA%E5%8F%8A%E8%B0%83%E5%BA%A6%E5%BE%AA%E7%8E%AF15/" itemprop="url">
+        非main goroutine的退出及调度循环（15）
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-03">
+    2021-04-03
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/go" itemprop="url" rel="index">
+        <span itemprop="name">go</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">4744 字 ~10分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p>原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/XttP9q7-PO7VXhskaBzGqA">源码游记</a> 2019-05-12</p>
+<p>本文是《Go语言调度器源代码情景分析》系列的第15篇，也是第二章的第5小节。</p>
+<p>上一节我们说过main goroutine退出时会直接执行exit系统调用退出整个进程，而非main goroutine退出时则会进入goexit函数完成最后的清理工作，本小节我们首先就来验证一下非main goroutine执行完成后是否真的会去执行goexit，然后再对非main goroutine的退出流程做个梳理。这一节我们需要重点理解以下内容：</p>
+<p>非main goroutine是如何返回到goexit函数的；</p>
+<p>mcall函数如何从用户goroutine切换到g0继续执行；</p>
+<p>调度循环。</p>
+<p>非main goroutine会返回到goexit吗</p>
+<p>首先来看一段代码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#f92672">import</span> (
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">g2</span>(<span style="color:#a6e22e">n</span> <span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">n</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">n</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">g2</span>(<span style="color:#ae81ff">100</span>, <span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这个程序比较简单，main goroutine启动后在main函数中创建了一个goroutine执行g2函数，我们称它为g2 goroutine，下面我们就用这个g2的退出来验证一下非main goroutine退出时是否真的会返回到goexit继续执行。</p>
+<p>怎么验证呢？比较简单的办法就是用gdb来调试，在gdb中首先使用backtrace命令查看g2函数是被谁调用的，然后单步执行看它能否返回到goexit继续执行。下面是gdb调试过程：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> b main.g2       // 在main.g2函数入口处下断点
+</span></span><span style="display:flex;"><span>Breakpoint <span style="color:#ae81ff">1</span> at 0x4869c0: file /home/bobo/study/go/goexit.go, line 7.
+</span></span><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> r
+</span></span><span style="display:flex;"><span>Starting program: /home/bobo/study/go/goexit 
+</span></span><span style="display:flex;"><span>Thread <span style="color:#ae81ff">1</span> <span style="color:#e6db74">&#34;goexit&#34;</span> hit Breakpoint <span style="color:#ae81ff">1</span> at /home/bobo/study/go/goexit.go:7
+</span></span><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> bt       //查看函数调用链，看起来g2真的是被runtime.goexit调用的
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#0 main.g2 (n=100, ch=0xc000052060) at /home/bobo/study/go/goexit.go:7</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#1 0x0000000000450ad1 in runtime.goexit () at /usr/local/go/src/runtime/asm_amd64.s:1337</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> disass     //反汇编找ret的地址，这是为了在ret处下断点
+</span></span><span style="display:flex;"><span>Dump of assembler code <span style="color:#66d9ef">for</span> <span style="color:#66d9ef">function</span> main.g2:
+</span></span><span style="display:flex;"><span><span style="color:#f92672">=</span>&gt; 0x00000000004869c0 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
+</span></span><span style="display:flex;"><span>  0x00000000004869c9 &lt;+9&gt;:cmp   0x10<span style="color:#f92672">(</span>%rcx<span style="color:#f92672">)</span>,%rsp
+</span></span><span style="display:flex;"><span>  0x00000000004869cd &lt;+13&gt;:jbe   0x486a0d &lt;main.g2+77&gt;
+</span></span><span style="display:flex;"><span>  0x00000000004869cf &lt;+15&gt;:sub   $0x20,%rsp
+</span></span><span style="display:flex;"><span>  0x00000000004869d3 &lt;+19&gt;:mov   %rbp,0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>  0x00000000004869d8 &lt;+24&gt;:lea   0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rbp
+</span></span><span style="display:flex;"><span>  0x00000000004869dd &lt;+29&gt;:mov   0x28<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869e2 &lt;+34&gt;:imul   %rax,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869e6 &lt;+38&gt;:mov   %rax,0x10<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>  0x00000000004869eb &lt;+43&gt;:mov   0x30<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869f0 &lt;+48&gt;:mov   %rax,<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>  0x00000000004869f4 &lt;+52&gt;:lea   0x10<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869f9 &lt;+57&gt;:mov   %rax,0x8<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>  0x00000000004869fe &lt;+62&gt;:callq 0x4046a0 &lt;runtime.chansend1&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000486a03 &lt;+67&gt;:mov   0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rbp
+</span></span><span style="display:flex;"><span>  0x0000000000486a08 &lt;+72&gt;:add   $0x20,%rsp
+</span></span><span style="display:flex;"><span>  0x0000000000486a0c &lt;+76&gt;:retq   
+</span></span><span style="display:flex;"><span>  0x0000000000486a0d &lt;+77&gt;:callq 0x44ece0 &lt;runtime.morestack_noctxt&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000486a12 &lt;+82&gt;:jmp   0x4869c0 &lt;main.g2&gt;
+</span></span><span style="display:flex;"><span>End of assembler dump.
+</span></span><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> b *0x0000000000486a0c             //在retq指令位置下断点
+</span></span><span style="display:flex;"><span>Breakpoint <span style="color:#ae81ff">2</span> at 0x486a0c: file /home/bobo/study/go/goexit.go, line 9.
+</span></span><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> c
+</span></span><span style="display:flex;"><span>Continuing.
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>Thread <span style="color:#ae81ff">1</span> <span style="color:#e6db74">&#34;goexit&#34;</span> hit Breakpoint <span style="color:#ae81ff">2</span> at /home/bobo/study/go/goexit.go:9
+</span></span><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> disass             //程序停在了ret指令处
+</span></span><span style="display:flex;"><span>Dump of assembler code <span style="color:#66d9ef">for</span> <span style="color:#66d9ef">function</span> main.g2:
+</span></span><span style="display:flex;"><span>  0x00000000004869c0 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
+</span></span><span style="display:flex;"><span>  0x00000000004869c9 &lt;+9&gt;:cmp   0x10<span style="color:#f92672">(</span>%rcx<span style="color:#f92672">)</span>,%rsp
+</span></span><span style="display:flex;"><span>  0x00000000004869cd &lt;+13&gt;:jbe   0x486a0d &lt;main.g2+77&gt;
+</span></span><span style="display:flex;"><span>  0x00000000004869cf &lt;+15&gt;:sub   $0x20,%rsp
+</span></span><span style="display:flex;"><span>  0x00000000004869d3 &lt;+19&gt;:mov   %rbp,0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>  0x00000000004869d8 &lt;+24&gt;:lea   0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rbp
+</span></span><span style="display:flex;"><span>  0x00000000004869dd &lt;+29&gt;:mov   0x28<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869e2 &lt;+34&gt;:imul   %rax,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869e6 &lt;+38&gt;:mov   %rax,0x10<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>  0x00000000004869eb &lt;+43&gt;:mov   0x30<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869f0 &lt;+48&gt;:mov   %rax,<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>  0x00000000004869f4 &lt;+52&gt;:lea   0x10<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869f9 &lt;+57&gt;:mov   %rax,0x8<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>  0x00000000004869fe &lt;+62&gt;:callq 0x4046a0 &lt;runtime.chansend1&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000486a03 &lt;+67&gt;:mov   0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rbp
+</span></span><span style="display:flex;"><span>  0x0000000000486a08 &lt;+72&gt;:add   $0x20,%rsp
+</span></span><span style="display:flex;"><span><span style="color:#f92672">=</span>&gt; 0x0000000000486a0c &lt;+76&gt;:retq   
+</span></span><span style="display:flex;"><span>  0x0000000000486a0d &lt;+77&gt;:callq 0x44ece0 &lt;runtime.morestack_noctxt&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000486a12 &lt;+82&gt;:jmp   0x4869c0 &lt;main.g2&gt;
+</span></span><span style="display:flex;"><span>End of assembler dump.
+</span></span><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> si         //单步执行一条指令
+</span></span><span style="display:flex;"><span>runtime.goexit <span style="color:#f92672">()</span> at /usr/local/go/src/runtime/asm_amd64.s:1338
+</span></span><span style="display:flex;"><span>1338CALLruntime·goexit1<span style="color:#f92672">(</span>SB<span style="color:#f92672">)</span>// does not <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> disass           //可以看出来g2已经返回到了goexit函数中
+</span></span><span style="display:flex;"><span>Dump of assembler code <span style="color:#66d9ef">for</span> <span style="color:#66d9ef">function</span> runtime.goexit:
+</span></span><span style="display:flex;"><span>  0x0000000000450ad0 &lt;+0&gt;:nop
+</span></span><span style="display:flex;"><span><span style="color:#f92672">=</span>&gt; 0x0000000000450ad1 &lt;+1&gt;:callq 0x42faf0 &lt;runtime.goexit1&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000450ad6 &lt;+6&gt;:nop
+</span></span></code></pre></div><p>使用gdb调试时，首先我们在g2函数入口处下了一个断点，程序暂停后通过查看函数调用栈发现g2函数确实是被goexit调用的，然后再一次使用断点让程序暂停在g2返回之前的最后一条指令retq处，最后单步执行这条指令，可以看到程序从g2函数返回到了goexit函数的第二条指令的位置，这个位置正是当初在创建goroutine时设置好的返回地址。可以看到，虽然g2函数并不是被goexit函数直接调用的，但它执行完成之后却返回到了goexit函数中！</p>
+<p>至此，我们已经证实非main goroutine退出时确实会返回到goexit函数继续执行，下面我们就沿着这条线继续分析非main goroutine的退出流程。</p>
+<p>非main goroutine的退出流程</p>
+<p>首先来看goexit函数</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">asm_amd64</span>.<span style="color:#a6e22e">s</span> : <span style="color:#ae81ff">1334</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// The top-most function running on a goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// returns to goexit+PCQuantum.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">TEXT</span> <span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">goexit</span>(<span style="color:#a6e22e">SB</span>),<span style="color:#a6e22e">NOSPLIT</span>,<span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span><span style="color:#f92672">-</span><span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">BYTE</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0x90</span>  <span style="color:#75715e">// NOP
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">CALL</span>  <span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">goexit1</span>(<span style="color:#a6e22e">SB</span>)  <span style="color:#75715e">// does not return
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// traceback from goexit1 must hit code range of goexit
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">BYTE</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0x90</span>  <span style="color:#75715e">// NOP
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">从前面的分析我们已经看到</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">非main</span> <span style="color:#a6e22e">goroutine返回时直接返回到了goexit的第二条指令</span><span style="color:#960050;background-color:#1e0010">：</span><span style="color:#a6e22e">CALL</span> <span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">goexit1</span>(<span style="color:#a6e22e">SB</span>)<span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">该指令继续调用goexit1函数</span><span style="color:#960050;background-color:#1e0010">。</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2652</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Finishes execution of the current goroutine.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goexit1</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">raceenabled</span> {  <span style="color:#75715e">//与竞态检查有关，不关注
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">racegoend</span>()
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">enabled</span> { <span style="color:#75715e">//与backtrace有关，不关注
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">traceGoEnd</span>()
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mcall</span>(<span style="color:#a6e22e">goexit0</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">goexit1函数通过调用mcall从当前运行的g2</span> <span style="color:#a6e22e">goroutine切换到g0</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">然后在g0栈上调用和执行goexit0这个函数</span><span style="color:#960050;background-color:#1e0010">。</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">asm_amd64</span>.<span style="color:#a6e22e">s</span> : <span style="color:#ae81ff">270</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">mcall</span>(<span style="color:#a6e22e">fn</span> <span style="color:#66d9ef">func</span>(<span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>))
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">Switch</span> <span style="color:#a6e22e">to</span> <span style="color:#a6e22e">m</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">g0</span><span style="color:#960050;background-color:#1e0010">&#39;</span><span style="color:#a6e22e">s</span> <span style="color:#a6e22e">stack</span>, <span style="color:#a6e22e">call</span> <span style="color:#a6e22e">fn</span>(<span style="color:#a6e22e">g</span>).
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">Fn</span> <span style="color:#a6e22e">must</span> <span style="color:#a6e22e">never</span> <span style="color:#66d9ef">return</span>. <span style="color:#a6e22e">It</span> <span style="color:#a6e22e">should</span> <span style="color:#a6e22e">gogo</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">g</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">sched</span>)
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">to</span> <span style="color:#a6e22e">keep</span> <span style="color:#a6e22e">running</span> <span style="color:#a6e22e">g</span>.
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">mcall的参数是一个指向funcval对象的指针</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">TEXT</span> <span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">mcall</span>(<span style="color:#a6e22e">SB</span>), <span style="color:#a6e22e">NOSPLIT</span>, <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span><span style="color:#f92672">-</span><span style="color:#ae81ff">8</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">取出参数的值放入DI寄存器</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">它是funcval对象的指针</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">此场景中fn</span>.<span style="color:#a6e22e">fn是goexit0的地址</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">fn</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">DI</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">get_tls</span>(<span style="color:#a6e22e">CX</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">g</span>(<span style="color:#a6e22e">CX</span>), <span style="color:#a6e22e">AX</span> <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">AX</span> = <span style="color:#a6e22e">g</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">本场景g</span> <span style="color:#a6e22e">是</span> <span style="color:#a6e22e">g2</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">mcall返回地址放入BX</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">SP</span>), <span style="color:#a6e22e">BX</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">caller</span><span style="color:#960050;background-color:#1e0010">&#39;</span><span style="color:#a6e22e">s</span> <span style="color:#a6e22e">PC</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">保存g2的调度信息</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">因为我们要从当前正在运行的g2切换到g0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">BX</span>, (<span style="color:#a6e22e">g_sched</span><span style="color:#f92672">+</span><span style="color:#a6e22e">gobuf_pc</span>)(<span style="color:#a6e22e">AX</span>)   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">pc</span> = <span style="color:#a6e22e">BX</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">保存g2的rip</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">LEAQ</span>  <span style="color:#a6e22e">fn</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">BX</span> <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">caller</span><span style="color:#960050;background-color:#1e0010">&#39;</span><span style="color:#a6e22e">s</span> <span style="color:#a6e22e">SP</span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">BX</span>, (<span style="color:#a6e22e">g_sched</span><span style="color:#f92672">+</span><span style="color:#a6e22e">gobuf_sp</span>)(<span style="color:#a6e22e">AX</span>)  <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">sp</span> = <span style="color:#a6e22e">BX</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">保存g2的rsp</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">AX</span>, (<span style="color:#a6e22e">g_sched</span><span style="color:#f92672">+</span><span style="color:#a6e22e">gobuf_g</span>)(<span style="color:#a6e22e">AX</span>)   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">g</span> = <span style="color:#a6e22e">g</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">BP</span>, (<span style="color:#a6e22e">g_sched</span><span style="color:#f92672">+</span><span style="color:#a6e22e">gobuf_bp</span>)(<span style="color:#a6e22e">AX</span>)  <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">bp</span> = <span style="color:#a6e22e">BP</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">保存g2的rbp</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">to</span> <span style="color:#a6e22e">m</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">g0</span> <span style="color:#f92672">&amp;</span> <span style="color:#a6e22e">its</span> <span style="color:#a6e22e">stack</span>, <span style="color:#a6e22e">call</span> <span style="color:#a6e22e">fn</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">下面三条指令主要目的是找到g0的指针</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">g</span>(<span style="color:#a6e22e">CX</span>), <span style="color:#a6e22e">BX</span>         <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">BX</span> = <span style="color:#a6e22e">g</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">g_m</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">BX</span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">BX</span> = <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">m</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">m_g0</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">SI</span>   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">SI</span> = <span style="color:#a6e22e">g</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">g0</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">此刻</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">SI</span> = <span style="color:#a6e22e">g0</span><span style="color:#960050;background-color:#1e0010">，</span> <span style="color:#a6e22e">AX</span> = <span style="color:#a6e22e">g</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">所以这里在判断g</span> <span style="color:#a6e22e">是否是</span> <span style="color:#a6e22e">g0</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">如果g</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">g0则一定是哪里代码写错了</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">CMPQ</span>  <span style="color:#a6e22e">SI</span>, <span style="color:#a6e22e">AX</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">g</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">m</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">g0</span> <span style="color:#a6e22e">call</span> <span style="color:#a6e22e">badmcall</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">JNE</span>  <span style="color:#ae81ff">3</span>(<span style="color:#a6e22e">PC</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">badmcall</span>(<span style="color:#a6e22e">SB</span>), <span style="color:#a6e22e">AX</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">JMP</span>  <span style="color:#a6e22e">AX</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">把g0的地址设置到线程本地存储之中</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">SI</span>, <span style="color:#a6e22e">g</span>(<span style="color:#a6e22e">CX</span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">恢复g0的栈顶指针到CPU的rsp积存</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">这一条指令完成了栈的切换</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">从g的栈切换到了g0的栈</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  (<span style="color:#a6e22e">g_sched</span><span style="color:#f92672">+</span><span style="color:#a6e22e">gobuf_sp</span>)(<span style="color:#a6e22e">SI</span>), <span style="color:#a6e22e">SP</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">rsp</span> = <span style="color:#a6e22e">g0</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">sp</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">AX</span> = <span style="color:#a6e22e">g</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">PUSHQ</span>  <span style="color:#a6e22e">AX</span>   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">fn的参数g入栈</span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">DI</span>, <span style="color:#a6e22e">DX</span>   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">DI是结构体funcval实例对象的指针</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">它的第一个成员才是goexit0的地址</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">DI</span>), <span style="color:#a6e22e">DI</span>   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">读取第一个成员到DI寄存器</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">CALL</span>  <span style="color:#a6e22e">DI</span>   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">调用goexit0</span>(<span style="color:#a6e22e">g</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">POPQ</span>  <span style="color:#a6e22e">AX</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">badmcall2</span>(<span style="color:#a6e22e">SB</span>), <span style="color:#a6e22e">AX</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">JMP</span>  <span style="color:#a6e22e">AX</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">RET</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">mcall的参数是一个函数</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">在Go语言的实现中</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">函数变量并不是一个直接指向函数代码的指针</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">而是一个指向funcval结构体对象的指针</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">funcval结构体对象的第一个成员fn才是真正指向函数代码的指针</span><span style="color:#960050;background-color:#1e0010">。</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">funcval</span> <span style="color:#66d9ef">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fn</span> <span style="color:#66d9ef">uintptr</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// variable-size, fn-specific data here
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><p>也就是说，在我们这个场景中mcall函数的fn参数的fn成员中存放的才是goexit0函数的第一条指令的地址。</p>
+<p>mcall函数主要有两个功能：</p>
+<p>首先从当前运行的g(我们这个场景是g2)切换到g0，这一步包括保存当前g的调度信息，把g0设置到tls中，修改CPU的rsp寄存器使其指向g0的栈；</p>
+<p>以当前运行的g(我们这个场景是g2)为参数调用fn函数(此处为goexit0)。</p>
+<p>从mcall的功能我们可以看出，mcall做的事情跟gogo函数完全相反，gogo函数实现了从g0切换到某个goroutine去运行，而mcall实现了从某个goroutine切换到g0来运行，因此，mcall和gogo的代码非常相似，然而mcall和gogo在做切换时有个重要的区别：gogo函数在从g0切换到其它goroutine时首先切换了栈，然后通过跳转指令从runtime代码切换到了用户goroutine的代码，而mcall函数在从其它goroutine切换回g0时只切换了栈，并未使用跳转指令跳转到runtime代码去执行。为什么会有这个差别呢？原因在于在从g0切换到其它goroutine之前执行的是runtime的代码而且使用的是g0栈，所以切换时需要首先切换栈然后再从runtime代码跳转某个goroutine的代码去执行（切换栈和跳转指令不能颠倒，因为跳转之后执行的就是用户的goroutine代码了，没有机会切换栈了），然而从某个goroutine切换回g0时，goroutine使用的是call指令来调用mcall函数，mcall函数本身就是runtime的代码，所以call指令其实已经完成了从goroutine代码到runtime代码的跳转，因此mcall函数自身的代码就不需要再跳转了，只需要把栈切换到g0栈即可。</p>
+<p>因为mcall跟gogo非常相似，前面我们对gogo的每一条指令已经做过详细的分析，所以这里就不再详细解释mcall的每一条指令了，但笔者在上面所展示的mcall代码中做了一些注释（注释中的g表示当前正在运行的goroutine，我们这个场景g就是g2），这里大家可以结合gogo的代码以及mcall的代码和注释来加深对g0与其它goroutine之间的切换的理解。</p>
+<p>从g2栈切换到g0栈之后，下面开始在g0栈执行goexit0函数，该函数完成最后的清理工作：</p>
+<p>把g的状态从_Grunning变更为_Gdead；</p>
+<p>然后把g的一些字段清空成0值；</p>
+<p>调用dropg函数解除g和m之间的关系，其实就是设置g-&gt;m = nil, m-&gt;currg = nil；</p>
+<p>把g放入p的freeg队列缓存起来供下次创建g时快速获取而不用从内存分配。freeg就是g的一个对象池；</p>
+<p>调用schedule函数再次进行调度；</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2662</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// goexit continuation on g0.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goexit0</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()  <span style="color:#75715e">//g0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">casgstatus</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_Grunning</span>, <span style="color:#a6e22e">_Gdead</span>) <span style="color:#75715e">//g马上退出，所以设置其状态为_Gdead
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">isSystemGoroutine</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#66d9ef">false</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Xadd</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">ngsys</span>, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>   <span style="color:#75715e">//清空g保存的一些信息
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">m</span> = <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">locked</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">lockedm</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">lockedm</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">lockedg</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">paniconfault</span> = <span style="color:#66d9ef">false</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">_defer</span> = <span style="color:#66d9ef">nil</span> <span style="color:#75715e">// should be true already but just in case.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">_panic</span> = <span style="color:#66d9ef">nil</span> <span style="color:#75715e">// non-nil for Goexit during panic. points at stack-allocated data.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">writebuf</span> = <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">waitreason</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">param</span> = <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">labels</span> = <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">timer</span> = <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Note that gp&#39;s stack scan is now &#34;valid&#34; because it has no
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// stack.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">gcscanvalid</span> = <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//g-&gt;m = nil, m-&gt;currg = nil 解绑g和m之关系
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">dropg</span>()
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gfput</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>(), <span style="color:#a6e22e">gp</span>) <span style="color:#75715e">//g放入p的freeg队列，方便下次重用，免得再去申请内存，提高效率
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//下面再次调用schedule
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">schedule</span>()
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>到此为止g2的生命周期就结束了，工作线程再次调用了schedule函数进入新一轮的调度循环。</p>
+<p>调度循环</p>
+<p>我们说过，任何goroutine被调度起来运行都是通过schedule()-&gt;execute()-&gt;gogo()这个函数调用链完成的，而且这个调用链中的函数一直没有返回。以我们刚刚讨论过的g2 goroutine为例，从g2开始被调度起来运行到退出是沿着下面这条路径进行的</p>
+<p>schedule()-&gt;execute()-&gt;gogo()-&gt;g2()-&gt;goexit()-&gt;goexit1()-&gt;mcall()-&gt;goexit0()-&gt;schedule()
+可以看出，一轮调度是从调用schedule函数开始的，然后经过一系列代码的执行到最后又再次通过调用schedule函数来进行新一轮的调度，从一轮调度到新一轮调度的这一过程我们称之为一个调度循环，这里说的调度循环是指某一个工作线程的调度循环，而同一个Go程序中可能存在多个工作线程，每个工作线程都有自己的调度循环，也就是说每个工作线程都在进行着自己的调度循环。</p>
+<p>从前面的代码分析可以得知，上面调度循环中的每一个函数调用都没有返回，虽然g2()-&gt;goexit()-&gt;goexit1()-&gt;mcall()这几个函数是在g2的栈空间执行的，但剩下的函数都是在g0的栈空间执行的，那么问题就来了，在一个复杂的程序中，调度可能会进行无数次循环，也就是说会进行无数次没有返回的函数调用，大家都知道，每调用一次函数都会消耗一定的栈空间，而如果一直这样无返回的调用下去无论g0有多少栈空间终究是会耗尽的，那么这里是不是有问题？其实没有问题，关键点就在于，每次执行mcall切换到g0栈时都是切换到g0.sched.sp所指的固定位置，这之所以行得通，正是因为从schedule函数开始之后的一系列函数永远都不会返回，所以重用这些函数上一轮调度时所使用过的栈内存是没有问题的。</p>
+<p>每个工作线程的执行流程和调度循环都一样，如下图所示：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/61038477913f3d941762171b0ff1b92a.png" alt=""></p>
+<p>总结</p>
+<p>我们用上图来总结一下工作线程的执行流程：</p>
+<p>初始化，调用mstart函数；</p>
+<p>调用mstart1函数，在该函数中调用save函数设置g0.sched.sp和g0.sched.pc等调度信息，其中g0.sched.sp指向mstart函数栈帧的栈顶；</p>
+<p>依次调用schedule-&gt;execute-&gt;gogo函数执行调度；</p>
+<p>运行用户的goroutine代码；</p>
+<p>用户goroutine代码执行过程中调用runtime中的某些函数，然后这些函数调用mcall切换到g0.sched.sp所指的栈并最终再次调用schedule函数进入新一轮调度，之后工作线程一直循环执行着3～5这一调度循环直到进程退出为止。</p>
+<p>最后，如果你觉得本文对你有帮助的话，麻烦帮忙点一下文末右下角的 在看 或转发到朋友圈，非常感谢！</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/bb1306280e12ad8be259c63547ad1b1f.png" alt=""></p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/go" rel="tag" title="go">#go#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/03/%E7%AC%AC%E4%B8%89%E7%AB%A0-goroutine%E8%B0%83%E5%BA%A6%E7%AD%96%E7%95%A516/" rel="next" title="第三章 goroutine调度策略（16）">
+        <i class="fa fa-chevron-left"></i> 第三章 goroutine调度策略（16）
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/03/go%E8%AF%AD%E8%A8%80%E8%B0%83%E5%BA%A6%E5%99%A8%E4%B9%8B%E8%B0%83%E5%BA%A6main-goroutine14/" rel="prev" title="go语言调度器之调度main goroutine（14)">
+        go语言调度器之调度main goroutine（14) <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">144</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">7</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">13</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

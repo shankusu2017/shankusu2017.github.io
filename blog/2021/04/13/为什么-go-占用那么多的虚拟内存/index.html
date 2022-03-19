@@ -1,0 +1,696 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>为什么 Go 占用那么多的虚拟内存？ - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="为什么 Go 占用那么多的虚拟内存？">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="为什么 Go 占用那么多的虚拟内存？ - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E6%8A%80%E6%9C%AF/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-code"></i> <br />技术
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E7%AC%94%E8%AE%B0/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />笔记
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />归档
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/13/%E4%B8%BA%E4%BB%80%E4%B9%88-go-%E5%8D%A0%E7%94%A8%E9%82%A3%E4%B9%88%E5%A4%9A%E7%9A%84%E8%99%9A%E6%8B%9F%E5%86%85%E5%AD%98/" itemprop="url">
+        为什么 Go 占用那么多的虚拟内存？
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-13">
+    2021-04-13
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/go" itemprop="url" rel="index">
+        <span itemprop="name">go</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">5865 字 ~12分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p><a href="https://mp.weixin.qq.com/s?__biz=MzUxMDI4MDc1NA==&amp;mid=2247484139&amp;idx=1&amp;sn=f1bd1793d2ae3d9ead1277807596b0b9&amp;chksm=f90417b6ce739ea0e3d6bbb969708e92e2e958b721908791706c452fccd119c4add3c44292d4&amp;scene=178&amp;cur_album_id=1515516076481101825#rd">转载自煎鱼的blog</a></p>
+<p>前段时间，某同学说某服务的容器因为超出内存限制，不断地重启，问我们是不是有内存泄露，赶紧排查，然后解决掉，省的出问题。</p>
+<p>我们大为震惊，赶紧查看监控+报警系统和性能分析，发现应用指标压根就不高，不像有泄露的样子。</p>
+<p>问题到底是出在哪里了呢，我们进入某个容器里查看了 <code>top</code> 的系统指标：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>PID       VSZ    RSS   ... COMMAND
+</span></span><span style="display:flex;"><span>67459     2007m  136m  ... ./eddycjy-server
+</span></span></code></pre></div><p>看上去也没什么大开销的东西，就一个 Go 进程？就这？</p>
+<p><img src="http://shanks.link/img/go%E4%B9%8B%E8%99%9A%E6%8B%9F%E5%86%85%E5%AD%98%E5%8D%A0%E7%94%A8/1.gif" alt="图片"></p>
+<p>再定眼一看，某同学就说 VSZ 那么高，而某云上的容器内存指标居然恰好和 VSZ 的值相接近，因此就怀疑是不是 VSZ 所导致的，觉得存在一定的关联关系。</p>
+<p>这个猜测的结果到底是否正确呢？</p>
+<h2 id="基础知识">基础知识</h2>
+<p>本篇文章将<strong>主要围绕 Go 进程的 VSZ 来进行剖析</strong>，看看到底它为什么那么 &ldquo;高&rdquo;。</p>
+<p>第一节为前置的补充知识，大家可按顺序阅读。</p>
+<h3 id="什么是-vsz">什么是 VSZ</h3>
+<p>VSZ 是该进程所能使用的虚拟内存总大小，它包括进程可以访问的所有内存，其中包括了被换出的内存（Swap）、已分配但未使用的内存以及来自共享库的内存。</p>
+<h3 id="为什么要虚拟内存">为什么要虚拟内存</h3>
+<p>在前面我们有了解到 VSZ 其实就是该进程的虚拟内存总大小，那<strong>如果我们想了解 VSZ 的话，那我们得先了解 “为什么要虚拟内存？”</strong>。</p>
+<p>本质上来讲，在一个系统中的进程是与其他进程共享 CPU 和主存资源的。</p>
+<p>因此在现代的操作系统中，多进程的使用非常的常见，如果太多的进程需要太多的内存，在没有虚拟内存的情况下，物理内存很可能会不够用，就会导致其中有些任务无法运行，更甚至会出现一些很奇怪的现象。</p>
+<p>例如 “某一个进程不小心写了另一个进程使用的内存”，就会造成内存破坏，因此虚拟内存是非常重要的一个媒介。</p>
+<h3 id="虚拟内存包含了什么">虚拟内存包含了什么</h3>
+<p>虚拟内存，又分为：</p>
+<ul>
+<li>内核虚拟内存。</li>
+<li>进程虚拟内存。</li>
+</ul>
+<p>每一个进程的虚拟内存都是独立的， 内部结构如下图所示。</p>
+<p><img src="http://shanks.link/img/go%E4%B9%8B%E8%99%9A%E6%8B%9F%E5%86%85%E5%AD%98%E5%8D%A0%E7%94%A8/2.png" alt="图片"></p>
+<p>在内核虚拟内存中，包含了内核中的代码和数据结构。</p>
+<p>内核虚拟内存中的某些区域会被映射到所有进程共享的物理页面中去，因此你会看到 ”内核虚拟内存“ 中实际上是包含了 ”物理内存“ 的，它们两者存在映射关系。</p>
+<p>而从应用场景上来讲，每个进程也会去共享内核的代码和全局数据结构，因此就会被映射到所有进程的物理页面中去。</p>
+<p><img src="http://shanks.link/img/go%E4%B9%8B%E8%99%9A%E6%8B%9F%E5%86%85%E5%AD%98%E5%8D%A0%E7%94%A8/3.png" alt="图片"></p>
+<h3 id="虚拟内存的重要能力">虚拟内存的重要能力</h3>
+<p>为了更有效地管理内存并且减少出错，现代系统提供了一种对主存的抽象概念，也就是今天的主角，叫做虚拟内存（VM）。</p>
+<p>虚拟内存是硬件异常、硬件地址翻译、主存、磁盘文件和内核软件交互的地方，它为每个进程提供了一个大的、一致的和私有的地址空间，虚拟内存提供了三个重要的能力：</p>
+<ol>
+<li>它将主存看成是一个存储在磁盘上的地址空间的高速缓存，在主存中只保存活动区域，并根据需要在磁盘和主存之间来回传送数据，通过这种方式，它高效地使用了主存。</li>
+<li>它为每个进程提供了一致的地址空间，从而简化了内存管理。</li>
+<li>它保护了每个进程的地址空间不被其他进程破坏。</li>
+</ol>
+<h3 id="小结">小结</h3>
+<p>上面发散的可能比较多，简单来讲，对于本文我们重点关注这些知识点，如下：</p>
+<ul>
+<li>虚拟内存它是有各式各样内存交互的地方，它包含的不仅仅是 &ldquo;自己&rdquo;，<strong>而在本文中，我们只需要关注 VSZ，也就是进程虚拟内存，它包含了你的代码、数据、堆、栈段和共享库</strong>。</li>
+<li>虚拟内存作为内存保护的工具，能够保证进程之间的内存空间独立，不受其他进程的影响，因此每一个进程的 VSZ 大小都不一样，互不影响。</li>
+<li>虚拟内存的存在，系统给各进程分配的内存之和是可以大于实际可用的物理内存的，因此你也会发现你进程的物理内存总是比虚拟内存低的多的多。</li>
+</ul>
+<h2 id="排查问题">排查问题</h2>
+<p>在了解了基础知识后，我们正式开始排查问题，第一步我们先编写一个测试程序，看看没有什么业务逻辑的 Go 程序，它初始的 VSZ 是怎么样的。</p>
+<h3 id="测试">测试</h3>
+<p>应用代码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func main() {
+</span></span><span style="display:flex;"><span> r := gin.Default()
+</span></span><span style="display:flex;"><span> r.GET(&#34;/ping&#34;, func(c *gin.Context) {
+</span></span><span style="display:flex;"><span>  c.JSON(200, gin.H{
+</span></span><span style="display:flex;"><span>   &#34;message&#34;: &#34;pong&#34;,
+</span></span><span style="display:flex;"><span>  })
+</span></span><span style="display:flex;"><span> })
+</span></span><span style="display:flex;"><span> r.Run(&#34;:8001&#34;)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>查看进程情况：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ ps aux 67459
+</span></span><span style="display:flex;"><span>USER      PID  %CPU %MEM      VSZ    RSS   ...
+</span></span><span style="display:flex;"><span>eddycjy 67459   0.0  0.0  4297048    960   ...
+</span></span></code></pre></div><p>从结果上来看，VSZ 为 4297048K，也就是 4G 左右，咋一眼看过去还是挺吓人的，明明没有什么业务逻辑，但是为什么那么高呢，真是令人感到好奇。</p>
+<h3 id="确认有没有泄露">确认有没有泄露</h3>
+<p>在未知的情况下，我们可以首先看下 <code>runtime.MemStats</code> 和 <code>pprof</code>，确定应用到底有没有泄露。不过我们这块是演示程序，什么业务逻辑都没有，因此可以确定和应用没有直接关系。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># runtime.MemStats
+</span></span><span style="display:flex;"><span># Alloc = 1298568
+</span></span><span style="display:flex;"><span># TotalAlloc = 1298568
+</span></span><span style="display:flex;"><span># Sys = 71893240
+</span></span><span style="display:flex;"><span># Lookups = 0
+</span></span><span style="display:flex;"><span># Mallocs = 10013
+</span></span><span style="display:flex;"><span># Frees = 834
+</span></span><span style="display:flex;"><span># HeapAlloc = 1298568
+</span></span><span style="display:flex;"><span># HeapSys = 66551808
+</span></span><span style="display:flex;"><span># HeapIdle = 64012288
+</span></span><span style="display:flex;"><span># HeapInuse = 2539520
+</span></span><span style="display:flex;"><span># HeapReleased = 64012288
+</span></span><span style="display:flex;"><span># HeapObjects = 9179
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><h3 id="go-faq">Go FAQ</h3>
+<p>接着我第一反应是去翻了 Go FAQ（因为看到过，有印象），其问题为 &ldquo;Why does my Go process use so much virtual memory?&quot;，回答如下：</p>
+<blockquote>
+<p>The Go memory allocator reserves a large region of virtual memory as an arena for allocations. This virtual memory is local to the specific Go process; the reservation does not deprive other processes of memory.</p>
+<p>To find the amount of actual memory allocated to a Go process, use the Unix top command and consult the RES (Linux) or RSIZE (macOS) columns.</p>
+</blockquote>
+<p>这个 FAQ 是在 2012 年 10 月 提交 的，这么多年了也没有更进一步的说明，再翻了 issues 和 forum，一些关闭掉的 issue 都指向了 FAQ，这显然无法满足我的求知欲，因此我继续往下探索，看看里面到底都摆了些什么。</p>
+<h3 id="查看内存映射">查看内存映射</h3>
+<p>在上图中，我们有提到进程虚拟内存，主要包含了你的代码、数据、堆、栈段和共享库，那初步怀疑是不是进程做了什么内存映射，导致了大量的内存空间被保留呢，为了确定这一点，我们通过如下命令去排查：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ vmmap --wide 67459
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>==== Non-writable regions for process 67459
+</span></span><span style="display:flex;"><span>REGION TYPE                      START - END             [ VSIZE  RSDNT  DIRTY   SWAP] PRT/MAX SHRMOD PURGE    REGION DETAIL
+</span></span><span style="display:flex;"><span>__TEXT                 00000001065ff000-000000010667b000 [  496K   492K     0K     0K] r-x/rwx SM=COW          /bin/zsh
+</span></span><span style="display:flex;"><span>__LINKEDIT             0000000106687000-0000000106699000 [   72K    44K     0K     0K] r--/rwx SM=COW          /bin/zsh
+</span></span><span style="display:flex;"><span>MALLOC metadata        000000010669b000-000000010669c000 [    4K     4K     4K     0K] r--/rwx SM=COW          DefaultMallocZone_0x10669b000 zone structure
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>__TEXT                 00007fff76c31000-00007fff76c5f000 [  184K   168K     0K     0K] r-x/r-x SM=COW          /usr/lib/system/libxpc.dylib
+</span></span><span style="display:flex;"><span>__LINKEDIT             00007fffe7232000-00007ffff32cb000 [192.6M  17.4M     0K     0K] r--/r-- SM=COW          dyld shared cache combined __LINKEDIT
+</span></span><span style="display:flex;"><span>...        
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>==== Writable regions for process 67459
+</span></span><span style="display:flex;"><span>REGION TYPE                      START - END             [ VSIZE  RSDNT  DIRTY   SWAP] PRT/MAX SHRMOD PURGE    REGION DETAIL
+</span></span><span style="display:flex;"><span>__DATA                 000000010667b000-0000000106682000 [   28K    28K    28K     0K] rw-/rwx SM=COW          /bin/zsh
+</span></span><span style="display:flex;"><span>...   
+</span></span><span style="display:flex;"><span>__DATA                 0000000106716000-000000010671e000 [   32K    28K    28K     4K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/zle.so
+</span></span><span style="display:flex;"><span>__DATA                 000000010671e000-000000010671f000 [    4K     4K     4K     0K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/zle.so
+</span></span><span style="display:flex;"><span>__DATA                 0000000106745000-0000000106747000 [    8K     8K     8K     0K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/complete.so
+</span></span><span style="display:flex;"><span>__DATA                 000000010675a000-000000010675b000 [    4K     4K     4K     0K] rw-
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><p>这块主要是利用 macOS 的 <code>vmmap</code> 命令去查看内存映射情况，这样就可以知道这个进程的内存映射情况，从输出分析来看，<strong>这些关联共享库占用的空间并不大，导致 VSZ 过高的根本原因不在共享库和二进制文件上，但是并没有发现大量保留内存空间的行为，这是一个问题点</strong>。</p>
+<p>注：若是 Linux 系统，可使用 <code>cat /proc/PID/maps</code> 或 <code>cat /proc/PID/smaps</code> 查看。</p>
+<h3 id="查看系统调用">查看系统调用</h3>
+<p>既然在内存映射中，我们没有明确的看到保留内存空间的行为，那我们接下来看看该进程的系统调用，确定一下它是否存在内存操作的行为，如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ sudo dtruss -a ./awesomeProject
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15620       6      3 mprotect(0x1BC4000, 0x1000, 0x0)   = 0 0
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15781       9      4 sysctl([CTL_HW, 3, 0, 0, 0, 0] (2), 0x7FFEEFBFFA64, 0x7FFEEFBFFA68, 0x0, 0x0)   = 0 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15783       3      1 sysctl([CTL_HW, 7, 0, 0, 0, 0] (2), 0x7FFEEFBFFA64, 0x7FFEEFBFFA68, 0x0, 0x0)   = 0 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15899       7      2 mmap(0x0, 0x40000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x4000000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15930       3      1 mmap(0xC000000000, 0x4000000, 0x0, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0xC000000000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15934       4      2 mmap(0xC000000000, 0x4000000, 0x3, 0x1012, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0xC000000000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15936       2      0 mmap(0x0, 0x2000000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x59B7000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15942       2      0 mmap(0x0, 0x210800, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x4040000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15947       2      0 mmap(0x0, 0x10000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x1BD0000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15993       3      0 madvise(0xC000000000, 0x2000, 0x8)   = 0 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     16004       2      0 mmap(0x0, 0x10000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x1BE0000 0
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><p>在这小节中，我们通过 macOS 的 <code>dtruss</code> 命令监听并查看了运行这个程序所进行的所有系统调用，发现了与内存管理有一定关系的方法如下：</p>
+<ul>
+<li>mmap：创建一个新的虚拟内存区域，但这里需要注意，<strong>就是当系统调用 mmap 时，它只是从虚拟内存中申请了一段空间出来，并不会去分配和映射真实的物理内存，而当你访问这段空间的时候，才会在当前时间真正的去分配物理内存</strong>。那么对应到我们实际应用的进程中，那就是 VSZ 的增长后，而该内存空间又未正式使用的话，物理内存是不会有增长的。</li>
+<li>madvise：提供有关使用内存的建议，例如：MADV_NORMAL、MADV_RANDOM、MADV_SEQUENTIAL、MADV_WILLNEED、MADV_DONTNEED 等等。</li>
+<li>mprotect：设置内存区域的保护情况，例如：PROT_NONE、PROT_READ、PROT_WRITE、PROT_EXEC、PROT_SEM、PROT_SAO、PROT_GROWSUP、PROT_GROWSDOWN 等等。</li>
+<li>sysctl：在内核运行时动态地修改内核的运行参数。</li>
+</ul>
+<p>在此比较可疑的是 <code>mmap</code> 方法，它在 <code>dtruss</code> 的最终统计中一共调用了 10 余次，我们可以相信它在 Go Runtime 的时候进行了大量的虚拟内存申请。</p>
+<p>我们再接着往下看，看看到底是在什么阶段进行了虚拟内存空间的申请。</p>
+<p>注：若是 Linux 系统，可使用 <code>strace</code> 命令。</p>
+<h3 id="查看-go-runtime">查看 Go Runtime</h3>
+<h4 id="启动流程">启动流程</h4>
+<p>通过上述的分析，我们可以知道在 Go 程序启动的时候 VSZ 就已经不低了，并且确定不是共享库等的原因，且程序在启动时系统调用确实存在 <code>mmap</code> 等方法的调用。</p>
+<p>那么我们可以充分怀疑 Go 在初始化阶段就保留了该内存空间。那我们第一步要做的就是查看一下 Go 的引导启动流程，看看是在哪里申请的。</p>
+<p>引导过程如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>graph TD
+</span></span><span style="display:flex;"><span>A(rt0_darwin_amd64.s:8&lt;br/&gt;_rt0_amd64_darwin) --&gt;|JMP| B(asm_amd64.s:15&lt;br/&gt;_rt0_amd64)
+</span></span><span style="display:flex;"><span>B --&gt; |JMP|C(asm_amd64.s:87&lt;br/&gt;runtime-rt0_go)
+</span></span><span style="display:flex;"><span>C --&gt; D(runtime1.go:60&lt;br/&gt;runtime-args)
+</span></span><span style="display:flex;"><span>D --&gt; E(os_darwin.go:50&lt;br/&gt;runtime-osinit)
+</span></span><span style="display:flex;"><span>E --&gt; F(proc.go:472&lt;br/&gt;runtime-schedinit)
+</span></span><span style="display:flex;"><span>F --&gt; G(proc.go:3236&lt;br/&gt;runtime-newproc)
+</span></span><span style="display:flex;"><span>G --&gt; H(proc.go:1170&lt;br/&gt;runtime-mstart)
+</span></span><span style="display:flex;"><span>H --&gt; I(在新创建的 p 和 m 上运行 runtime-main)
+</span></span></code></pre></div><ul>
+<li>runtime-osinit：获取 CPU 核心数。</li>
+<li>runtime-schedinit：初始化程序运行环境（包括栈、内存分配器、垃圾回收、P等）。</li>
+<li>runtime-newproc：创建一个新的 G 和 绑定 runtime.main。</li>
+<li>runtime-mstart：启动线程 M。</li>
+</ul>
+<p>注：来自@曹大的 《Go 程序的启动流程》和@全成的 《Go 程序是怎样跑起来的》，推荐大家阅读。</p>
+<h4 id="初始化运行环境">初始化运行环境</h4>
+<p>显然，我们要研究的是 runtime 里的 <code>schedinit</code> 方法，如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func schedinit() {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> stackinit()
+</span></span><span style="display:flex;"><span> mallocinit()
+</span></span><span style="display:flex;"><span> mcommoninit(_g_.m)
+</span></span><span style="display:flex;"><span> cpuinit()       // must run before alginit
+</span></span><span style="display:flex;"><span> alginit()       // maps must not be used before this call
+</span></span><span style="display:flex;"><span> modulesinit()   // provides activeModules
+</span></span><span style="display:flex;"><span> typelinksinit() // uses maps, activeModules
+</span></span><span style="display:flex;"><span> itabsinit()     // uses activeModules
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> msigsave(_g_.m)
+</span></span><span style="display:flex;"><span> initSigmask = _g_.m.sigmask
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> goargs()
+</span></span><span style="display:flex;"><span> goenvs()
+</span></span><span style="display:flex;"><span> parsedebugvars()
+</span></span><span style="display:flex;"><span> gcinit()
+</span></span><span style="display:flex;"><span>  ...
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>从用途来看，非常明显， <code>mallocinit</code> 方法会进行内存分配器的初始化，我们继续往下看。</p>
+<h4 id="初始化内存分配器">初始化内存分配器</h4>
+<h5 id="mallocinit">mallocinit</h5>
+<p>接下来我们正式的分析一下 <code>mallocinit</code> 方法，在引导流程中， <code>mallocinit</code> 主要承担 Go 程序的内存分配器的初始化动作，而今天主要是针对虚拟内存地址这块进行拆解，如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func mallocinit() {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> if sys.PtrSize == 8 {
+</span></span><span style="display:flex;"><span>  for i := 0x7f; i &gt;= 0; i-- {
+</span></span><span style="display:flex;"><span>   var p uintptr
+</span></span><span style="display:flex;"><span>   switch {
+</span></span><span style="display:flex;"><span>   case GOARCH == &#34;arm64&#34; &amp;&amp; GOOS == &#34;darwin&#34;:
+</span></span><span style="display:flex;"><span>    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x0013&lt;&lt;28)
+</span></span><span style="display:flex;"><span>   case GOARCH == &#34;arm64&#34;:
+</span></span><span style="display:flex;"><span>    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x0040&lt;&lt;32)
+</span></span><span style="display:flex;"><span>   case GOOS == &#34;aix&#34;:
+</span></span><span style="display:flex;"><span>    if i == 0 {
+</span></span><span style="display:flex;"><span>     continue
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0xa0&lt;&lt;52)
+</span></span><span style="display:flex;"><span>   case raceenabled:
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>   default:
+</span></span><span style="display:flex;"><span>    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x00c0&lt;&lt;32)
+</span></span><span style="display:flex;"><span>   }
+</span></span><span style="display:flex;"><span>   hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
+</span></span><span style="display:flex;"><span>   hint.addr = p
+</span></span><span style="display:flex;"><span>   hint.next, mheap_.arenaHints = mheap_.arenaHints, hint
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span> } else {
+</span></span><span style="display:flex;"><span>      ...
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
+<li>判断当前是 64 位还是 32 位的系统。</li>
+<li>从 0x7fc000000000~0x1c000000000 开始设置保留地址。</li>
+<li>判断当前 <code>GOARCH</code>、<code>GOOS</code> 或是否开启了竞态检查，根据不同的情况申请不同大小的连续内存地址，而这里的 <code>p</code> 是即将要要申请的连续内存地址的开始地址。</li>
+<li>保存刚刚计算的 arena 的信息到 <code>arenaHint</code> 中。</li>
+</ul>
+<p>可能会有小伙伴问，为什么要判断是 32 位还是 64 位的系统，这是因为不同位数的虚拟内存的寻址范围是不同的，因此要进行区分，否则会出现高位的虚拟内存映射问题。而在申请保留空间时，我们会经常提到 <code>arenaHint</code> 结构体，它是 <code>arenaHints</code>链表里的一个节点，结构如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>type arenaHint struct {
+</span></span><span style="display:flex;"><span> addr uintptr
+</span></span><span style="display:flex;"><span> down bool
+</span></span><span style="display:flex;"><span> next *arenaHint
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
+<li>addr：<code>arena</code> 的起始地址</li>
+<li>down：是否最后一个 <code>arena</code></li>
+<li>next：下一个 <code>arenaHint</code> 的指针地址</li>
+</ul>
+<p>那么这里疯狂提到的 <code>arena</code> 又是什么东西呢，这其实是 Go 的内存管理中的概念，Go Runtime 会把申请的虚拟内存分为三个大块，如下：</p>
+<p><img src="http://shanks.link/img/go%E4%B9%8B%E8%99%9A%E6%8B%9F%E5%86%85%E5%AD%98%E5%8D%A0%E7%94%A8/4.png" alt="图片"></p>
+<ul>
+<li>spans：记录 arena 区域页号和 mspan 的映射关系。</li>
+<li>bitmap：标识 arena 的使用情况，在功能上来讲，会用于标识 arena 的哪些空间地址已经保存了对象。</li>
+<li>arean：arean 其实就是 Go 的堆区，是由 mheap 进行管理的，它的 MaxMem 是 512GB-1。而在功能上来讲，Go 会在初始化的时候申请一段连续的虚拟内存空间地址到 arean 保留下来，在真正需要申请堆上的空间时再从 arean 中取出来处理，这时候就会转变为物理内存了。</li>
+</ul>
+<p>在这里的话，你需要理解 arean 区域在 Go 内存里的作用就可以了。</p>
+<h5 id="mmap">mmap</h5>
+<p>我们刚刚通过上述的分析，已经知道 <code>mallocinit</code> 的用途了，但是你可能还是会有疑惑，就是我们之前所看到的 <code>mmap</code> 系统调用，和它又有什么关系呢，怎么就关联到一起了，接下来我们先一起来看看更下层的代码，如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
+</span></span><span style="display:flex;"><span> p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> mSysStatInc(sysStat, n)
+</span></span><span style="display:flex;"><span> return p
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>func sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer {
+</span></span><span style="display:flex;"><span> p, err := mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>func sysMap(v unsafe.Pointer, n uintptr, sysStat *uint64) {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> munmap(v, n)
+</span></span><span style="display:flex;"><span> p, err := mmap(v, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_FIXED|_MAP_PRIVATE, -1, 0)
+</span></span><span style="display:flex;"><span>  ...
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在 Go Runtime 中存在着一系列的系统级内存调用方法，本文涉及的主要如下：</p>
+<ul>
+<li>sysAlloc：从 OS 系统上申请清零后的内存空间，调用参数是 <code>_PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE</code>，得到的结果需进行内存对齐。</li>
+<li>sysReserve：从 OS 系统中保留内存的地址空间，这时候还没有分配物理内存，调用参数是 <code>_PROT_NONE, _MAP_ANON|_MAP_PRIVATE</code>，得到的结果需进行内存对齐。</li>
+<li>sysMap：通知 OS 系统我们要使用已经保留了的内存空间，调用参数是 <code>_PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_FIXED|_MAP_PRIVATE</code>。</li>
+</ul>
+<p>看上去好像很有道理的样子，但是 <code>mallocinit</code> 方法在初始化时，到底是在哪里涉及了 <code>mmap</code> 方法呢，表面看不出来，如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>for i := 0x7f; i &gt;= 0; i-- {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
+</span></span><span style="display:flex;"><span> hint.addr = p
+</span></span><span style="display:flex;"><span> hint.next, mheap_.arenaHints = mheap_.arenaHints, hint
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>实际上在调用 <code>mheap_.arenaHintAlloc.alloc()</code> 时，调用的是 <code>mheap</code> 下的 <code>sysAlloc</code> 方法，而 <code>sysAlloc</code> 又会与 <code>mmap</code> 方法产生调用关系，并且这个方法与常规的 <code>sysAlloc</code> 还不大一样，如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>var mheap_ mheap
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> for h.arenaHints != nil {
+</span></span><span style="display:flex;"><span>  hint := h.arenaHints
+</span></span><span style="display:flex;"><span>  p := hint.addr
+</span></span><span style="display:flex;"><span>  if hint.down {
+</span></span><span style="display:flex;"><span>   p -= n
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  if p+n &lt; p {
+</span></span><span style="display:flex;"><span>   v = nil
+</span></span><span style="display:flex;"><span>  } else if arenaIndex(p+n-1) &gt;= 1&lt;&lt;arenaBits {
+</span></span><span style="display:flex;"><span>   v = nil
+</span></span><span style="display:flex;"><span>  } else {
+</span></span><span style="display:flex;"><span>   v = sysReserve(unsafe.Pointer(p), n)
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  ...
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>你可以惊喜的发现 <code>mheap.sysAlloc</code> 里其实有调用 <code>sysReserve</code> 方法，而 <code>sysReserve</code> 方法又正正是从 OS 系统中保留内存的地址空间的特定方法，是不是很惊喜，一切似乎都串起来了。</p>
+<h4 id="小结-1">小结</h4>
+<p>在本节中，我们先写了一个测试程序，然后根据非常规的排查思路进行了一步步的跟踪怀疑，整体流程如下：</p>
+<ul>
+<li>通过 <code>top</code> 或 <code>ps</code> 等命令，查看进程运行情况，分析基础指标。</li>
+<li>通过 <code>pprof</code> 或 <code>runtime.MemStats</code> 等工具链查看应用运行情况，分析应用层面是否有泄露或者哪儿高。</li>
+<li>通过 <code>vmmap</code> 命令，查看进程的内存映射情况，分析是不是进程虚拟空间内的某个区域比较高，例如：共享库等。</li>
+<li>通过 <code>dtruss</code> 命令，查看程序的系统调用情况，分析可能出现的一些特殊行为，例如：在分析中我们发现  <code>mmap</code> 方法调用的比例是比较高的，那我们有充分的理由怀疑 Go 在启动时就进行了大量的内存空间保留。</li>
+<li>通过上述的分析，确定可能是在哪个环节申请了那么多的内存空间后，再到 Go Runtime 中去做进一步的源码分析，因为源码面前，了无秘密，没必要靠猜。</li>
+</ul>
+<p>从结论上而言，VSZ（进程虚拟内存大小）与共享库等没有太大的关系，主要与 Go Runtime 存在直接关联，也就是在前图中表示的运行时堆（malloc）。转换到 Go Runtime 里，就是在 <code>mallocinit</code> 这个内存分配器的初始化阶段里进行了一定量的虚拟空间的保留。</p>
+<p>而保留虚拟内存空间时，受什么影响，又是一个哲学问题。从源码上来看，主要如下：</p>
+<ul>
+<li>受不同的 OS 系统架构（GOARCH/GOOS）和位数（32/64 位）的影响。</li>
+<li>受内存对齐的影响，计算回来的内存空间大小是需要经过对齐才会进行保留。</li>
+</ul>
+<h2 id="总结">总结</h2>
+<p>我们通过一步步地分析，讲解了 Go 会在哪里，又会受什么因素，去调用了什么方法保留了那么多的虚拟内存空间，但是我们肯定会忧心进程虚拟内存（VSZ）高，会不会存在问题呢，我分析如下：</p>
+<ul>
+<li>VSZ 并不意味着你真正使用了那些物理内存，因此是不需要担心的。</li>
+<li>VSZ 并不会给 GC 带来压力，GC 管理的是进程实际使用的物理内存，而 VSZ 在你实际使用它之前，它并没有过多的代价。</li>
+<li>VSZ 基本都是不可访问的内存映射，也就是它并没有内存的访问权限（不允许读、写和执行）。</li>
+</ul>
+<h2 id="思考">思考</h2>
+<p>看到这里舒一口气，因为 Go VSZ 的高，并不会对我们产生什么非常实质性的问题，但是又仔细一想，为什么 Go 要申请那么多的虚拟内存呢？</p>
+<p>总体考虑如下：</p>
+<ul>
+<li>Go 的设计是考虑到 <code>arena</code> 和  <code>bitmap</code> 的后续使用，先提早保留了整个内存地址空间。</li>
+<li>Go Runtime 和应用的逐步使用，肯定也会开始实际的申请和使用内存，这时候 <code>arena</code> 和 <code>bitmap</code> 的内存分配器就只需要将事先申请好的内存地址空间保留更改为实际可用的物理内存就好了，这样子可以极大的提高效能。</li>
+</ul>
+<p><strong>参考</strong></p>
+<ul>
+<li>High virtual memory allocation by golang</li>
+<li>GO MEMORY MANAGEMENT</li>
+<li>GoBigVirtualSize</li>
+<li>GoProgramMemoryUse</li>
+<li>曹大的 Go 程序的启动流程</li>
+<li>全成大佬的 Go 程序是怎样跑起来的</li>
+<li>欧神的 go-under-the-hood</li>
+</ul>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/go" rel="tag" title="go">#go#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/13/%E5%BF%85%E9%A1%BB%E8%A6%81%E5%AD%A6%E7%9A%84-go-%E8%BF%9B%E7%A8%8B%E8%AF%8A%E6%96%AD%E5%B7%A5%E5%85%B7-gops/" rel="next" title="必须要学的 Go 进程诊断工具 gops">
+        <i class="fa fa-chevron-left"></i> 必须要学的 Go 进程诊断工具 gops
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/13/%E8%AF%A6%E8%A7%A3-go-%E7%A8%8B%E5%BA%8F%E7%9A%84%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B%E4%BD%A0%E7%9F%A5%E9%81%93-g0m0-%E6%98%AF%E4%BB%80%E4%B9%88%E5%90%97/" rel="prev" title="详解 Go 程序的启动流程，你知道 g0，m0 是什么吗？">
+        详解 Go 程序的启动流程，你知道 g0，m0 是什么吗？ <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">144</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">7</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">13</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

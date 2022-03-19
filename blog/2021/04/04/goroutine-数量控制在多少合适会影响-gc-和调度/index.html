@@ -1,0 +1,490 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>Goroutine 数量控制在多少合适，会影响 GC 和调度？ - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="Goroutine 数量控制在多少合适，会影响 GC 和调度？">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="Goroutine 数量控制在多少合适，会影响 GC 和调度？ - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E6%8A%80%E6%9C%AF/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-code"></i> <br />技术
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E7%AC%94%E8%AE%B0/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />笔记
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />归档
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/04/goroutine-%E6%95%B0%E9%87%8F%E6%8E%A7%E5%88%B6%E5%9C%A8%E5%A4%9A%E5%B0%91%E5%90%88%E9%80%82%E4%BC%9A%E5%BD%B1%E5%93%8D-gc-%E5%92%8C%E8%B0%83%E5%BA%A6/" itemprop="url">
+        Goroutine 数量控制在多少合适，会影响 GC 和调度？
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-04">
+    2021-04-04
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/go" itemprop="url" rel="index">
+        <span itemprop="name">go</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">2756 字 ~6分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p>大家好，我是煎鱼<a href="https://mp.weixin.qq.com/s/uWP2X6iFu7BtwjIv5H55vw"></a>。</p>
+<p>前几天在读者交流群里看到一位小伙伴，发出了一个致命提问，那就是：“单机的 goroutine 数量控制在多少比较合适？”。</p>
+<p>也许你和群内小伙伴第一反应一样，会答复 “控制多少，我觉得没有定论”。</p>
+<p>紧接着延伸出了更进一步的疑惑：“goroutine 太多了会影响 gc 和调度吧，主要是怎么预算这个数是合理的呢？”</p>
+<p>这是本文要进行探讨的主体，因此本文的结构会是先探索基础知识，再一步步揭开，深入理解这个问题。</p>
+<h1 id="goroutine-是什么">Goroutine 是什么</h1>
+<p>Go 语言作为一个新生编程语言，其令人喜爱的特性之一就是 goroutine。Goroutine 是一个由 Go 运行时管理的轻量级线程，一般称其为 “协程”。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">go</span> <span style="color:#a6e22e">f</span>(<span style="color:#a6e22e">x</span>, <span style="color:#a6e22e">y</span>, <span style="color:#a6e22e">z</span>)
+</span></span></code></pre></div><p>操作系统本身是无法明确感知到 Goroutine 的存在的，Goroutine 的操作和切换归属于 “用户态” 中。</p>
+<p>Goroutine 由特定的调度模式来控制，以 “多路复用” 的形式运行在操作系统为 Go 程序分配的几个系统线程上。</p>
+<p>同时创建 Goroutine 的开销很小，初始只需要 2-4k 的栈空间。Goroutine 本身会根据实际使用情况进行自伸缩，非常轻量。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">say</span>(<span style="color:#a6e22e">s</span> <span style="color:#66d9ef">string</span>) {
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#ae81ff">9999999</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#ae81ff">100</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Millisecond</span>)
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">s</span>)
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">say</span>(<span style="color:#e6db74">&#34;煎鱼&#34;</span>)
+</span></span><span style="display:flex;"><span> <span style="color:#a6e22e">say</span>(<span style="color:#e6db74">&#34;你好&#34;</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>人称可以开几百几千万个的协程小霸王，是 Go 语言的得意之作之一。</p>
+<h1 id="调度是什么">调度是什么</h1>
+<p>既然有了用户态的代表 Goroutine，操作系统又看不到他。必然需要有某个东西去管理他，才能更好的运作起来。</p>
+<p>这指的就是 Go 语言中的调度，最常见、面试最爱问的 GMP 模型。因此接下来将会给大家介绍一下 Go 调度的基础知识和流程。</p>
+<p>下述内容摘自煎鱼和 p 神写的《Go 语言编程之旅》中的章节内容。</p>
+<h1 id="调度基础知识">调度基础知识</h1>
+<p>Go scheduler 的主要功能是针对在处理器上运行的 OS 线程分发可运行的 Goroutine，而我们一提到调度器，就离不开三个经常被提到的缩写，分别是：</p>
+<ul>
+<li>
+<p>G：Goroutine，实际上我们每次调用 go func 就是生成了一个 G。</p>
+</li>
+<li>
+<p>P：Processor，处理器，一般 P 的数量就是处理器的核数，可以通过 GOMAXPROCS 进行修改。</p>
+</li>
+<li>
+<p>M：Machine，系统线程。</p>
+</li>
+</ul>
+<p>这三者交互实际来源于 Go 的 M: N 调度模型。也就是 M 必须与 P 进行绑定，然后不断地在 M 上循环寻找可运行的 G 来执行相应的任务。</p>
+<h1 id="调度流程">调度流程</h1>
+<p>我们以 GMP 模型的工作流程图进行简单分析，官方图如下:</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/3461afeddf415bbf0d1d04b4400d45dd.png" alt=""></p>
+<ol>
+<li>
+<p>当我们执行 go func() 时，实际上就是创建一个全新的 Goroutine，我们称它为 G。</p>
+</li>
+<li>
+<p>新创建的 G 会被放入 P 的本地队列（Local Queue）或全局队列（Global Queue）中，准备下一步的动作。需要注意的一点，这里的 P 指的是创建 G 的 P。</p>
+</li>
+<li>
+<p>唤醒或创建 M 以便执行 G。</p>
+</li>
+<li>
+<p>不断地进行事件循环</p>
+</li>
+<li>
+<p>寻找在可用状态下的 G 进行执行任务</p>
+</li>
+<li>
+<p>清除后，重新进入事件循环</p>
+</li>
+</ol>
+<p>在描述中有提到全局和本地这两类队列，其实在功能上来讲都是用于存放正在等待运行的 G，但是不同点在于，本地队列有数量限制，不允许超过 256 个。</p>
+<p>并且在新建 G 时，会优先选择 P 的本地队列，如果本地队列满了，则将 P 的本地队列的一半的 G 移动到全局队列。</p>
+<p>这可以理解为调度资源的共享和再平衡。</p>
+<h1 id="窃取行为">窃取行为</h1>
+<p>我们可以看到图上有 steal 行为，这是用来做什么的呢，我们都知道当你创建新的 G 或者 G 变成可运行状态时，它会被推送加入到当前 P 的本地队列中。</p>
+<p>其实当 P 执行 G 完毕后，它也会 “干活”，它会将其从本地队列中弹出 G，同时会检查当前本地队列是否为空，如果为空会随机的从其他 P 的本地队列中尝试窃取一半可运行的 G 到自己的名下。</p>
+<p>官方图如下：</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/e7e7207b54e6074cea49995f318ef192.png" alt=""></p>
+<p>在这个例子中，P2 在本地队列中找不到可以运行的 G，它会执行 work-stealing 调度算法，随机选择其它的处理器 P1，并从 P1 的本地队列中窃取了三个 G 到它自己的本地队列中去。</p>
+<p>至此，P1、P2 都拥有了可运行的 G，P1 多余的 G 也不会被浪费，调度资源将会更加平均的在多个处理器中流转。</p>
+<h1 id="有没有什么限制">有没有什么限制</h1>
+<p>在前面的内容中，我们针对 Go 的调度模型和 Goroutine 做了一个基本介绍和分享。</p>
+<p>接下来我们回到主题，思考 “goroutine 太多了，会不会有什么影响”。</p>
+<p>在了解 GMP 的基础知识后，我们要知道在协程的运行过程中，真正干活的 GPM 又分别被什么约束？</p>
+<p>煎鱼带大家分别从 GMP 来逐步分析。</p>
+<h1 id="m-的限制">M 的限制</h1>
+<p>第一，要知道在<strong>协程的执行中，真正干活的是 GPM 中的哪一个？</strong></p>
+<p>那势必是 M（系统线程） 了，因为 G 是用户态上的东西，最终执行都是得映射，对应到 M 这一个系统线程上去运行。</p>
+<p>那么 M 有没有限制呢？</p>
+<p>答案是：有的。在 Go 语言中，**M 的默认数量限制是 10000，**如果超出则会报错：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>GO: runtime: program exceeds 10000-thread limit
+</span></span></code></pre></div><p>通常只有在 Goroutine 出现阻塞操作的情况下，才会遇到这种情况。这可能也预示着你的程序有问题。</p>
+<p>若确切是需要那么多，还可以通过 debug.SetMaxThreads 方法进行设置。</p>
+<h1 id="g-的限制">G 的限制</h1>
+<p>第二，那 G 呢，Goroutine 的创建数量是否有限制？</p>
+<p>答案是：没有。但理论上会受内存的影响，假设一个 Goroutine 创建需要 4k（via @GoWKH）：</p>
+<ul>
+<li>
+<p>4k * 80,000 = 320,000k ≈ 0.3G内存</p>
+</li>
+<li>
+<p>4k * 1,000,000 = 4,000,000k ≈ 4G内存</p>
+</li>
+</ul>
+<p>以此就可以相对计算出来一台单机在通俗情况下，所能够创建 Goroutine 的大概数量级别。</p>
+<p>注：Goroutine 创建所需申请的 2-4k 是需要连续的内存块。</p>
+<h1 id="p-的限制">P 的限制</h1>
+<p>第三，那 P 呢，P 的数量是否有限制，受什么影响？</p>
+<p>答案是：有限制。# P 的数量受环境变量 GOMAXPROCS 的直接影响。 #</p>
+<p>环境变量 GOMAXPROCS 又是什么？在 Go 语言中，通过设置 GOMAXPROCS，用户可以调整调度中 P（Processor）的数量。</p>
+<p>另一个重点在于，与 P 相关联的的 M（系统线程），是需要绑定 P 才能进行具体的任务执行的，因此 P 的多少会影响到 Go 程序的运行表现。</p>
+<p>P 的数量基本是受本机的核数影响，没必要太过度纠结他。</p>
+<p>那 P 的数量是否会影响 Goroutine 的数量创建呢？</p>
+<p>答案是：不影响。且 Goroutine 多了少了，P 也该干嘛干嘛，不会带来灾难性问题。</p>
+<h1 id="何为之合理">何为之合理</h1>
+<p>在介绍完 GMP 各自的限制后，我们回到一个重点，就是 “Goroutine 数量怎么预算，才叫合理？”。</p>
+<p>“合理” 这个词，是需要看具体场景来定义的，可结合上述对 GPM 的学习和了解。得出：</p>
+<p>M：有限制，默认数量限制是 10000，可调整。</p>
+<p>G：没限制，但受内存影响。</p>
+<p>P：受本机的核数影响，可大可小，不影响 G 的数量创建。</p>
+<p>Goroutine 数量在 MG 的可控限额以下，多个把个、几十个，少几个其实没有什么影响，就可以称其为 “合理”。</p>
+<h1 id="真实情况">真实情况</h1>
+<p>在真实的应用场景中，没法如此简单的定义。如果你 Goroutine：</p>
+<p>在频繁请求 HTTP，MySQL，打开文件等，那假设短时间内有几十万个协程在跑，那肯定就不大合理了（可能会导致  too many files open）。</p>
+<p>常见的 Goroutine 泄露所导致的 CPU、Memory 上涨等，还是得看你的 Goroutine 里具体在跑什么东西。</p>
+<p>还是得看 Goroutine 里面跑的是什么东西。</p>
+<h1 id="总结">总结</h1>
+<p>在这篇文章中，分别介绍了 Goroutine、GMP、调度模型的基本知识，针对如下问题进行了展开：</p>
+<p>单机的 goroutine 数量控制在多少比较合适？</p>
+<p>goroutine 太多了会影响 gc 和调度吧，主要是怎么预算这个数是合理的呢？</p>
+<p>单机的 goroutine 数量只要控制在限额以下的，都可以认为是 “合理”。</p>
+<p>真实场景得看具体里面跑的是什么，跑的如果是 “资源怪兽”，只运行几个 Goroutine 都可以跑死。</p>
+<p>因此想定义 “预算”，就得看跑的什么了。</p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/go" rel="tag" title="go">#go#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/04/go-g0%E7%89%B9%E6%AE%8A%E7%9A%84goroutinue/" rel="next" title="go g0,特殊的Goroutinue">
+        <i class="fa fa-chevron-left"></i> go g0,特殊的Goroutinue
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/04/go%E9%AB%98%E6%95%88%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" rel="prev" title="go高效内存分配">
+        go高效内存分配 <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">144</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">7</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">13</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

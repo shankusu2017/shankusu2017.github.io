@@ -1,0 +1,467 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>Go 内存泄露之痛，这篇把 Go timer.After 问题根因讲透了！ - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="Go 内存泄露之痛，这篇把 Go timer.After 问题根因讲透了！">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="Go 内存泄露之痛，这篇把 Go timer.After 问题根因讲透了！ - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E6%8A%80%E6%9C%AF/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-code"></i> <br />技术
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E7%AC%94%E8%AE%B0/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />笔记
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />归档
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/17/go-%E5%86%85%E5%AD%98%E6%B3%84%E9%9C%B2%E4%B9%8B%E7%97%9B%E8%BF%99%E7%AF%87%E6%8A%8A-go-timer.after-%E9%97%AE%E9%A2%98%E6%A0%B9%E5%9B%A0%E8%AE%B2%E9%80%8F%E4%BA%86/" itemprop="url">
+        Go 内存泄露之痛，这篇把 Go timer.After 问题根因讲透了！
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-17">
+    2021-04-17
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/go" itemprop="url" rel="index">
+        <span itemprop="name">go</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">1722 字 ~4分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p><a href="https://mp.weixin.qq.com/s/KSBdPkkvonSES9Z9iggElg">转载自煎鱼的blog</a></p>
+<p>前几天在公众号分享了一篇 Go timer 源码解析的文章《难以驾驭的 Go timer，一文带你参透计时器的奥秘》。</p>
+<p>如果大家也有兴趣共同交流，欢迎关注煎鱼的公众号，加我微信后拉你进群。</p>
+<p>在评论区有小伙伴提到了经典的 <code>timer.After</code> 泄露问题，希望我能聊聊，这是一个不能不知的一个大 “坑”。</p>
+<p>今天煎鱼就带大家来研讨一下这个问题。</p>
+<h2 id="timerafter">timer.After</h2>
+<p>今天是男主角是Go 标准库 time 所提供的 <code>After</code> 方法。函数签名如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func After(d Duration) &lt;-chan Time 
+</span></span></code></pre></div><p>该方法可以在一定时间（根据所传入的 Duration）后主动返回 <code>time.Time</code> 类型的 channel 消息。</p>
+<p>在常见的场景下，我们会基于此方法做一些计时器相关的功能开发，例子如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func main() {
+</span></span><span style="display:flex;"><span>    ch := make(chan string)
+</span></span><span style="display:flex;"><span>    go func() {
+</span></span><span style="display:flex;"><span>        time.Sleep(time.Second * 3)
+</span></span><span style="display:flex;"><span>        ch &lt;- &#34;脑子进煎鱼了&#34;
+</span></span><span style="display:flex;"><span>    }()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    select {
+</span></span><span style="display:flex;"><span>    case _ = &lt;-ch:
+</span></span><span style="display:flex;"><span>    case &lt;-time.After(time.Second * 1):
+</span></span><span style="display:flex;"><span>        fmt.Println(&#34;煎鱼出去了，超时了！！！&#34;)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在运行 1 秒钟后，输出结果：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>煎鱼出去了，超时了！！！
+</span></span></code></pre></div><p>上述程序在在运行 1 秒钟后将触发 <code>time.After</code> 方法的定时消息返回，输出了超时的结果。</p>
+<h2 id="坑在哪里">坑在哪里</h2>
+<p>从例子来看似乎非常正常，也没什么 “坑” 的样子。难道是 <code>timer.After</code> 方法的虚晃一枪？</p>
+<p>我们再看一个不像是有问题例子，这在 Go 工程中经常能看见，只是大家都没怎么关注。</p>
+<p>代码如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func main() {
+</span></span><span style="display:flex;"><span>    ch := make(chan int, 10)
+</span></span><span style="display:flex;"><span>    go func() {
+</span></span><span style="display:flex;"><span>        in := 1
+</span></span><span style="display:flex;"><span>        for {
+</span></span><span style="display:flex;"><span>            in++
+</span></span><span style="display:flex;"><span>            ch &lt;- in
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }()
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    for {
+</span></span><span style="display:flex;"><span>        select {
+</span></span><span style="display:flex;"><span>        case _ = &lt;-ch:
+</span></span><span style="display:flex;"><span>            // do something...
+</span></span><span style="display:flex;"><span>            continue
+</span></span><span style="display:flex;"><span>        case &lt;-time.After(3 * time.Minute):
+</span></span><span style="display:flex;"><span>            fmt.Printf(&#34;现在是：%d，我脑子进煎鱼了！&#34;, time.Now().Unix())
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在上述代码中，我们构造了一个 <code>for+select+channel</code> 的一个经典的处理模式。</p>
+<p>同时在 <code>select+case</code> 中调用了 <code>time.After</code> 方法做超时控制，避免在 <code>channel</code> 等待时阻塞过久，引发其他问题。</p>
+<p>看上去都没什么问题，但是细心一看。在运行了一段时间后，粗暴的利用 <code>top</code> 命令一看：</p>
+<p><img src="http://shanks.link/img/Go%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E4%B9%8BTimer/1.jpg" alt="img">运行了一会后，10+GB</p>
+<p>我的 Go 工程的内存占用竟然已经达到了 10+GB 之高，并且还在持续增长，非常可怕。</p>
+<p>在所设置的超时时间到达后，Go 工程的内存占用似乎一时半会也没有要回退下去的样子，这，到底发生了什么事？</p>
+<h2 id="为什么">为什么</h2>
+<p>抱着一脸懵逼的煎鱼，我默默的掏出我早已埋好的 PProf，这是 Go 语言中最强的性能分析剖析工具，在我出版的 《<a href="https://mp.weixin.qq.com/s/vDUwenmkRfguLkn2NJ_NjA">Go 语言编程之旅</a>》特意有花大量的篇幅大面积将讲解过。</p>
+<p>在 Go 语言中，PProf 是用于可视化和分析性能分析数据的工具，PProf 以 profile.proto 读取分析样本的集合，并生成报告以可视化并帮助分析数据（支持文本和图形报告）。</p>
+<p>我们直接用 <code>go tool pprof</code> 分析 Go 工程中函数内存申请情况，如下图：</p>
+<p><img src="http://shanks.link/img/Go%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E4%B9%8BTimer/2.jpg" alt="img">PProf</p>
+<p>从图来分析，可以发现是不断地在调用 <code>time.After</code>，从而导致计时器 <code>time.NerTimer</code> 的不断创建和内存申请。</p>
+<p>这就非常奇怪了，因为我们的 Go 工程里只有几行代码与 <code>time</code> 相关联：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func main() {
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>    for {
+</span></span><span style="display:flex;"><span>        select {
+</span></span><span style="display:flex;"><span>        ...
+</span></span><span style="display:flex;"><span>        case &lt;-time.After(3 * time.Minute):
+</span></span><span style="display:flex;"><span>            fmt.Printf(&#34;现在是：%d，我脑子进煎鱼了！&#34;, time.Now().Unix())
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>由于 Demo 足够的小，我们相信这就是问题代码，但原因是什么呢？</p>
+<p>原因在于 <code>for</code>+<code>select</code>，再加上 <code>time.After</code> 的组合会导致内存泄露。因为 <code>for</code>在循环时，就会调用都 <code>select</code> 语句，因此在每次进行 <code>select</code> 时，都会重新初始化一个全新的计时器（Timer）。</p>
+<p>我们这个计时器，是在 3 分钟后才会被触发去执行某些事，但重点在于计时器激活后，却又发现和 <code>select</code> 之间没有引用关系了，因此很合理的也就被 GC 给清理掉了，因为没有人需要 “我” 了。</p>
+<p><img src="http://shanks.link/img/Go%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E4%B9%8BTimer/3.jpg" alt="img"></p>
+<p>要命的还在后头，被抛弃的 <code>time.After</code> 的定时任务还是在时间堆中等待触发，在定时任务未到期之前，是不会被 GC 清除的。</p>
+<p><img src="http://shanks.link/img/Go%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E4%B9%8BTimer/4.jpg" alt="img"></p>
+<p>但很可惜，他 “永远” 不会到期了，也就是为什么我们的 Go 工程内存会不断飙高，其实是 <code>time.After</code> 产生的内存孤儿们导致了泄露。</p>
+<h2 id="解决办法">解决办法</h2>
+<p>既然我们知道了问题的根因代码是不断的重复创建 <code>time.After</code>，又没法完整的走完释放的闭环，那解决办法也就有了。</p>
+<p>改进后的代码如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func main() {
+</span></span><span style="display:flex;"><span>    timer := time.NewTimer(3 * time.Minute)
+</span></span><span style="display:flex;"><span>    defer timer.Stop()
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>    for {
+</span></span><span style="display:flex;"><span>        select {
+</span></span><span style="display:flex;"><span>        ...
+</span></span><span style="display:flex;"><span>        case &lt;-timer.C:
+</span></span><span style="display:flex;"><span>            fmt.Printf(&#34;现在是：%d，我脑子进煎鱼了！&#34;, time.Now().Unix())
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>经过一段时间的摸鱼后，再使用 PProf 进行采集和查看：</p>
+<p><img src="http://shanks.link/img/Go%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E4%B9%8BTimer/5.jpg" alt="img">PProf</p>
+<p>Go 进程的各项指标正常，完好的解决了这个内存泄露的问题。</p>
+<h2 id="总结">总结</h2>
+<p>在今天这篇文章中，我们介绍了标准库 <code>time</code> 的基本常规使用，同时针对 Go 小伙伴所提出的 <code>time.After</code> 方法的使用不当，所导致的内存泄露进行了重现和问题解析。</p>
+<p>其根因就在于 Go 语言时间堆的处理机制和常规 <code>for</code>+<code>select</code>+<code>time.After</code> 组合的下意识写法所导致的泄露。</p>
+<p>不知道你在日常工作中有没有遇到过相似的问题呢，<strong>欢迎留言区评论和交流</strong>。</p>
+<p>（大雾）突然想起我有一个朋友在公司里有看到过类似的代码&hellip;</p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/go" rel="tag" title="go">#go#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/17/%E5%86%8D%E8%A7%81-go-%E9%9D%A2%E8%AF%95%E5%AE%98%E5%8D%95%E6%A0%B8-cpu%E5%BC%80%E4%B8%A4%E4%B8%AA-goroutine%E5%85%B6%E4%B8%AD%E4%B8%80%E4%B8%AA%E6%AD%BB%E5%BE%AA%E7%8E%AF%E4%BC%9A%E6%80%8E%E4%B9%88%E6%A0%B7/" rel="next" title="再见 Go 面试官：单核 CPU，开两个 Goroutine，其中一个死循环，会怎么样">
+        <i class="fa fa-chevron-left"></i> 再见 Go 面试官：单核 CPU，开两个 Goroutine，其中一个死循环，会怎么样
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/16/%E6%89%8B%E6%92%95-go-%E9%9D%A2%E8%AF%95%E5%AE%98go-%E7%BB%93%E6%9E%84%E4%BD%93%E6%98%AF%E5%90%A6%E5%8F%AF%E4%BB%A5%E6%AF%94%E8%BE%83%E4%B8%BA%E4%BB%80%E4%B9%88/" rel="prev" title="手撕 Go 面试官：Go 结构体是否可以比较，为什么？">
+        手撕 Go 面试官：Go 结构体是否可以比较，为什么？ <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">144</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">7</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">13</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

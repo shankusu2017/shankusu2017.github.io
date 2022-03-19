@@ -1,0 +1,447 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>垃圾回收GC浅谈 - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="垃圾回收GC浅谈">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="垃圾回收GC浅谈 - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E6%8A%80%E6%9C%AF/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-code"></i> <br />技术
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E7%AC%94%E8%AE%B0/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />笔记
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-archive"></i> <br />归档
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/04/%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6gc%E6%B5%85%E8%B0%88/" itemprop="url">
+        垃圾回收GC浅谈
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-04">
+    2021-04-04
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/algorithm" itemprop="url" rel="index">
+        <span itemprop="name">algorithm</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">4799 字 ~10分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p><a href="https://juejin.cn/post/6844903857609244685">原文链接</a></p>
+<p><strong>关于内存</strong>
+计算机通过两个机制，去实现内存的高效使用。</p>
+<p>第一种机制是虚拟内存。硬盘的容量其实是远远大于内存的(RAM)，虚拟内存会在内存不足的时候，把不经常访问的内存的数据写到硬盘里。虽然说硬盘容量比较大，但是它的访问速度却很慢。如果内存和硬盘交换数据过于频繁，处理速度就会下降，计算机就会看上去像卡死了一样，这种现象被叫做抖动(Thrushing)。造成电脑蓝屏的主要原因之一就是抖动。</p>
+<p>第二种机制就是垃圾回收(GC)。</p>
+<p>虚拟内存的东西在计算机组成原理和操作系统的教科书里有相关的章节去讲。由于内容很多我就不多叙述了。主要来讲一下GC的事情。</p>
+<p><strong>GC</strong>
+之前学习java以及参加java相关的面试，被问到关于相关GC的事情一直很是头疼，看了好多遍还是记不住，脑袋里只有隐隐约约的一些关键字，什么老年代、新生代、full GC什么的。具体流程一被问就GG。</p>
+<p>现在想想，其实GC就是计算机帮助你去进行内存的回收。你用不到的数据如果一直占着内存，那么你的程序能用的内存就越来越少，所以需要进行内存的管理。比如你在写C、C++程序的时候，需要自己去管理内存，在堆上申请的内存最后需要自己手动释放，释放的内存会被操作系统重新利用。如果你认为某些内存空间“可能还会被用到”，或者是干脆忘记释放内存，这些无法访问的内存空间就会一直保留下来，造成内存浪费，最终导致性能下降和产生抖动。管理大量分配的内存空间，对于人来说其实是很困难的。</p>
+<p>对于像Java、go这些语言，它们有自己的一套内存管理的机制，内存空间释放的自动化也就是GC，从某种程度上解放了程序员的双手。</p>
+<p><strong>术语</strong>
+垃圾(Garbage)</p>
+<p>垃圾(Garbage)就是需要回收的对象。作为编程人员你知道对象什么时候不需要，但是计算机无法判断。因此，如果程序直接或者间接地引用一个对象，那么它就会被计算机标记为“存活”；相反的，没有被引用到的对象就被视为“死亡”。把这些“死亡”的对象找出来，然后作为垃圾进行回收，这就是GC的本质。</p>
+<p>根（Root）</p>
+<p>根(Root)，就是判断对象是否可被引用的起始点。不同语言和编译器对根有不同规定，但是基本上是将变量和运行栈空间作为根。</p>
+<p><strong>GC算法
+标记清除方式</strong>
+标记清除原理非常简单，首先从根开始，将可能被引用的对象用递归的方式进行标记，然后将没有标记上的对象作为垃圾进行回收。</p>
+<p>图1.1</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/a68fe017f78626c2e94915f5dfc8502b.png" alt=""></p>
+<p>图1.1的
+(1)显示了随着程序的运行进而分配出的一些对象的状态，一个对象可以对其他的对象进行引用。
+(2)部分GC开始执行，从根开始对可能被引用的对象打上标记。大多数情况下，这种标记是通过对象内部的标志(Flag)来实现的。被标记的对象我们将它涂黑。
+(3)中，被标记的对象所能够引用的对象也被打上标记。重复这一步骤，可以将从根开始可能被间接引用到的对象全部打上标记。到此为止的操作，称作标记阶段(Mark phase)。标记阶段完成是，被标记的对象就被看做是“存活”对象。
+(4)中，将全部对象按顺序扫描一遍，将没有标记的对象进行回收。这一步操作称作清除阶段(Sweep phase)。在扫描的同时，还需要将存活对象的标记清除掉，以便下一次GC去处理。</p>
+<p>标记清除算法的处理时间，是和存活对象数与对象总数两者的和相关的。</p>
+<p>标记清除方式的优点：可以处理循环引用的对象。缺点：在分配了大量对象，并且其中只有一小部分存活的情况下，由于清除阶段还要对大量“死亡”的对象进行扫描，会导致消耗大量不必要的时间。</p>
+<p><strong>复制收集方式</strong>
+复制收集(Copy and Collection)方式试图解决标记清除的缺点。这种算法中，会从根开始，被引用的对象复制到另外的空间中，然后再将复制的对象所能够引用的对象递归的方式不断复制下去。</p>
+<p>图1.2</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/fdaefe0ffe5152ccf95c3d0e92ce9b41.png" alt=""></p>
+<p>(1)是GC开始前的状态。
+(2)部分中，旧对象空间之外，准备出一块新空间，然后将可能从根被引用的对象复制到新空间中。
+(3)部分中，从已经复制的对象开始，再将可以被引用的对象复制到新空间中(串到了后面)，“死亡”对象就被留存在了旧空间中。
+(4)中，将旧空间废弃掉，就可以将这部分所占的空间一下子全部释放掉，而没有必要再扫描每个对象。下次GC的时候，现在的新空间就当做了未来的旧空间。</p>
+<p>通过图1.2可以发现，复制收集方式，只有类似标记清除的标记阶段，而不存在需要扫描所有对象的情况。但是相比之下，复制收集将对象复制一份所需要的开销会比较大，因此在“存活”对象比例较高的情况下，反而会比较不利。</p>
+<p>这种算法的另一个好处就是它具有局部性(Locality)。在复制收集过程中，会按照对象被引用的顺序将对象复制到新空间中。因此关系较近的对象被放在距离较近的内存空间中的可能性会提供，这被称为局部性。局部性高的情况，内存缓存会更容易有效运作，程序的性能也会得到提高。</p>
+<p><strong>引用计数方式</strong>
+引用计数的基本原理是，在每一个对象中保存该对象的引用计数，当引用发生增减时对计数进行更新。这让我想到了C++里的智能指针(shared_ptr)，曾经被面试手写shared_ptr的场景历历在目啊。</p>
+<p>引用计数的增减，一般发生在变量赋值、对象内容更新、函数结束(局部变量不再被引用)等时间点。当一个对象的引用计数变为0的时候，则说明它将来不会再被引用，因此可以释放相应的内存空间。</p>
+<p>图1.3</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/7867a8e8aa54aa0afad88c66e0e382a6.png" alt=""></p>
+<p>(1)里面，所有对象中都保存着自己被多少其他的对象进行引用的数量(引用计数)。
+(2)中，当对象引用发生变化的时候，引用计数也跟着变。这里由于B到D的引用失效了，于是对象D的引用计数变为0，由于D的引用计数为0，因此由D到对象C和E的引用数也分别相应减少。结果，对象E的引用计数变为0，于是E也对应释放掉了。
+(3)中，引用计数为0的对象被释放，“存活”的对象保留了下来。能够注意到，在整个GC的过程中，并不需要对所有对象进行扫描。</p>
+<p>这种方式最大优点，就是容易实现。它的另外一个优点就是，当对象不再被引用的瞬间就会被释放。其它的GC机制很难预测对象什么时候会被释放，而这种方式是立即被释放的。因此，由GC产生的中断时间(Pause time)就比较短。</p>
+<p>当然这种方式也有缺点。最大的缺点就是，无法释放循环引用的对象。图1.4中A、B、C之间互相循环引用，它的引用计数永远不会为0，也就永远不会被释放。</p>
+<p>图1.4</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/898bda1498403a33b961fb56dfc200cd.png" alt=""></p>
+<p>它的另外一个缺点就是，如果在必要的增减计数的时候遗漏掉了增减操作，或者是增减计数出错，就会产生内存错误。如果是手动管理计数就很容易产生bug。</p>
+<p>它的最后一个缺点就是引用计数管理不适合并行处理。如果多个线程同时对引用计数进行增减，引用数值就会产生不一致的问题从而导致内存错误。因此引用计数必须采用独占的方式。如果引用计数频繁发生，每次需要使用加锁等并发控制机制的话，也会造成很大的额外开销。
+**
+改良版GC**
+GC的基本算法，大体上都是上面的三种方式或者是它们的衍生品。现在通过三种方式进行融合，出现一些其他高级的GC方式，即分代回收、增量回收和并行回收。有些情况也会对这些改良版的gc方式进行组合使用。</p>
+<p><strong>分代回收(Generational GC)</strong>
+分代回收的目的，就是在程序运行期间，将GC所消耗的时间尽量的缩短。</p>
+<p>它基于这样一个一般程序的性质，即大部分对象都会在短时间内成为垃圾，经过一定时间依然存活的对象往往有较长的寿命。对于刚分配不久的“年轻”对象进行重点扫描，应该可以更有效的回收大部分垃圾。</p>
+<p>分代回收中，按照对象生成时间进行分代。刚刚生成不久的对象划分为新生代(Young generation)，而存活了较长时间的对象划分为旧生代(Old generation)。不同实现可能还会有更多划分。如果上面的对象寿命假说成立的话，只要扫描回收新生代对象，就可以回收掉废弃对象中的很大一部分。</p>
+<p>这种只扫描新生代对象的回收操作，被称作小回收(Minor GC)。它的具体步骤如下。</p>
+<p>首先从根开始一次常规扫描，找到“存活”对象。可以使用复制收集算法或者标记清除算法，但是大部分使用了复制收集。需要注意的是，在扫描的过程中，如果遇到属于旧生代的对象，则不对该对象进行递归扫描。这样需要扫描的对象就会大量减少。</p>
+<p>然后，将第一次扫描后残留下来的对象划分到旧生代。具体来说，如果使用复制收集算法，只要将复制目标空间设置为旧生代就可以了；标记清除方式的话，则采用在对象上设置某种标志的方式。</p>
+<p>现在有一个问题，如果有从旧生代到新生代对象的引用怎么办？如果只扫描新生代，那么旧生代对新生代的引用就不会被检测到。这样一来，如果一个年轻的对象只有来自旧生代的引用，就会被误认为“死亡”。因此在分代回收中，会对对象的更新进行监视，将从旧生代对新生代的引用，记录在记录集(remembered set)的表中。在执行小回收过程中，这个记录集也作为一个根(root)来对待。</p>
+<p>图1.5</p>
+<p><img src="https://img-blog.csdnimg.cn/img_convert/22c61fc10372e491f12d7738d32b217c.png" alt=""></p>
+<p>没有引用任何其它对象的旧生代F对象，会通过大回收(Full gc)操作进行回收。保证分代回收正确工作，必须使记录集的内容保持更新。</p>
+<p>记录引用的子程序工作方式如下。设有两个对象A、B，当对A内容进行改写，并加入对B的引用时，如果A属于旧生代，B属于新生代，则将该引用添加到记录集中。</p>
+<p>这种检查程序需要对所有涉及修改对象内容的地方进行保护，因此也被称为写屏障(Write barrier)。写屏障也用在很多其他GC算法中，比如Go的gc算法也用到了写屏障。</p>
+<p>虽然旧生代中的对象寿命一般比较长，但是最终也会“死亡”。随着程序运行，旧生代中“死亡”的对象不断增加。为了避免这些“死亡”的旧生代对象白占内存空间，偶尔需要对包括旧生代在内的全部区域进行一次扫描回收。这种以全部区域为对象的GC操作叫Full GC</p>
+<p>分代收集通过减少GC中扫描的对象数量进而缩短GC带来的平均中断时间，但是最终还是需要一次Full GC，因此最大中断时间并没有改善。GC的性能也会被程序行为、分代数量、Full GC的触发条件等因素大幅左右。</p>
+<p><strong>增量回收</strong>
+实时性要求很高的程序中，相比缩短GC平均中断时间，缩短GC的最大中断时间更加重要。</p>
+<p>GC最大的中断时间要限定在一个时间范围内，但是一般GC算法没办法保证，因为GC产生的中断时间和对象的数量和状态有关系。因此为了维持程序的实时性，不等到GC全部完成，而是将GC操作细分成多个部分逐一执行。这种方式就是增量回收（Incremental GC）</p>
+<p>增量回收过程中程序本身会继续运行，为了避免对象之间的引用关系改变而导致GC回收出错，增量回收也使用了写屏障，来讲新被引用的对象作为扫描的起始点记录下来。</p>
+<p>由于增量回收过程式分步渐进式的，可以将中断时间控制在一定长度之内。但是相应的中断操作需要消耗一定时间，GC消耗的总时间会相应增加。</p>
+<p><strong>并行回收</strong>
+现在的计算机基本上都有多个CPU核心。而并行回收方式正是通过最大限度利用多CPU的处理能力来进行GC操作。</p>
+<p>并行回收的基本原理是，在原有程序运行的同时进行GC操作，这点和增量回收是相似的。相对于在一个CPU上进行任务分割的增量回收方式，并行回收可以利用多CPU的性能，尽可能让这些GC任务并行（同时）进行。由于程序功能运行和GC操作是同时发生的，就会遇到和前面相同的问题，所以并行回收也需要利用写屏障来对对象当前的状态信息保持更新。</p>
+<p>但是让GC完全并行，而不影响原有程序运行时做不到的，在GC的某些特定阶段还是需要暂停原有程序的运行。</p>
+<p><strong>总结</strong>
+目前的GC算法基本上都是上述算法的变体或者是组合，例如java里的分代回收，golang中的三色标记法。有时候因为对象之间的引用状态发生了变化，结果导致了本来是“存活”对象却被回收掉，这时候需要写屏障(Write barrier)来进行记录和保护。当我们理解了上面的事情，其他具体编程语言的GC算法就不难理解了。</p>
+<p>参考资料
+《代码的未来》&ndash; 作者：松本行弘 译者：周自恒
+<a href="https://juejin.im/post/6844903513248497677">juejin.im/post/684490…</a>
+<a href="http://legendtkl.com/2017/04/28/golang-gc/">legendtkl.com/2017/04/28/…</a></p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/algorithm" rel="tag" title="algorithm">#algorithm#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/04/go%E9%AB%98%E6%95%88%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" rel="next" title="go高效内存分配">
+        <i class="fa fa-chevron-left"></i> go高效内存分配
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/04/%E8%AF%A6%E8%A7%A3go%E9%80%83%E9%80%B8%E5%88%86%E6%9E%90/" rel="prev" title="详解Go逃逸分析">
+        详解Go逃逸分析 <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">144</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">7</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">13</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>
