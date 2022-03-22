@@ -1,0 +1,405 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>探索Lua52内部实现:GC2 - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="探索Lua52内部实现:GC2">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="探索Lua52内部实现:GC2 - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/06/%E6%8E%A2%E7%B4%A2lua52%E5%86%85%E9%83%A8%E5%AE%9E%E7%8E%B0gc2/" itemprop="url">
+        探索Lua52内部实现:GC2
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-06">
+    2021-04-06
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/lua" itemprop="url" rel="index">
+        <span itemprop="name">lua</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">2871 字 ~6分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p><a href="https://blog.csdn.net/yuanlin2008/article/details/8684869">原文链接</a></p>
+<h1 id="gcobject">GCObject</h1>
+<p>Lua使用union GCObject来表示所有的垃圾回收对象：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#ae81ff">182</span> <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">183 ** Union of all collectable objects
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">184 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">185</span> <span style="color:#66d9ef">union</span> GCObject {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">186</span>   GCheader gch;  <span style="color:#75715e">/* common header */</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">187</span>   <span style="color:#66d9ef">union</span> TString ts;
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">188</span>   <span style="color:#66d9ef">union</span> Udata u;
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">189</span>   <span style="color:#66d9ef">union</span> Closure cl;
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">190</span>   <span style="color:#66d9ef">struct</span> Table h;
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">191</span>   <span style="color:#66d9ef">struct</span> Proto p;
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">192</span>   <span style="color:#66d9ef">struct</span> UpVal uv;
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">193</span>   <span style="color:#66d9ef">struct</span> lua_State th;  <span style="color:#75715e">/* thread */</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">194</span> };
+</span></span></code></pre></div><p>这就相当于在C++中，将所有的GC对象从GCheader派生，他们都共享GCheader。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#ae81ff">74</span> <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> 75 ** Common Header for all collectable objects (in macro form, to be
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> 76 ** included in other objects)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> 77 */</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">78</span> <span style="color:#960050;background-color:#1e0010">#</span>define CommonHeader    GCObject <span style="color:#f92672">*</span>next; lu_byte tt; lu_byte marked
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">79</span> 
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">80</span> 
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">81</span> <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> 82 ** Common header in struct form
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> 83 */</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">84</span> <span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> GCheader {
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">85</span>   CommonHeader;  
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">86</span> } GCheader;
+</span></span></code></pre></div><p>marked这个标志用来记录对象与GC相关的一些标志位。其中0和1位用来表示对象的white状态和垃圾状态。当垃圾回收的标识阶段结束后，剩下的white对象就是垃圾对象。由于lua并不是立即清除这些垃圾对象，而是一步步逐渐清除，所以这些对象还会在系统中存在一段时间。这就需要我们能够区分出同样为white状态的垃圾对象和非垃圾对象。Lua使用两个标志位来表示white，就是为了高效的解决这个问题。这个标志位会轮流被当作white状态标志，另一个表示垃圾状态。在global_State中保存着一个currentwhite，来表示当前是那个标志位用来标识white。每当GC标识阶段完成，系统会切换这个标志位，这样原来为white的所有对象不需要遍历就变成了垃圾对象，而真正的white对象则使用新的标志位标识。</p>
+<p>第2个标志位用来表示black状态，而既非white也非black就是gray状态。</p>
+<p>除了short string和open upvalue之外，所有的GCObject都通过next被串接到全局状态global_State中的allgc链表上。我们可以通过遍历allgc链表来访问系统中的所有GCObject。short string被字符串标单独管理。open upvalue会在被close时也连接到allgc上。</p>
+<h1 id="引用关系">引用关系</h1>
+<p>垃圾回收过程通过对象之间的引用关系来标识对象。以下是lua对象之间在垃圾回收标识过程中需要遍历的引用关系：
+<img src="https://img-my.csdn.net/uploads/201304/07/1365325183_1984.png" alt=""></p>
+<p>所有字符串对象，无论是长串还是短串，都没有对其他对象的引用。</p>
+<p>usedata对象会引用到一个metatable和一个env table。</p>
+<p>Upval对象通过v引用一个TValue，再通过这个TValue间接引用一个对象。在open状态下，这个v指向stack上的一个TValue。在close状态下，v指向Upval自己的TValue。</p>
+<p>Table对象会通过key，value引用到其他对象，并且如果数组部分有效，也会通过数组部分引用。并且，table会引用一个metatable对象。</p>
+<p>Lua closure会引用到Proto对象，并且会通过upvalues数组引用到Upval对象。</p>
+<p>C closure会通过upvalues数组引用到其他对象。这里的upvalue与lua closure的upvalue完全不是一个意思。</p>
+<p>Proto对象会引用到一些编译期产生的名称，常量，以及内嵌于本Proto中的Proto对象。</p>
+<p>Thread对象通过stack引用其他对象。</p>
+<h1 id="barrier">barrier</h1>
+<p>在《 原理》中我们说过，incremental gc在mark阶段，为了保证“所有的black对象都不会引用white对象”这个不变性，需要使用barrier。
+barrier被分为“向前”和“向后”两种。</p>
+<p>luaC_barrier_函数用来实现“向前”的barrier。“向前”的意思就是当一个black对象需要引用一个white对象时，立即mark这个white对象。这样white对象就变为gray对象，等待下一步的扫描。这也就是帮助gc向前标识一步。luaC_barrier_函数被用在以下引用变化处：</p>
+<ul>
+<li>虚拟机执行过程中或者通过api修改close upvalue对其他对象的引用</li>
+<li>通过api设置userdata或table的metatable引用</li>
+<li>通过api设置userdata的env table引用</li>
+<li>编译构建proto对象过程中proto对象对其他编译产生对象的引用</li>
+</ul>
+<p>luaC_barrierback_函数用来实现“向后”的barrier。“向后”的意思就是当一个black对象需要引用一个white对象时，将已经扫描过的black对象再次变为gray对象，等待重新扫描。这也就是将gc的mark后退一步。luaC_barrierback_目前只用于监控table的key和value对象引用的变化。Table是lua中最主要的数据结构，连全局变量都是被保存在一个table中，所以table的变化是比较频繁的，并且同一个引用可能被反复设置成不同的对象。对table的引用使用“向前”的barrier，逐个扫描每次引用变化的对象，会造成很多不必要的消耗。而使用“向后”的barrier就等于将table分成了“未变”和“已变”两种状态。只要一个table改变了一次，就将其变成gray，等待重新扫描。被变成gray的table在被重新扫描之前，无论引用再发生多少次变化也都无关紧要了。
+引用关系变化最频繁的要数thread对象了。thread通过stack引用其他对象，而stack作为运行期栈，在一直不停地被修改。如果要监控这些引用变化，肯定会造成执行效率严重下降。所以lua并没有在所有的stack引用变化处加入barrier，而是直接假设stack就是变化的。所以thread对象就算被扫描完成，也不会被设置成black，而是再次设置成gray，等待再次扫描。</p>
+<h1 id="upvalue">Upvalue</h1>
+<p>Upvalue对象在垃圾回收中的处理是比较特殊的。
+对于open状态的upvalue，其v指向的是一个stack上的TValue，所以open upvalue与thread的关系非常紧密。引用到open upvalue的只可能是其从属的thread，以及lua closure。如果没有lua closure引用这个open upvalue，就算他一定被thread引用着，也已经没有实际的意义了，应该被回收掉。也就是说thread对open upvalue的引用完全是一个弱引用。所以Lua没有将open upvalue当作一个独立的可回收对象，而是将其清理工作交给从属的thread对象来完成。在mark过程中，open upvalue对象只使用white和gray两个状态，来代表是否被引用到。通过上面的引用关系可以看到，有可能引用open upvalue的对象只可能被lua closure引用到。所以一个gray的open upvalue就代表当前有lua closure正在引用他，而这个lua closure不一定在这个thread的stack上面。在清扫阶段，thread对象会遍历所有从属于自己的open upvalue。如果不是gray，就说明当前没有lua closure引用这个open upvalue了，可以被销毁。</p>
+<p>当退出upvalue的语法域或者thread被销毁，open upvalue会被close。所有close upvalue与thread已经没有弱引用关系，会被转化为一个普通的可回收对象，和其他对象一样进行独立的垃圾回收。</p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/lua" rel="tag" title="lua">#lua#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/06/%E6%8E%A2%E7%B4%A2lua52%E5%86%85%E9%83%A8%E5%AE%9E%E7%8E%B0gc3/" rel="next" title="探索Lua52内部实现:GC3">
+        <i class="fa fa-chevron-left"></i> 探索Lua52内部实现:GC3
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/06/%E6%8E%A2%E7%B4%A2lua5.2%E5%86%85%E9%83%A8%E5%AE%9E%E7%8E%B0garbage-collection1-%E5%8E%9F%E7%90%86/" rel="prev" title="探索Lua5.2内部实现:Garbage Collection(1) 原理">
+        探索Lua5.2内部实现:Garbage Collection(1) 原理 <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">384</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">20</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">27</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

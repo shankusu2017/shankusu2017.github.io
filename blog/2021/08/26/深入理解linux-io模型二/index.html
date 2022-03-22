@@ -1,0 +1,593 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>深入理解Linux IO模型(二) - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="深入理解Linux IO模型(二)">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="深入理解Linux IO模型(二) - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/08/26/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3linux-io%E6%A8%A1%E5%9E%8B%E4%BA%8C/" itemprop="url">
+        深入理解Linux IO模型(二)
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-08-26">
+    2021-08-26
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/os" itemprop="url" rel="index">
+        <span itemprop="name">os</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/cs" itemprop="url" rel="index">
+        <span itemprop="name">cs</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">5457 字 ~11分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <h1 id="深入理解linux-io模型二">深入理解Linux IO模型(二)</h1>
+<p>原创 Pearl <a href="">Pearl的仲夏夜之梦</a> <em>6月13日</em></p>
+<p>为何使用epollselect的缺陷epoll的提出epoll的原理数据结构实现原理高效原因epoll的API创建epoll控制epoll等待epoll使用epoll API触发方式水平触发(Level Triggered, LT)边缘触发(Edge Triggered, ET)两者对比Reference</p>
+<p>接着前文《深入理解Linux IO模型(一)》，本文深入分析IO多路复用模型中的epoll。</p>
+<blockquote>
+<ol>
+<li>本文为了描述方便，统一用读操作讲述，写操作同理。</li>
+<li>本文为了撰写方便，统一将I/O写成了IO。</li>
+<li>欢迎指正文中的错误。</li>
+</ol>
+</blockquote>
+<h3 id="为何使用epoll">为何使用epoll</h3>
+<p>Nginx在几十万并发连接下，是如何做到高效利用服务器资源的？答案是epoll。</p>
+<p>设想一个场景：有100万用户同时与一个网络应用进程保持着TCP连接，而每一时刻只有几十或几百个TCP连接是活跃的（网络应用进程接收到TCP报文），那么在这个时刻，进程只需要处理这100万个连接中的这些活跃的连接即可。那么，内核和应用进程如何协同，才能高效地处理这种情况呢？</p>
+<h4 id="select的缺陷">select的缺陷</h4>
+<p>应用进程是否在每次调用系统调用，询问内核有事件发生的TCP连接时，把这100万个连接告诉内核，由内核找出其中有事件发生的TCP连接呢？
+这正是select的做法。</p>
+<p>select有明显的缺陷，因为这100万个TCP连接中，大部分是没有事件发生的。如果应用程序每次收集事件时，都把这100万个socket fd传给内核。有以下问题：</p>
+<ol>
+<li>导致用户空间到内核空间的大量复制。</li>
+<li>内核需要遍历所有的socket fd，判断哪些有事件到来。</li>
+<li>应用进程仍需要遍历所有的socket fd，来判断哪些socket fd可读。</li>
+</ol>
+<p>所以select限制了同时监听的socket fd数量，最多只能同时处理1024个并发连接。</p>
+<h4 id="epoll的提出">epoll的提出</h4>
+<p>epoll在内核中申请了一片内存空间。</p>
+<p>epoll的做法是，把应用程序的一个select调用分成三部分：</p>
+<ol>
+<li>调用epoll_create创建一个epoll对象</li>
+<li>调用epoll_ctl向epoll对象添加这100万个socket fd</li>
+<li>调用epoll_wait等待收集发生事件的连接</li>
+</ol>
+<p>这样，只要在应用进程启动时，建立1个epoll对象(下文用epfd表示)，并在TCP连接到来和断开的时候，对epfd添加和删除事件就可以了（也可以修改）。
+应用进程调用epoll_wait时，不需要向内核空间传递这100万个连接，内核也不需要遍历全部的连接。所以epoll_wait很高效。</p>
+<h3 id="epoll的原理">epoll的原理</h3>
+<p>当应用进程调用epoll_create时，内核会在内核空间创建一个独立的eventpoll结构体对象，用于维护使用epoll_ctl向其添加的事件。</p>
+<h4 id="数据结构">数据结构</h4>
+<p>epoll的数据结构如图所示。eventpoll有两个核心的数据结构：</p>
+<ol>
+<li>红黑树(rbr)：维护通过epoll_ctl添加的事件。</li>
+<li>就绪链表(rdllist)：保存就绪的事件，当事件发生时，由内核的中断处理程序插入该就绪链表。</li>
+</ol>
+<p><img src="1.png" alt="图片"></p>
+<blockquote>
+<p>说明: 这张图来自于《深入理解Nginx》，网上很多博客用了这张图，但是这张图关于就绪链表的描述有个小错误。&ldquo;红黑树中每个节点都是基于epitem结构中的rdllink成员&quot;应该改成&quot;就绪链表中每个节点都是基于epitem结构中的rdllink成员&rdquo;。</p>
+</blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// 这里只列出了成员rbr、rdllist，它们和epoll的使用密切相关
+</span></span><span style="display:flex;"><span> 2struct eventpoll {
+</span></span><span style="display:flex;"><span> 3  ...
+</span></span><span style="display:flex;"><span> 4  // 红黑树的根节点，这棵树中存储着所有添加到epoll中的事件，即这个epoll监控的事件
+</span></span><span style="display:flex;"><span> 5  struct rb_root rbr;
+</span></span><span style="display:flex;"><span> 6
+</span></span><span style="display:flex;"><span> 7  // 双向链表rdllist保存着要通过epoll_wait返回给应用程序的满足条件的事件
+</span></span><span style="display:flex;"><span> 8  struct list_head rdllist;
+</span></span><span style="display:flex;"><span> 9  ...
+</span></span><span style="display:flex;"><span>10};
+</span></span><span style="display:flex;"><span> 1struct epitem {
+</span></span><span style="display:flex;"><span> 2  ...
+</span></span><span style="display:flex;"><span> 3  // 红黑树节点
+</span></span><span style="display:flex;"><span> 4  struct rb_node rbn;
+</span></span><span style="display:flex;"><span> 5  // 双向链表节点
+</span></span><span style="display:flex;"><span> 6  struct list_head rdllink;
+</span></span><span style="display:flex;"><span> 7  // 事件句柄等信息
+</span></span><span style="display:flex;"><span> 8  struct epoll_filefd ffd;
+</span></span><span style="display:flex;"><span> 9  // 指向其所属的eventpoll对象
+</span></span><span style="display:flex;"><span>10  struct eventpoll *ep;
+</span></span><span style="display:flex;"><span>11  // 期待的事件类型
+</span></span><span style="display:flex;"><span>12  struct epoll_event event;
+</span></span><span style="display:flex;"><span>13  ...
+</span></span><span style="display:flex;"><span>14}
+</span></span></code></pre></div><h4 id="实现原理">实现原理</h4>
+<p>在epoll中，为每个事件都建立一个epitem结构体对象。
+这些事件都会添加到rbr红黑树中（重复添加的事件可以通过红黑树高效地识别出来）。从红黑树中查找事件非常快。</p>
+<p>所有添加到epoll对象中的事件都会与设备驱动程序（如网卡驱动程序）建立回调关系，当相应的事件发生时，会调用回调函数（中断处理程序）。这个回调函数在内核叫<code>ep_poll_callback</code>，回调函数会把就绪的事件写入rdllist双向链表中。</p>
+<p>当应用程序调用epoll_wait检查是否有事件发生的连接时，内核只是检查eventpoll对象的rdllist双向链表是否有epitem元素而已。如果rdllist链表不为空，内核把这里的事件复制到用户空间，同时返回对应的事件数量。</p>
+<h4 id="高效原因">高效原因</h4>
+<p>最后总结分析下epoll之所以可以处理百万级别的并发连接，而且效率很高的原因。</p>
+<ol>
+<li>应用程序在调用系统调用epoll_create创建epoll时，内核为它开辟了一片内存空间。把listen fd存在里面，以及当每次来客户端请求，三次握手后建立的client fd都会存在内核态的这个内存空间。这样不同于select，避免了用户空间和内核空间之间重复传递fd的过程。</li>
+<li>应用程序要知道哪些事件可读了，不同于在select中应用程序需要主动遍历所有fd，内核只是将就绪列表中的事件复制到用户空间的event数组中（应用程序提前申请好的内存），这样应用程序只需要遍历这些就绪的事件。</li>
+<li>就绪事件是怎么放入就绪列表的？答案是epoll利用了事件驱动。当数据包进入网卡，网卡将数据包通过DMA方式写入内存。网卡raise硬件中断IRQ，通知CPU有数据包到来了。CPU查询中断向量表，得到中断服务程序的指针，这个中断服务程序会调用网卡驱动程序。这里的中断服务程序是事先注册的，所以也可以理解CPU根据中断号回调中断处理程序，从内存读取数据，得到事件的fd，写入就绪列表rdllist中。</li>
+</ol>
+<blockquote>
+<p>这里用到了上一篇《深入理解Linux IO模型(一)》写到的硬中断，不熟悉的可以看一下。</p>
+</blockquote>
+<p>从程序的本质上看，程序是否有更好的并发，是看少浪费了什么。
+CPU、内存、硬盘、网络带宽的利用率决定程序是不是能应对更复杂的场景。
+当遇到高并发问题，怀疑程序在服务器上运转不良好时，一定要回过头看硬件有没有被充分利用，有没有浪费硬件资源。
+CPU在执行什么事情的指令，决定了它的利用率。
+select需要CPU在内核模式下（CPU的一种执行模式）主动去遍历所有描述符，这样CPU浪费在了遍历上。而epoll靠的是硬件中断，利用中断把就绪fd写入就绪列表。更充分发挥了硬件，不浪费CPU。这是epoll高效的最大原因。</p>
+<h3 id="epoll的api">epoll的API</h3>
+<p>epoll提供给应用程序的系统调用API有三个。</p>
+<ul>
+<li>创建epoll：epoll_create系统调用</li>
+<li>控制epoll：epoll_ctl系统调用</li>
+<li>等待epoll：epoll_wait系统调用</li>
+</ul>
+<h4 id="创建epoll">创建epoll</h4>
+<p>创建epoll，指的是在内核空间创建一颗红黑树（平衡二叉树）的根节点root。它返回一个fd（下文用epfd指代），用来标识这个epoll对象。这个root根节点与epfd相对应。如图所示。</p>
+<p><img src="2.png" alt="图片"></p>
+<p>API如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1/** 
+</span></span><span style="display:flex;"><span>2 * @param size 告诉epoll要处理的大致事件数量，而不是能处理的事件最大数量。
+</span></span><span style="display:flex;"><span>3 * 
+</span></span><span style="display:flex;"><span>4 * @returns 返回一个epoll句柄（即一个文件描述符） 
+</span></span><span style="display:flex;"><span>5 */
+</span></span><span style="display:flex;"><span>6int epoll_create(int size);
+</span></span></code></pre></div><p>调用方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1int epfd = epoll_create(1000);
+</span></span></code></pre></div><h4 id="控制epoll">控制epoll</h4>
+<p>控制epoll，指的是以下三种操作:</p>
+<ul>
+<li>注册新的事件到epoll</li>
+<li>修改已经注册的事件</li>
+<li>删除一个注册到epoll的事件</li>
+</ul>
+<p>添加某事件的时候，事件被插到红黑树的某个节点，并且与相应的设备驱动程序建立回调关系。当事件发生后，内核中断处理程序调用这个回调函数，将事件添加到就绪链表。</p>
+<p>API如下:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1/**
+</span></span><span style="display:flex;"><span> 2* @param epfd 用epoll_create所创建的epoll实例
+</span></span><span style="display:flex;"><span> 3* @param op 表示对epoll监控描述符控制的动作
+</span></span><span style="display:flex;"><span> 4*
+</span></span><span style="display:flex;"><span> 5* EPOLL_CTL_ADD(添加新的事件到epoll中)
+</span></span><span style="display:flex;"><span> 6* EPOLL_CTL_MOD(修改已经注册到epoll中的事件)
+</span></span><span style="display:flex;"><span> 7* EPOLL_CTL_DEL(删除epoll中的事件)
+</span></span><span style="display:flex;"><span> 8*
+</span></span><span style="display:flex;"><span> 9* @param fd 待监测的连接fd
+</span></span><span style="display:flex;"><span>10* @param event 告诉内核需要监听的事件(包括类型)，指向epoll_event的指针
+</span></span><span style="display:flex;"><span>11*
+</span></span><span style="display:flex;"><span>12* @returns 成功返回0，失败返回-1, errno查看错误信息
+</span></span><span style="display:flex;"><span>13*/
+</span></span><span style="display:flex;"><span>14int epoll_ctl(int epfd, int op, int fd,
+</span></span><span style="display:flex;"><span>15struct epoll_event *event);
+</span></span><span style="display:flex;"><span>16
+</span></span><span style="display:flex;"><span>17struct epoll_event {
+</span></span><span style="display:flex;"><span>18  __uint32_t events; // epoll 事件
+</span></span><span style="display:flex;"><span>19  epoll_data_t data; // 用户传递的数据
+</span></span><span style="display:flex;"><span>20}
+</span></span><span style="display:flex;"><span>21
+</span></span><span style="display:flex;"><span>22typedef union epoll_data {
+</span></span><span style="display:flex;"><span>23  void *ptr;
+</span></span><span style="display:flex;"><span>24  int fd; // 监听的事件fd
+</span></span><span style="display:flex;"><span>25  uint32_t u32;
+</span></span><span style="display:flex;"><span>26  uint64_t u64;
+</span></span><span style="display:flex;"><span>27} epoll_data_t;
+</span></span></code></pre></div><p>关于epoll_event，具体介绍下。上文介绍过epoll为每个事件创建epitem对象，在结构体epitem中有一个成员epoll_event。</p>
+<p>epoll_event.events的取值包括：
+EPOLLIN：表示对应的连接上有数据可以读出（TCP连接的远端主动关闭连接，也相当于可读事件，因为要处理发过来的FIN包）
+EPOLLOUT：表示对应的连接上可以写入数据发送
+EPOLLRDHUP：表示TCP连接的远端关闭或半关闭连接
+EPOLLPR：表示对应的链接上有紧急数据需要读
+EPOLLERR：表示对应的连接发生错误
+EPOLLHUP：表示对应的连接被挂起
+EPOLLET：表示将处罚方式设置为边缘触发（ET），系统默认为水平触发（LT）
+EPOLLONESHOT：表示对这个事件只处理一次，下次需要处理时需要重新加入epoll</p>
+<p>调用方法:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1struct epoll_event new_event;
+</span></span><span style="display:flex;"><span>2
+</span></span><span style="display:flex;"><span>3new_event.events = EPOLLIN | EPOLLOUT;
+</span></span><span style="display:flex;"><span>4new_event.data.fd = 5;
+</span></span><span style="display:flex;"><span>5
+</span></span><span style="display:flex;"><span>6epoll_ctl(epfd, EPOLL_CTL_ADD, 5, &amp;new_event);
+</span></span></code></pre></div><p>在用户空间创建一个IO事件，绑定到某个fd上，然后把该事件的fd添加到内核中的epoll红黑树中。当fd可读或可写时，触发的是epoll_event。如图所示。</p>
+<p><img src="3.png" alt="图片"></p>
+<h4 id="等待epoll">等待epoll</h4>
+<p>收集在epoll监控的事件中已经发生的事件，内核会检查就绪链表中是否有存在添加过的事件，如果没有任何事件发生，最多等待timeout毫秒后返回（在timeout设置&gt;0的情况下）。返回值表示当前发生的事件个数。</p>
+<p>API如下:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1/**
+</span></span><span style="display:flex;"><span> 2*
+</span></span><span style="display:flex;"><span> 3* @param epfd 用epoll_create所创建的epoll实例
+</span></span><span style="display:flex;"><span> 4* @param event 从内核得到的就绪的事件集合
+</span></span><span style="display:flex;"><span> 5* @param maxevents 本次可以返回的最大事件数目，通常与预分配的event数组大小相等
+</span></span><span style="display:flex;"><span> 6* 注意: 值不能大于创建epoll_create()时的size
+</span></span><span style="display:flex;"><span> 7* @param timeout 等待IO事件发生的超时时间
+</span></span><span style="display:flex;"><span> 8* -1: 永久阻塞
+</span></span><span style="display:flex;"><span> 9* 0: 如果就绪链表rdllist为空，立即返回，不会等待，即非阻塞
+</span></span><span style="display:flex;"><span>10* &gt;0: 指定最多等待的时间，单位毫秒
+</span></span><span style="display:flex;"><span>11*
+</span></span><span style="display:flex;"><span>12* @returns 成功: 有多少文件描述符就绪,时间到时返回0
+</span></span><span style="display:flex;"><span>13* 失败: -1, errno 查看错误
+</span></span><span style="display:flex;"><span>14*/
+</span></span><span style="display:flex;"><span>15int epoll_wait(int epfd, struct epoll_event *event,
+</span></span><span style="display:flex;"><span>16               int maxevents, int timeout);
+</span></span></code></pre></div><blockquote>
+<p>注意: epoll_event不能是空指针，内核只是负责把内核空间中就绪链表的数据复制到用户空间的event数组中，不会去帮忙分配内存，所以用户空间需要自己提前分配内存。</p>
+</blockquote>
+<p>调用方法:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1struct epoll_event my_event[1000];
+</span></span><span style="display:flex;"><span>2
+</span></span><span style="display:flex;"><span>3int event_cnt = epoll_wait(epfd, my_event, 1000, -1);
+</span></span></code></pre></div><p>如图所示。应用程序调用epoll_wait后，进入阻塞状态。当内核检测到new_event或event1绑定的fd可读了，内核把就绪的event事件拷贝到用户空间的my_event数组。应用程序只需要遍历my_event，取出对应的事件和fd，知道是可读了，然后堵塞调用recv(fd)读数据。</p>
+<p><img src="4.png" alt="图片"></p>
+<h3 id="使用epoll-api">使用epoll API</h3>
+<p>一个简单的使用epoll API的编程架构如下。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// 创建epoll fd，最多可接收1000个事件
+</span></span><span style="display:flex;"><span> 2int epfd = epoll_crete(1000);
+</span></span><span style="display:flex;"><span> 3
+</span></span><span style="display:flex;"><span> 4// 将listen_fd添加进epoll中
+</span></span><span style="display:flex;"><span> 5epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &amp;listen_event);
+</span></span><span style="display:flex;"><span> 6
+</span></span><span style="display:flex;"><span> 7while (1) {
+</span></span><span style="display:flex;"><span> 8  // 阻塞等待epoll中的事件fd触发
+</span></span><span style="display:flex;"><span> 9  int active_cnt = epoll_wait(epfd, events, 1000, -1);
+</span></span><span style="display:flex;"><span>10
+</span></span><span style="display:flex;"><span>11  for (i = 0 ; i &lt; active_cnt; i++) {
+</span></span><span style="display:flex;"><span>12    if (evnets[i].data.fd == listen_fd) {
+</span></span><span style="display:flex;"><span>13      // 表示新的客户端连接请求到来
+</span></span><span style="display:flex;"><span>14      // 调用accept进行三次握手，创建client_fd
+</span></span><span style="display:flex;"><span>15      // 并将client_fd加进epoll中
+</span></span><span style="display:flex;"><span>16    }
+</span></span><span style="display:flex;"><span>17    else if (events[i].events &amp; EPOLLIN) {
+</span></span><span style="display:flex;"><span>18      // 表示不是新的客户端连接，可读客户端发来的数据
+</span></span><span style="display:flex;"><span>19      // client_fd就绪可读，对此fd进行读操作
+</span></span><span style="display:flex;"><span>20    }
+</span></span><span style="display:flex;"><span>21    else if (events[i].events &amp; EPOLLOUT) {
+</span></span><span style="display:flex;"><span>22      // 表示不是新的客户端连接，可把数据回写客户端
+</span></span><span style="display:flex;"><span>23      // client_fd就绪可写，对此fd进行写操作
+</span></span><span style="display:flex;"><span>24    }
+</span></span><span style="display:flex;"><span>25  }
+</span></span><span style="display:flex;"><span>26}
+</span></span></code></pre></div><p>如图所示，是一个服务器使用epoll的常规流程。</p>
+<p><img src="5.png" alt="图片"></p>
+<h3 id="触发方式">触发方式</h3>
+<p>epoll有两种工作模式：水平触发和边缘触发。默认情况下，epoll采用水平触发模式。</p>
+<h4 id="水平触发level-triggered-lt">水平触发(Level Triggered, LT)</h4>
+<p>如果应用程序阻塞在epoll_wait，当内核有事件发生的时候，内核把已经触发的事件队列复制到用户空间。如果应用程序本次没有完成读操作，下一次epoll_wait会再次返回该事件。
+即只要一个事件对应的套接字缓冲区还有数据，就总能从epoll_wait中获取这个事件。</p>
+<p>优点：事件不会丢掉，除非应用程序处理完毕。保证事件的完整性。
+缺点：如果应用程序不处理这个事件，就导致内核每次都把该事件从内核空间拷贝到用户空间，系统调用消耗性能。</p>
+<h4 id="边缘触发edge-triggered-et">边缘触发(Edge Triggered, ET)</h4>
+<p>如果应用程序阻塞在epoll_wait，当内核有事件发生的时候，内核把已经触发的事件队列复制到用户空间。如果应用程序本次没有完成读操作，下一次epoll_wait不再会返回该事件。
+即如果这次没有把这个事件对应的套接字缓冲区处理完，在这个套接字没有新的事件再次到来时，无法再次从epoll_wait调用中获取到这个事件。</p>
+<p>优点：内核不会重复把该事件从内核空间拷贝到用户空间。保证性能。
+缺点：如果应用程序没有处理完毕，事件会被丢掉。导致事件不完整。</p>
+<h4 id="两者对比">两者对比</h4>
+<p>在水平触发模式下，开发基于epoll的应用要简单一些，不太容易出错。而在边缘触发模式下，当事件发生时，如果没有彻底地将缓冲区数据处理完，则会导致缓冲区中的用户请求得不到响应。</p>
+<h3 id="reference">Reference</h3>
+<p>深入理解Nginx（第2版）https://book.douban.com/subject/26745255/
+<a href="https://mp.weixin.qq.com/s/kWDKpgmcOQFjoBAK3LyPTg">https://mp.weixin.qq.com/s/kWDKpgmcOQFjoBAK3LyPTg</a></p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/os" rel="tag" title="os">#os#</a>
+    
+    <a href="http://shanks.link/tags/cs" rel="tag" title="cs">#cs#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/09/01/under-the-hood/" rel="next" title="under the hood">
+        <i class="fa fa-chevron-left"></i> under the hood
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/08/26/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3linux-io%E6%A8%A1%E5%9E%8B%E4%B8%80/" rel="prev" title="深入理解Linux IO模型(一)">
+        深入理解Linux IO模型(一) <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">384</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">20</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">27</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

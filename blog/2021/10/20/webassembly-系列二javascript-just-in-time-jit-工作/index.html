@@ -1,0 +1,438 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>WebAssembly 系列（二）JavaScript Just-in-time (JIT) 工作 - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="WebAssembly 系列（二）JavaScript Just-in-time (JIT) 工作">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="WebAssembly 系列（二）JavaScript Just-in-time (JIT) 工作 - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/10/20/webassembly-%E7%B3%BB%E5%88%97%E4%BA%8Cjavascript-just-in-time-jit-%E5%B7%A5%E4%BD%9C/" itemprop="url">
+        WebAssembly 系列（二）JavaScript Just-in-time (JIT) 工作
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-10-20">
+    2021-10-20
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/wasm" itemprop="url" rel="index">
+        <span itemprop="name">wasm</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">3266 字 ~7分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <blockquote>
+<p>作者：Lin Clark
+翻译原文：<a href="https://link.zhihu.com/?target=http%3A//huziketang.com/blog/posts/detail%3FpostId%3D58c12f36a6d8a07e449fdd22">http://huziketang.com/blog/posts/detail?postId=58c12f36a6d8a07e449fdd22</a>
+英文原文：<a href="https://link.zhihu.com/?target=https%3A//hacks.mozilla.org/2017/02/a-crash-course-in-just-in-time-jit-compilers/">A crash course in just-in-time (JIT) compilers</a></p>
+</blockquote>
+<p>本文是关于 WebAssembly 系列的第二篇文章**（本系列共六篇文章）**。如果你没有读先前文章的话，建议<a href="https://link.zhihu.com/?target=http%3A//huziketang.com/blog/posts/detail%3FpostId%3D58ce8036a6d8a07e449fdd27">先读这里</a>。如果对 WebAssembly 没概念，建议<a href="https://link.zhihu.com/?target=http%3A//blog.csdn.net/wulixiaoxiao1/article/details/60581397">先读这里</a>。</p>
+<p>JavaScript 的启动比较缓慢，但是通过 JIT 可以使其变快，那么 JIT 是如何起作用的呢？</p>
+<h2 id="javascript-在浏览器中是如何运行的"><strong>JavaScript 在浏览器中是如何运行的？</strong></h2>
+<p>如果是你一个开发者，当你决定在你的页面中使用 JavaScript 的时候，有两个要考虑的事情：目标和问题。</p>
+<p><strong>目标</strong>：告诉计算机你想做什么。</p>
+<p><strong>问题</strong>：你和计算机说不同的语言，无法沟通。</p>
+<p>你说的是人类的语言，而计算机用的是机器语言。机器语言也是一种语言，只是 JavaScript 或者其他高级编程语言机器能看得懂，而人类不用他们来交流罢了。它们是基于人类认知而设计出来的。</p>
+<p>所以呢，JavaScript 引擎的工作就是把人类的语言转换成机器能看懂的语言。</p>
+<p>这就像电影<a href="https://link.zhihu.com/?target=http%3A//baike.baidu.com/link%3Furl%3DnlfNXe4vUxMlHF2qbxp6E0iombRcXCHYbFemmfWkxMHsbJ31SnMxi2d61FNZe0hmLKvWX13NRa3-zQSgy1ptUf4Ow_mqpmqxmQkx4hbcay3">《降临》</a>中，人类和外星人的互相交流一样。</p>
+<p><img src="https://pic3.zhimg.com/80/v2-ba1812d24cd3bd3fd5ce2f976c683722_1440w.png" alt="img"></p>
+<p>在电影里面，人类和外星人不仅仅是语言不同，两个群体看待世界的方式都是不一样的。其实人类和机器也是类似（后面我会详细介绍）。</p>
+<p>那么翻译是如何进行的呢？</p>
+<p>在代码的世界中，通常有两种方式来翻译机器语言：解释器和编译器。</p>
+<p><strong>如果是通过解释器，翻译是一行行地边解释边执行</strong></p>
+<p><img src="https://pic2.zhimg.com/80/v2-3e3d960264590f2496a2b12afe5b5bb9_1440w.png" alt="img"></p>
+<p><strong>编译器是把源代码整个编译成目标代码，执行时不再需要编译器，直接在支持目标代码的平台上运行。</strong></p>
+<p><img src="https://pic2.zhimg.com/80/v2-0b601888e312f2d362ba64cb5ee502c5_1440w.png" alt="img"></p>
+<p>这两种翻译的方式都各有利弊。</p>
+<h3 id="解释器的利弊"><strong>解释器的利弊</strong></h3>
+<p>解释器启动和执行的更快。你不需要等待整个编译过程完成就可以运行你的代码。从第一行开始翻译，就可以依次继续执行了。</p>
+<p>正是因为这个原因，解释器看起来更加适合 JavaScript。对于一个 Web 开发人员来讲，能够快速执行代码并看到结果是非常重要的。</p>
+<p>这就是为什么最开始的浏览器都是用 JavaScript 解释器的原因。</p>
+<p>可是当你运行同样的代码一次以上的时候，解释器的弊处就显现出来了。比如你执行一个循环，那解释器就不得不一次又一次的进行翻译，这是一种效率低下的表现。</p>
+<h3 id="编译器的利弊"><strong>编译器的利弊</strong></h3>
+<p>编译器的问题则恰好相反。</p>
+<p>它需要花一些时间对整个源代码进行编译，然后生成目标文件才能在机器上执行。对于有循环的代码执行的很快，因为它不需要重复的去翻译每一次循环。</p>
+<p>另外一个不同是，编译器可以用更多的时间对代码进行优化，以使的代码执行的更快。而解释器是在 runtime 时进行这一步骤的，这就决定了它不可能在翻译的时候用很多时间进行优化。</p>
+<h2 id="just-in-time-编译器综合了两者的优点"><strong>Just-in-time 编译器：综合了两者的优点</strong></h2>
+<p>为了解决解释器的低效问题，后来的浏览器把编译器也引入进来，形成混合模式。</p>
+<p>不同的浏览器实现这一功能的方式不同，不过其基本思想是一致的。在 JavaScript 引擎中增加一个监视器（也叫分析器）。监视器监控着代码的运行情况，记录代码一共运行了多少次、如何运行的等信息。</p>
+<p>起初，监视器监视着所有通过解释器的代码。</p>
+<p><img src="https://pic2.zhimg.com/80/v2-e8f36d5ee87844d0798528a605d00dd5_1440w.png" alt="img"></p>
+<p>如果同一行代码运行了几次，这个代码段就被标记成了 “warm”，如果运行了很多次，则被标记成 “hot”。</p>
+<h3 id="基线编译器"><strong>基线编译器</strong></h3>
+<p>如果一段代码变成了 “warm”，那么 JIT 就把它送到编译器去编译，并且把编译结果存储起来。</p>
+<p><img src="https://pic3.zhimg.com/80/v2-d72f6d9ff61b3e121d53bc228ac9bdb2_1440w.png" alt="img"></p>
+<p>代码段的每一行都会被编译成一个“桩”（stub），同时给这个桩分配一个以“行号 + 变量类型”的索引。如果监视器监视到了执行同样的代码和同样的变量类型，那么就直接把这个已编译的版本 push 出来给浏览器。</p>
+<p>通过这样的做法可以加快执行速度，但是正如前面我所说的，编译器还可以找到更有效地执行代码的方法，也就是做优化。</p>
+<p>基线编译器可以做一部分这样的优化（下面我会给出例子），不过基线编译器优化的时间不能太久，因为会使得程序的执行在这里 hold 住。</p>
+<p>不过如果代码确实非常 “hot”（也就是说几乎所有的执行时间都耗费在这里），那么花点时间做优化也是值得的。</p>
+<h3 id="优化编译器"><strong>优化编译器</strong></h3>
+<p>如果一个代码段变得 “very hot”，监视器会把它发送到优化编译器中。生成一个更快速和高效的代码版本出来，并且存储之。</p>
+<p><img src="https://pic2.zhimg.com/80/v2-60cdb546dce91244124ffbb3058671e9_1440w.png" alt="img"></p>
+<p>为了生成一个更快速的代码版本，优化编译器必须做一些假设。例如，它会假设由同一个构造函数生成的实例都有相同的形状——就是说所有的实例都有相同的属性名，并且都以同样的顺序初始化，那么就可以针对这一模式进行优化。</p>
+<p>整个优化器起作用的链条是这样的，监视器从他所监视代码的执行情况做出自己的判断，接下来把它所整理的信息传递给优化器进行优化。如果某个循环中先前每次迭代的对象都有相同的形状，那么就可以认为它以后迭代的对象的形状都是相同的。可是对于 JavaScript 从来就没有保证这么一说，前 99 个对象保持着形状，可能第 100 个就少了某个属性。</p>
+<p>正是由于这样的情况，所以编译代码需要在运行之前检查其假设是不是合理的。如果合理，那么优化的编译代码会运行，如果不合理，那么 JIT 会认为做了一个错误的假设，并且把优化代码丢掉。</p>
+<p><img src="https://pic4.zhimg.com/80/v2-efd2a9f349375276e831f78ab14b19a3_1440w.png" alt="img"></p>
+<p>这时（发生优化代码丢弃的情况）执行过程将会回到解释器或者基线编译器，这一过程叫做<strong>去优化</strong>。</p>
+<p>通常优化编译器会使得代码变得更快，但是一些情况也会引起一些意想不到的性能问题。如果你的代码一直陷入优化&lt;-&gt;去优化的怪圈，那么程序执行将会变慢，还不如基线编译器快。</p>
+<p>大多数的浏览器都做了限制，当优化/去优化循环发生的时候会尝试跳出这种循环。比如，如果 JIT 做了 10 次以上的优化并且又丢弃的操作，那么就不继续尝试去优化这段代码了桩。</p>
+<h3 id="一个优化的例子类型特化type-specialization"><strong>一个优化的例子：类型特化（Type specialization）</strong></h3>
+<p>有很多不同类型的优化方法，这里我介绍一种，让大家能够明白是如何优化的。优化编译器最成功一个特点叫做类型特化，下面详细解释。</p>
+<p>JavaScript 所使用的动态类型体系在运行时需要进行额外的解释工作，例如下面代码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-js" data-lang="js"><span style="display:flex;"><span><span style="color:#66d9ef">function</span> <span style="color:#a6e22e">arraySum</span>(<span style="color:#a6e22e">arr</span>) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">sum</span> <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> <span style="color:#f92672">&lt;</span> <span style="color:#a6e22e">arr</span>.<span style="color:#a6e22e">length</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">sum</span> <span style="color:#f92672">+=</span> <span style="color:#a6e22e">arr</span>[<span style="color:#a6e22e">i</span>];
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>+= 循环中这一步看起来很简单，只需要进行一步计算，但是恰恰因为是用动态类型，他所需要的步骤要比你所想象的更复杂一些。</p>
+<p>我们假设 arr 是一个有 100 个整数的数组。当代码被标记为 “warm” 时，基线编译器就为函数中的每一个操作生成一个桩。sum += arr[i]会有一个相应的桩，并且把里面的 += 操作当成整数加法。</p>
+<p>但是，sum 和 arr[i] 两个数并不保证都是整数。因为在 JavaScript 中类型都是动态类型，在接下来的循环当中，arr[i] 很有可能变成了string 类型。整数加法和字符串连接是完全不同的两个操作，会被编译成不同的机器码。</p>
+<p>JIT 处理这个问题的方法是编译多基线桩。如果一个代码段是单一形态的（即总是以同一类型被调用），则只生成一个桩。如果是多形态的（即调用的过程中，类型不断变化），则会为操作所调用的每一个类型组合生成一个桩。</p>
+<p>这就是说 JIT 在选择一个桩之前，会进行多分枝选择，类似于决策树，问自己很多问题才会确定最终选择哪个，见下图：</p>
+<p><img src="https://pic3.zhimg.com/80/v2-1f05c0e29543722fc08df55e8552beae_1440w.png" alt="img"></p>
+<p>正是因为在基线编译器中每行代码都有自己的桩，所以 JIT 在每行代码被执行的时候都会检查数据类型。在循环的每次迭代，JIT 也都会重复一次分枝选择。</p>
+<p><img src="https://pic4.zhimg.com/80/v2-eda86cdd0b7e0b00c876bf3d053b440f_1440w.png" alt="img"></p>
+<p>如果代码在执行的过程中，JIT 不是每次都重复检查的话，那么执行的还会更快一些，而这就是优化编译器所需要做的工作之一了。</p>
+<p>优化编译器中，整个函数被统一编译，这样的话就可以在循环开始执行之前进行类型检查。</p>
+<p><img src="https://pic3.zhimg.com/80/v2-b7387c3dc140753eb60482aaede0c046_1440w.png" alt="img"></p>
+<p>一些浏览器的 JIT 优化更加复杂。比如在 Firefox 中，给一些数组设定了特定的类型，比如里面只包含整型。如果 arr 是这种数组类型，那么 JIT 就不需要检查 arr[i] 是不是整型了，这也意味着 JIT 可以在进入循环之前进行所有的类型检查。</p>
+<h2 id="总结"><strong>总结</strong></h2>
+<p>简而言之 JIT 是什么呢？它是使 JavaScript 运行更快的一种手段，通过监视代码的运行状态，把 hot 代码（重复执行多次的代码）进行优化。通过这种方式，可以使 JavaScript 应用的性能提升很多倍。</p>
+<p>为了使执行速度变快，JIT 会增加很多多余的开销，这些开销包括：</p>
+<ul>
+<li>优化和去优化开销</li>
+<li>监视器记录信息对内存的开销</li>
+<li>发生去优化情况时恢复信息的记录对内存的开销</li>
+<li>对基线版本和优化后版本记录的内存开销</li>
+</ul>
+<p>这里还有很大的提升空间：即消除开销。通过消除开销使得性能上有进一步地提升，这也是 WebAssembly 所要做的事之一。</p>
+<p><strong>转载请注明出处，保留原文链接以及作者信息</strong></p>
+<p>欢迎大家关注我的<a href="https://zhuanlan.zhihu.com/qianduandaha">前端大哈 - 知乎专栏</a>，定期发布高质量前端文章。</p>
+<p>点击《<a href="https://link.zhihu.com/?target=http%3A//huziketang.com/blog/posts/detail%3FpostId%3D58c12f36a6d8a07e449fdd22">WebAssembly 系列（二）JavaScript Just-in-time (JIT) 工作原理</a>》阅读原文。</p>
+<p>编辑于 2017-03-30</p>
+<p><a href="https://www.zhihu.com/topic/19608032">编译器</a></p>
+<p><a href="https://www.zhihu.com/topic/19572307">即时编译（JIT）</a></p>
+<p><a href="https://www.zhihu.com/topic/19552521">JavaScript</a></p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/wasm" rel="tag" title="wasm">#wasm#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/10/20/webassembly-%E7%B3%BB%E5%88%97%E4%B8%89%E7%BC%96%E8%AF%91%E5%99%A8%E5%A6%82%E4%BD%95%E7%94%9F%E6%88%90%E6%B1%87%E7%BC%96/" rel="next" title="WebAssembly 系列（三）编译器如何生成汇编">
+        <i class="fa fa-chevron-left"></i> WebAssembly 系列（三）编译器如何生成汇编
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/10/20/webassembly-%E7%B3%BB%E5%88%97%E4%B8%80%E7%94%9F%E5%8A%A8%E5%BD%A2%E8%B1%A1%E5%9C%B0%E4%BB%8B%E7%BB%8D-webassembly/" rel="prev" title="WebAssembly 系列（一）生动形象地介绍 WebAssembly">
+        WebAssembly 系列（一）生动形象地介绍 WebAssembly <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">384</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">20</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">27</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

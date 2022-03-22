@@ -1,0 +1,555 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>分布式锁实现原理与最佳实践 - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="分布式锁实现原理与最佳实践">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="分布式锁实现原理与最佳实践 - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/06/15/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/" itemprop="url">
+        分布式锁实现原理与最佳实践
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-06-15">
+    2021-06-15
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/%E5%88%86%E5%B8%83%E5%BC%8F" itemprop="url" rel="index">
+        <span itemprop="name">分布式</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/cs" itemprop="url" rel="index">
+        <span itemprop="name">cs</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">2224 字 ~5分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <h2 id="分布式锁实现原理与最佳实践">分布式锁实现原理与最佳实践</h2>
+<p><strong>分布式锁应用场景</strong></p>
+<p>很多应用场景是需要系统保证幂等性的（如api服务或消息消费者），并发情况下或消息重复很容易造成系统重入，那么分布式锁是保障幂等的一个重要手段。</p>
+<p>另一方面，很多抢单场景或者叫交易撮合场景，如dd司机抢单或唯一商品抢拍等都需要用一把“全局锁”来解决并发造成的问题。在防止并发情况下造成库存超卖的场景，也常用分布式锁来解决。</p>
+<p><strong>实现分布式锁方案</strong></p>
+<p>这里介绍常见两种：redis锁、zookeeper锁</p>
+<p><strong>1.Redis实现方案</strong></p>
+<p><strong>1.1实现原理</strong></p>
+<p>redis分布式锁基本都知道setnx命令（if not exists），其实现原理即：如果进入redis添加某个键不存在可以设置成功，如果已存在则会设置失败。</p>
+<p>说明：setnx命令已过时，这里推荐使用set +nx参数来实现。</p>
+<p>set命令：set key value ex seconds nx</p>
+<ul>
+<li>ex 表示过期时间，精确到秒 （对应另一个参数px过期时间精确到毫秒)</li>
+<li>nx 表示if not exists，只有键不存在才能设置成功（对应另一个参数xx只有键存在才能设置成功）</li>
+</ul>
+<p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/1.png" alt="img"></p>
+<p>设置过期时间的作用，如果某个并行任务（进程/线程/协程）持有锁，但不能正常释放，将导致所有任务都无法获取锁，获取执行权限。而引入了过期时间解决此问题的同时，也会引入新的问题，具体后面分析。</p>
+<p><strong>1.2代码实现</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">import</span> <span style="color:#e6db74">&#34;github.com/go-redis/redis&#34;</span>  <span style="color:#75715e">//redis package
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//connect redis
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">client</span> = <span style="color:#a6e22e">redis</span>.<span style="color:#a6e22e">NewClient</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">redis</span>.<span style="color:#a6e22e">Options</span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">Addr</span>:     <span style="color:#e6db74">&#34;localhost:6379&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">Password</span>: <span style="color:#e6db74">&#34;&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">DB</span>:       <span style="color:#ae81ff">0</span>,
+</span></span><span style="display:flex;"><span>})
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//lock
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">lock</span>(<span style="color:#a6e22e">myfunc</span> <span style="color:#66d9ef">func</span>()) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">lockKey</span> = <span style="color:#e6db74">&#34;mylockr&#34;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//lock
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">lockSuccess</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">SetNX</span>(<span style="color:#a6e22e">lockKey</span>, <span style="color:#ae81ff">1</span>, <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span><span style="color:#f92672">*</span><span style="color:#ae81ff">5</span>).<span style="color:#a6e22e">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">||</span> !<span style="color:#a6e22e">lockSuccess</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;get lock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;get lock&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//run func
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">myfunc</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//unlock
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">Del</span>(<span style="color:#a6e22e">lockKey</span>).<span style="color:#a6e22e">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;unlock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;unlock&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//do action
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">counter</span> <span style="color:#66d9ef">int64</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">incr</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">counter</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;after incr is %d\n&#34;</span>, <span style="color:#a6e22e">counter</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#75715e">//5 goroutine compete lock
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">wg</span> <span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">WaitGroup</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#ae81ff">5</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">lock</span>(<span style="color:#a6e22e">incr</span>)
+</span></span><span style="display:flex;"><span>        }()
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Wait</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;final counter is %d \n&#34;</span>, <span style="color:#a6e22e">counter</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>以上代码截取关键部分，完整代码参见：</p>
+<p><a href="https://github.com/skyhackvip/lock/blob/master/redislock.go">https://github.com/skyhackvip/lock/blob/master/redislock.go</a></p>
+<p>代码执行结果：</p>
+<p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/2.png" alt="img"></p>
+<p>根据执行结果可以看到，每次执行最后的计数不一样，多个协程间互相抢锁，只有拿到锁才会计数加1，抢锁失败则不执行。</p>
+<p>这里说明下：由于routine执行时间太短，执行完把锁释放了所以才有其他routine可以拿到锁。如果incr代码中增加sleep时间，那么结果都是1了。</p>
+<p>用一张图来更直观解释具体执行情况：</p>
+<p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/3.png" alt="img"></p>
+<p><strong>1.3方案缺陷</strong></p>
+<p>刚才提到使用了过期时间，虽然解决了“死锁”问题，但会引来新的问题，具体问题分析如下：</p>
+<p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/4.png" alt="img"></p>
+<p>可以看到routine1拿到锁，但由于执行时间过长（比锁失效时间长），导致锁提前失效释放，routine3可以正常拿到锁，而之后routine1进行锁释放，当routine3进行锁释放时就会失败，如果此时有其他并发来的时候锁也会有问题。</p>
+<p><strong>1.4方案优化</strong></p>
+<p>那么有什么有效解决方案呢？</p>
+<p>简单来说就是利用lock的value，还记得之前代码设置lock的时候随便使用了一个值1就打发了。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>resp := client.SetNX(lockKey, 1, time.Second*5)
+</span></span></code></pre></div><p>这里的1可以改为能识别该routine的唯一值（如uid，orderid等），也可以使用uuid随机生成一个。（关于如何生成uuid方案参见公众号上一篇文章）</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">lock</span>(<span style="color:#a6e22e">myfunc</span> <span style="color:#66d9ef">func</span>()) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//lock
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">uuid</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getUuid</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">lockSuccess</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">SetNX</span>(<span style="color:#a6e22e">lockKey</span>, <span style="color:#a6e22e">uuid</span>, <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span><span style="color:#f92672">*</span><span style="color:#ae81ff">5</span>).<span style="color:#a6e22e">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">||</span> !<span style="color:#a6e22e">lockSuccess</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;get lock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;get lock&#34;</span>)
+</span></span><span style="display:flex;"><span>    }   
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//run func
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">myfunc</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//unlock
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">value</span>, <span style="color:#a6e22e">_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">Get</span>(<span style="color:#a6e22e">lockKey</span>).<span style="color:#a6e22e">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">value</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">uuid</span> { <span style="color:#75715e">//compare value,if equal then del
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">client</span>.<span style="color:#a6e22e">Del</span>(<span style="color:#a6e22e">lockKey</span>).<span style="color:#a6e22e">Result</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;unlock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>        }  <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;unlock&#34;</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这里增加了value的比较，确认了是当前routine，才会进行删除。至此问题解决了吗？</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>value, _ := client.Get(lockKey).Result() 和 value==uuid
+</span></span></code></pre></div><p>这个操作本身不具有“原子性”，可能当获取到value并且对比一致了，但此时lock过期失效了，而同时另一个routine拿到了结果，那么这里又会把别人的锁误删除了。</p>
+<p><strong>1.5方案再优化</strong></p>
+<p>那么有没有办法保障操作的原子性呢，这里可以使用lua彻底解决，lua是嵌入式语言，redis本身支持。使用golang操作redis运行lua命令，保障问题解决。上代码如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">lock</span>(<span style="color:#a6e22e">myfunc</span> <span style="color:#66d9ef">func</span>()) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//...code
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//unlock
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">luaScript</span> = <span style="color:#a6e22e">redis</span>.<span style="color:#a6e22e">NewScript</span>(<span style="color:#e6db74">`
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        if redis.call(&#34;get&#34;, KEYS[1]) == ARGV[1]
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">            then
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">                return redis.call(&#34;del&#34;, KEYS[1])
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">            else
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">                return 0
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">        end
+</span></span></span><span style="display:flex;"><span><span style="color:#e6db74">    `</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">rs</span>, <span style="color:#a6e22e">_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">luaScript</span>.<span style="color:#a6e22e">Run</span>(<span style="color:#a6e22e">client</span>, []<span style="color:#66d9ef">string</span>{<span style="color:#a6e22e">lockKey</span>}, <span style="color:#a6e22e">uuid</span>).<span style="color:#a6e22e">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">rs</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;unlock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;unlock&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>lua脚本中KEYS[1]代表lock的key，ARGV[1]代表lock的value，也就是生成的uuid。通过执行lua来保障这里删除锁的操作是原子的。</p>
+<p>完整代码参见：https://github.com/skyhackvip/lock/blob/master/redislualock.go</p>
+<p><strong>1.6redis锁适用场景</strong></p>
+<p>由redis设置的锁，多个并发任务进行争抢占用，因此非常适合高并发情况下，用来进行抢锁。</p>
+<p><strong>2.zookeeper锁</strong></p>
+<p><strong>2.1实现原理</strong></p>
+<p>使用zk的临时节点插入值，如果插入成功后watch会通知所有监听节点，此时其他并行任务不可再进行插入。具体图示如下：</p>
+<p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/5.png" alt="img"></p>
+<p><strong>2.2代码实现</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>import &#34;github.com/samuel/go-zookeeper/zk&#34; //package
+</span></span><span style="display:flex;"><span>//connect zk
+</span></span><span style="display:flex;"><span>conn, _, err := zk.Connect([]string{&#34;localhost:2181&#34;}, time.Second)
+</span></span><span style="display:flex;"><span>//zklock
+</span></span><span style="display:flex;"><span>func zklock(conn *zk.Conn, myfunc func()) {
+</span></span><span style="display:flex;"><span>    lock := zk.NewLock(conn, &#34;/mylock&#34;, zk.WorldACL(zk.PermAll))    
+</span></span><span style="display:flex;"><span>    err := lock.Lock()
+</span></span><span style="display:flex;"><span>    if err != nil {
+</span></span><span style="display:flex;"><span>        panic(err)
+</span></span><span style="display:flex;"><span>    }   
+</span></span><span style="display:flex;"><span>    fmt.Println(&#34;get lock&#34;)
+</span></span><span style="display:flex;"><span>    myfunc()
+</span></span><span style="display:flex;"><span>    lock.Unlock()
+</span></span><span style="display:flex;"><span>    fmt.Println(&#34;unlock&#34;)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>//goroutine run
+</span></span><span style="display:flex;"><span>for i := 0; i &lt; 5; i++ {
+</span></span><span style="display:flex;"><span>     go zklock(conn, incr)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>完整代码参见：https://github.com/skyhackvip/lock/blob/master/zklock.go</p>
+<p>执行结果如下：</p>
+<p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/6.png" alt="img"></p>
+<p>每次执行，执行结果都是5。</p>
+<p><strong>2.3zookeeper锁适用场景</strong></p>
+<p>相比于redis抢锁导致其他routine抢锁失败退出，使用zk实现的锁会让其他routine处于“等锁”状态。</p>
+<p><strong>3.方案对比选择</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>redis锁</th>
+<th>zookeeper锁</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>描述</td>
+<td>使用set nx实现</td>
+<td>使用临时节点+watch实现</td>
+</tr>
+<tr>
+<td>依赖</td>
+<td>redis</td>
+<td>zookeeper</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>并发抢锁</td>
+<td>锁占用时间长其他任务可等待。如消息幂等消费。</td>
+</tr>
+<tr>
+<td>高可用性</td>
+<td>redis发生故障主从切换等可能导致锁失效</td>
+<td>利用paxos协议能保证分布式一致性，数据更可靠</td>
+</tr>
+</tbody>
+</table>
+<p>如果不是对锁有特别高的要求，一般情况下使用redis锁就够了。除提到的这两种外使用etcd也可以完成锁需求，具体可以参考下方资料。</p>
+<p>以上文章来源于技术岁月 ，作者Kavin</p>
+<p><strong>更多参考资料</strong></p>
+<p>etcd实现锁：</p>
+<p><a href="https://github.com/zieckey/etcdsync">https://github.com/zieckey/etcdsync</a></p>
+<p>文章相关实现代码：</p>
+<p><a href="https://github.com/skyhackvip/lock">https://github.com/skyhackvip/lock</a></p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/%e5%88%86%e5%b8%83%e5%bc%8f" rel="tag" title="分布式">#分布式#</a>
+    
+    <a href="http://shanks.link/tags/cs" rel="tag" title="cs">#cs#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/06/19/%E9%94%B2%E8%80%8C%E4%B8%8D%E8%88%8D/" rel="next" title="锲而不舍">
+        <i class="fa fa-chevron-left"></i> 锲而不舍
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/06/15/%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8Dgo%E5%8F%98%E9%87%8F%E8%A2%ABgc/" rel="prev" title="如何避免Go变量被GC">
+        如何避免Go变量被GC <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">384</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">20</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">27</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

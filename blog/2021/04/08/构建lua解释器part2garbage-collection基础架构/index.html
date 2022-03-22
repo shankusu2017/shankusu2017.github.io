@@ -1,0 +1,838 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>构建Lua解释器Part2：Garbage Collection基础架构 - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="构建Lua解释器Part2：Garbage Collection基础架构">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="构建Lua解释器Part2：Garbage Collection基础架构 - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/08/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part2garbage-collection%E5%9F%BA%E7%A1%80%E6%9E%B6%E6%9E%84/" itemprop="url">
+        构建Lua解释器Part2：Garbage Collection基础架构
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-08">
+    2021-04-08
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/lua" itemprop="url" rel="index">
+        <span itemprop="name">lua</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">12207 字 ~25分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p><a href="http://manistein.club/post/program/let-us-build-a-lua-interpreter/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part2/">本文转载自Manistein&rsquo;s Blog
+</a></p>
+<h1 id="前言">前言</h1>
+<p>上一篇我已经设计和实现了Lua解释器最基础的基本数据结构，实现了纯C函数在栈中的调用流程，以及保护模式调用函数等内容，今天要介绍的则是Lua解释器的GC基础架构。Garbage Collection机制，可能是让人们听之不寒而栗的机制，都说GC很复杂，需要花费大量时间去消化和理解，那为什么要在本系列的第2篇就早早引入？做这个决定并非一时冲动之举，而是经过思考后而决定的。之前在阅读了云风大神翻译的《编程之魂》第7章[1]，这篇关于对Lua设计者的访谈记录中，作者有这么说过：</p>
+<blockquote>
+<p>Roberto：Lua 从第一天开始，就一直使用垃圾收集器。我想说，对于一种解释型语言来讲，垃圾收集器可以比引用计数更加紧凑和健壮，更不用说它没有把垃圾丢得到处都是。考虑到解释型语言通常已经有自描述数据（通过给值加上标签之类的东西），一个简单的标记清除（mark-and-sweep）收集器实现起来极其简单，而且几乎对解释器其余的部分不会产生什么影响。</p>
+</blockquote>
+<p>从作者的话语中，可以大约了解到，GC机制不是后来加进去的，而是在设计之初，就通盘考虑进去的。而且mark and sweep算法并不是一个很难的算法，甚至可以说的上是比较简单的，它的难在于和lua本身的其他部分结合。事实上gc机制可以单独剥离，在不和lua那些复杂的数据结构（如TString和Table等）结合的情况下，单独设计出来，并且测试，一套基于Incremental Mark and Sweep算法的Garbage Collection基础架构也只有短短300多行，只包含基础功能和设计的gc机制，有利于我阐述解释和说明，因此在这个阶段引入gc机制是最好不过的了，后面在设计和实现其他功能模块的时候，会逐步在今天建立的gc框架下不断完善相关细节。今天所做的则是对搭建这样一套基础gc框架的梳理总结，项目源码地址在这里，欢迎大家star。</p>
+<p>本篇将从传统的最简单的Naive Mark and Sweep算法开始介绍，然后介绍其改进版Incremental Mark and Sweep算法，最后介绍gc基础架构的代码实现和测试用例。</p>
+<h1 id="naive-mark-and-sweep算法">Naive Mark and Sweep算法</h1>
+<h2 id="原理探索">原理探索</h2>
+<p>现在我们进入到Mark and Sweep最初原型的探索阶段，在了解该算法的阶段，我参阅了很多资料，其中言简意赅的则是维基百科的Tracing garbage collection词条[2]。在开始阐述具体算法流程之前，首先我们要先梳理若干个点：</p>
+<ul>
+<li>
+<p>所有新创建的对象，都要被放入一个单向链表中(我们姑且称之为allgc链表)，新创建的对象实例，直接放置于列表头部。</p>
+</li>
+<li>
+<p>所有被创建的实例，均分为可达和不可达状态，可达意味着它正在被使用，或者有潜在被使用的可能，那么global变量，在栈中的变量以及在寄存器中的变量以及被这些变量引用的变量则被视为可达的[3]。</p>
+</li>
+<li>
+<p>GC则是以全局变量，栈和寄存器作为起点开始标记的。
+为了方便探索算法的本质，我们就以栈作为标记的起点，来探索Mark and Sweep算法：</p>
+</li>
+<li>
+<p>GC开始前，新创建的对象均放置于allgc链表中</p>
+</li>
+<li>
+<p>GC开始，进入标记阶段，从起始点（如栈）开始，标记所有被关联到的对象</p>
+</li>
+<li>
+<p>标记结束后，进入清除阶段，所有未被标记的实例将被释放，而被标记的对象则清除标记，本次gc结束
+流程很简单，不过需要注意的是，以上步骤只能一步到位执行完，如果步骤可拆分，那么在标记阶段结束之后，新创建的实例，在本轮gc中将无法继续被标记，因此在清除阶段，这个新创建而可能会被使用到的对象将被清除掉，导致不可挽回的bug。</p>
+<p>虽然算法本身并不复杂，这里还是希望通过一个图文举例说明，以使我们的表述更加直观：</p>
+</li>
+<li>
+<p>如图1所示，在gc开始之前，我们现在创建5个object，他们全部被放在allgc列表中，其中object3被object1引用到，object4被global table引用到，object1、object2、object4和object5均被入栈。
+![img](/img/构建Lua解释器Part2/naive mark and sweep 01.png)</p>
+</li>
+<li>
+<p>在GC开始之前，object5和object4被出栈，于是得到如图2的结果：
+![img](/img/构建Lua解释器Part2/naive mark and sweep 02.png)</p>
+</li>
+<li>
+<p>GC开始，进入标记阶段，以stack和global table作为起始点，被标记的对象用蓝色边框表示，其中object1和object2直接被引用，则它们需要被标记，object3虽然既不在stack中，也不在global table中，但是它被object1引用，因此也会被标记，而object4因为被global table引用，所以也会被标记，只有object5既不在stack中，也不在global table中，也没有在被标记的object引用它，因此它不会被标记，这一切都展示在图3中：
+![img](/img/构建Lua解释器Part2/naive mark and sweep 03.png)</p>
+</li>
+<li>
+<p>在标记阶段结束后，则进入清除阶段，Mark and Sweep算法会遍历allgc列表，如果链表中的object被标记，则清除标记，否则释放它，在本例中，object5被清除。最终我们得到如图4所示的结果：
+![img](/img/构建Lua解释器Part2/naive mark and sweep 04.png)
+现在通过wikipedia上的一张gif图，动态展示这个流程
+<img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part2/330px-Animation_of_the_Naive_Mark_and_Sweep_Garbage_Collector_Algorithm.gif" alt="img">
+<a href="https://en.wikipedia.org/wiki/Tracing_garbage_collection">https://en.wikipedia.org/wiki/Tracing_garbage_collection</a></p>
+</li>
+</ul>
+<h2 id="优点与缺点">优点与缺点</h2>
+<p>我们已经详细探讨了Mark and Sweep基本算法的原理，他的优点和缺点都很明显。优点是足够简单，易于理解，缺点则是它必须一步到位执行完，本质就是stop the world的gc机制，至于为什么需要stop the world，前面也有提到过，这里不再赘述。总的来说，如果一门语言，要作为独立的编程语言，这种算法显得too young，too simple，有时还naive。为了解决这个问题，一种新的改进版的Mark and Sweep机制应运而生，他就是Incremental Mark and Sweep机制。</p>
+<h1 id="incremental-mark-and-sweep算法">Incremental Mark and Sweep算法</h1>
+<p>Naive Mark and Sweep算法的劣势在于，一步到位的执行，会在瞬时极大影响程序运行的性能，为了解决这个问题，就必须要允许gc能够分n次执行，每次只执行其中的一小部分，将gc的性能开销均摊掉。基于这样的现实需求，传统的Mark and Sweep算法，只对对象标记表示不可清除，不标记表示可清除这种方式就显得不合时宜了，如果gc要分步骤执行，我们需要一种方式去记录标记的进度，需要一种方式灵活处理不断变化的对象之间的引用关系，为此，Incremental Mark and Sweep算法增加了几种颜色，以及一些新的列表来处理这样的情况，本节首先会介绍颜色的概念，然后再通过伪代码展示gc处理的过程，最后再通过图文例子，直观展示这样一个流程是怎样运作的。
+首先我们要介绍的是几种颜色，在Incremental Mark and Sweep算法中，每一轮gc处理中一共有3种颜色参与处理，分别是白色，灰色和黑色。每个新创建的对象，将被标记为白色，而几乎所有的对象，gc的过程中大致要经历被标记和扫描两个阶段，标记阶段会将对象从白色标记为灰色，并放入一个专门放灰色对象的单向链表–gray列表中，这相当于记录了当前gc扫描的进度。然后就是gc对gray链表中的对象，一个一个进行扫描，扫描的过程就是将原本被标记为灰色的对象，标记为黑色，并遍历其所有引用的对象，将它们标记为灰色，并放入gray列表中，以等待下一次扫描。如此循环往复，当gray链表为空时，意味着本轮gc标记阶段结束，此时仍然为白色的实例，意味着它已经不可达，需要被清理，而黑色的则意味对象可达，不能被清除。
+这里需要注意的一点是，虽然多数对象，经历标记阶段的时候，是从白色标记为灰色，但对于那种不可能引用其他对象的数据类型（如lua的string类型）是被直接被标记为黑色的。此外lua5.3中的gc，白色有两种，一种是白色，还有一种是另一种白（otherwhite），这两种白色用于不同gc轮回之间的乒乓切换，比如，如果当前gc轮是white0作为白色标记，那么在扫描阶段结束后，新创建的对象就会以white1标记，这样在清除阶段的时候，就只清除被标记为white0的白色对象，而下一轮gc则刚好反过来。
+在介绍完gc的基本颜色以后，我们现在来看看gc过程的伪代码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>function <span style="color:#a6e22e">single_step</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">switch</span>(gcstate) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> restart: {
+</span></span><span style="display:flex;"><span>            white2gray(mainthread);      <span style="color:#75715e">// mainthread是lua的主线程变量，他本质是一个lua_State类型的变量，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                                         <span style="color:#75715e">// gc的起始点stack也包含在这个结构里
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            push mainthread to gray;
+</span></span><span style="display:flex;"><span>            white2gray(global_table);
+</span></span><span style="display:flex;"><span>            push global_table to gray;
+</span></span><span style="display:flex;"><span>            gcstate <span style="color:#f92672">=</span> propagate;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> propagate: {
+</span></span><span style="display:flex;"><span>            traverse_bytes <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">while</span> (true) {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (gray is empty) {
+</span></span><span style="display:flex;"><span>                    gcstate <span style="color:#f92672">=</span> atomic;
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                object <span style="color:#f92672">=</span> pop from gray;
+</span></span><span style="display:flex;"><span>                gray2black(object);
+</span></span><span style="display:flex;"><span>                
+</span></span><span style="display:flex;"><span>                foreach (ref in object) {
+</span></span><span style="display:flex;"><span>                    white2gray(ref);
+</span></span><span style="display:flex;"><span>                    push ref to gray;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                traverse_bytes <span style="color:#f92672">+=</span> object sizes;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (traverse_bytes <span style="color:#f92672">&gt;=</span> per step max traverse bytes) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            } 
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> atomic: {
+</span></span><span style="display:flex;"><span>            foreach(object in grayagain) {
+</span></span><span style="display:flex;"><span>                gray2black(object);
+</span></span><span style="display:flex;"><span>                foreach(ref in object) {
+</span></span><span style="display:flex;"><span>                    white2gray(ref);
+</span></span><span style="display:flex;"><span>                    push ref to gray;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">while</span> (gray is not empty) {
+</span></span><span style="display:flex;"><span>                object <span style="color:#f92672">=</span> pop from gray;
+</span></span><span style="display:flex;"><span>                gray2black(object);
+</span></span><span style="display:flex;"><span>                
+</span></span><span style="display:flex;"><span>                foreach(ref in object) {
+</span></span><span style="display:flex;"><span>                    white2gray(ref);
+</span></span><span style="display:flex;"><span>                    push ref to gray;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            change white to otherwhite;         <span style="color:#75715e">// 将白色切换为另一种白
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            sweepgco <span style="color:#f92672">=</span> head of allgc;
+</span></span><span style="display:flex;"><span>            gcstate <span style="color:#f92672">=</span> sweepgc;
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> sweep: {
+</span></span><span style="display:flex;"><span>            count <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>            foreach(sweepgco is exist) {
+</span></span><span style="display:flex;"><span>                next_gc_object <span style="color:#f92672">=</span> sweepgco<span style="color:#f92672">-&gt;</span>next;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (sweepgco is dead) {          <span style="color:#75715e">// 只有白色为本次gc标记的白色，才算是dead，otherwhite是下次gc用的白色
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                    free sweepgco 
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                    set sweepgco to white;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                sweepgco <span style="color:#f92672">=</span> next_gc_object;
+</span></span><span style="display:flex;"><span>                count <span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> (count <span style="color:#f92672">&gt;=</span> per step foreach count) {
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (sweepgco is not exist) {
+</span></span><span style="display:flex;"><span>                gcstate <span style="color:#f92672">=</span> restart;
+</span></span><span style="display:flex;"><span>            } 
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>end
+</span></span></code></pre></div><p>上面这段伪代码，是每次执行gc时，会执行的主要流程，这里先展示伪代码的目的，是为了让大家先建立直观的感觉，然后再辅以文字说明，能够达到更好的效果。
+从上述伪代码，我们可以知道，整个gc执行的过程中，大致要经历几个阶段（实际编码时，状态并不止这些，但是为了捋清gc机制的主要流程，这些步骤基本是最核心的步骤了），他们分别是restart阶段、propagate阶段、atomic阶段和sweep阶段，现在分别对这些不同的阶段进行说明：</p>
+<ul>
+<li>
+<p>restart阶段：在lua中，包含stack变量的mainthread和global_table都是要被gc关注的对象，我们已经讨论过，gc的起始点是globals、stack和register，register在lua的gc中，并没有特别的意义，因为所有的操作都是在stack上进行的。因为mainthread和global_table包含gc起始点，因此他们要先push入gray列表中。并且标记他们为灰色，这些操作结束后，就进入到了propagate阶段。</p>
+</li>
+<li>
+<p>propagate阶段：从伪代码我们可以看到，propagate阶段所做的事情，就是不断从gray列表中pop出object，然后把它从灰色变为黑色，再遍历它所有引用的对象，并将其push到gray列表中。同时我们也要注意到，每次将一个从gray列表中pop出来的object，标记为黑色后，需要累计这个object的字节大小，当这一次gc，propagate(也就是扫描)的对象累计超过一定的字节数时，本轮gc会被暂停，等待下一次gc开始后，继续propagate gray列表中的对象。到这里，我们可以初步感受到，什么是步进式地进行gc处理，其实就是每次处理一部分，将gc处理的瞬时开销，均摊开来。当我们的gray列表为空时，意味着所有的gray列表均已propagate完毕，然后进入atomic阶段。</p>
+</li>
+<li>
+<p>atomic阶段：和propagate阶段不同，atomic阶段是需要被原子执行的，也就是说进入到这个阶段，就得不中断地重头执行到阶段结束。之所以要这么做，需要花费一些功夫来进行解释和说明。
+** 首先，因为我们的gc在propagate阶段是可以被中断的，也就是说，在中断的过程中，可能会有新的对象被创建，并且被已经被标记为黑色的对象引用，这种gc算法，是不能将黑色的对象，直接引用白色的对象的，因为黑色的对象已经标记和扫描完毕，本轮gc不会再进行扫描，这样被其引用的白色对象也不会被标记和扫描到，到了sweep阶段，因为新创建的对象未被标记和扫描，因此会被当做不可达的对象被清除掉，造成不可挽回的后果。
+** 为此，我们需要为这种情况下，为新创建的对象设置barrier。barrier分为两种，一种是向前设置barrier，也就是直接将新创建的对象设置为灰色，并放入gray列表；还有一种则是向后设置barrier，这种是将黑色对象设置为灰色，然后放入grayagain列表。向前barrier的情况，适用于已被标记为黑色的对象类型，为不会频繁改变引用关系的数据类型，如lua的proto结构。而向后barrier的情况，适合被标记为黑色的对象类型，为会出现频繁改变引用关系情况的数据类型，如lua的table结构，也就是说，在两次调用gc功能的过程中，table中的同一个key，可能被赋值多个value，如果把这些value对象均标记为灰色，并放入gray列表，那么将会造成许多无谓的标记和扫描操作，因为这些value很可能不再被引用，需要被回收，因此，只要把已经被标记为黑色的table，重新设置为灰色，是避开这个性能问题的良好方式。
+** 而如果我们直接把从黑色重新标记为灰色的table对象，放入gray列表的话，如上所述，table的key和value的引用关系变化频繁，这个table很可能在黑色和灰色之间来回切换，进行很多重复的扫描，为了提高效率，则将他放在grayagain列表中，在atomic阶段，一次性标记和扫描完。
+** 为什么要原子执行atomic阶段？如果atomic阶段不能原子执行，那么就和propagate阶段没有区别了，table从黑色被标记为灰色，放入grayagain列表也失去了意义，因为如果不能原子执行，那么该table对象很可能前脚刚在grayagain列表中pop出来，由灰色变黑色，后脚又有新的对象被它引用，又将它从黑色变为灰色，因此避免不了一些table实例，在黑色和灰色之间来回切换，反复标记和扫描，浪费性能，很可能导致gc在标记和扫描阶段所处的时间过长，甚至无法进入sweep阶段，因此刚脆在atomic阶段设置为不可中断执行，一次完成所有的标记和扫描操作。这样，一个能够被频繁改变引用关系的table对象，最多在progapate阶段的时候被标记和扫描一次，在atomic阶段又被扫描一次，一共两次。
+** 上述几个点，详细阐述了我们为什么需要有一个grayagain列表，为什么atomic阶段必须要原子执行，到现在为止我们梳理了来龙去脉，在atomic阶段结束以后，标记对象的白色会切换成另一种白，同时我们就进入到了sweep阶段。</p>
+</li>
+<li>
+<p>sweep阶段：sweep阶段则很简单，每次我们执行这个流程，取出若干个对象，如果它已经是本轮gc要被清除的白色，那么它会被清除，如果不是，则标记为另一种白，以供下一次gc使用，当本轮gc涉及到的所有的对象清理和重置完毕后，进入下一轮gc。
+整段伪代码和上述的文字，已经对Incremental Mark and Sweep算法进行了较为彻底的解释和说明了，为此在本小节的最后，附上维基百科词条上找的图片，动态演示这个过程：
+<a href="Animation_of_tri-color_garbage_collection.gif"></a>
+<a href="https://en.wikipedia.org/wiki/Tracing_garbage_collection">wiki</a></p>
+</li>
+</ul>
+<h1 id="garbage-collection基础架构逻辑实现">Garbage Collection基础架构逻辑实现</h1>
+<p>终于到了实现环节了，我们已经介绍了gc机制的原理，现在先从实现层面来看待gc接口的使用。对于外部而言，我们最希望的还是在创建对象以后，仅仅通过调用一个接口，就能使得gc运作，而不用关心它内部的逻辑实现，因此我们在使用层面可能类似如下代码所示的情况：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> j <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (; j <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">500000000</span>; j <span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>     TValue<span style="color:#f92672">*</span> o <span style="color:#f92672">=</span> luaL_index2addr(L, (j <span style="color:#f92672">%</span> ELEMENTNUM) <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> gco <span style="color:#f92672">=</span> luaC_newobj(L, LUA_TSTRING, <span style="color:#66d9ef">sizeof</span>(TString));
+</span></span><span style="display:flex;"><span>     o<span style="color:#f92672">-&gt;</span>value_.gc <span style="color:#f92672">=</span> gco;
+</span></span><span style="display:flex;"><span>     o<span style="color:#f92672">-&gt;</span>tt_ <span style="color:#f92672">=</span> LUA_TSTRING;
+</span></span><span style="display:flex;"><span>     luaC_checkgc(L);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>正如上面的代码所示，我们所有的gc操作，都将在luaC_checkgc里完成。不过现在，我还不想展开其内部的所有细节，在开始论述细节之前，我们首先得了解gc的基本数据结构。
+现在我们在vm目录下，新增luagc.h和luagc.c两个文件，现在目录变成下面展示的那样：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>+ bin/
+</span></span><span style="display:flex;"><span>+ clib/
+</span></span><span style="display:flex;"><span>+ common/
+</span></span><span style="display:flex;"><span>+ compiler/
+</span></span><span style="display:flex;"><span>~ vm/
+</span></span><span style="display:flex;"><span>    luado.h
+</span></span><span style="display:flex;"><span>    luado.c
+</span></span><span style="display:flex;"><span>    luagc.h
+</span></span><span style="display:flex;"><span>    luagc.c
+</span></span><span style="display:flex;"><span>main.c
+</span></span></code></pre></div><p>在lua中，受gc管理的数据类型主要有string、table、function、proto和lua_State，它们都需要有一个公共头部，由于lua是纯C实现的，因此，不能设置一个基类供这些类型继承，取而代之的是，通过一个宏来定义gc对象类型的公共部分，我将其定义在luaobject.h中，并以CommonHeader命名：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luaobject.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define CommonHeader struct GCObject* next; lu_byte tt_; lu_byte marked
+</span></span></span></code></pre></div><p>这个CommonHeader一共有3个字段，他们分别的意义是：</p>
+<ul>
+<li>next：在allgc链表中，指定下一个gc对象的指针</li>
+<li>tt_：记录gc对象的类型，不同的gc对象在propagate阶段有不同的处理逻辑</li>
+<li>marked：用来标记gc对象颜色用的
+上一章节，我们定义了代表任何lua类型的Value类型，现在我们需要它也能表示gc类型，由于它是一个union类型，而gc的字段必须是整合在一起的，因此我们还需要定义一个结构GCObject，然后让Value类型包含这个GCObject：</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luaobject.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">struct</span> GCObject {
+</span></span><span style="display:flex;"><span>    CommonHeader;
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">union</span> lua_Value {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> gc;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">void</span><span style="color:#f92672">*</span> p;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> b;
+</span></span><span style="display:flex;"><span>    lua_Integer i;
+</span></span><span style="display:flex;"><span>    lua_Number n;
+</span></span><span style="display:flex;"><span>    lua_CFunction f;
+</span></span><span style="display:flex;"><span>} Value;
+</span></span></code></pre></div><p>现在TValue也能表示被gc管理的对象类型了，到目前为止，具体的类型我们只实现了lua_State，现在需要在lua_State的头部加上这个CommonHeader的宏，限于篇幅，以及后面我们还需要往lua_State内添加其他gc相关的字段，这里就不展示代码了。
+在我们编写解释器的过程中，经常会遇到Value类型和具体的类型（如lua_State）相互转换的情况，为了达到这个目的，我们需要设计一个union类型GCUnion来表示任何，需要被GC管理的数据类型，而它的定义如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luastate.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// GCUnion
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">union</span> GCUnion {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> GCObject gc;
+</span></span><span style="display:flex;"><span>    lua_State th;
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>有了这个结构，我们就可以实现具体类型和Value类型的互转了，具体逻辑实现如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define obj2gco(o) (&amp;cast(union GCUnion*, o)-&gt;gc)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define gco2th(o)  check_exp((o)-&gt;tt_ == LUA_TTHREAD, &amp;cast(union GCUnion*, o)-&gt;th)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define gcvalue(o) ((o)-&gt;value_.gc)
+</span></span></span></code></pre></div><p>具体的数据类型，将调用obj2gco将自己转成Value的GCObject域的指针，而Value要转成具体类型，如lua_State，则通过gco2th这样的接口来转化，不论谁转谁，首先都要转成GCUnion类型的指针，再做进一步转换。
+现在要开始介绍gc颜色处理的具体实现了，首先我们要定义几个位操作的宏：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Bit operation
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define bitmask(b) (1&lt;&lt;b)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define bit2mask(b1, b2) (bitmask(b1) | bitmask(b2))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define resetbits(x, m) ((x) &amp;= cast(lu_byte, ~(m)))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define setbits(x, m) ((x) |= (m))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define testbits(x, m) ((x) &amp; (m))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define resetbit(x, b) resetbits(x, bitmask(b)) 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define l_setbit(x, b) setbits(x, bitmask(b))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define testbit(x, b) testbits(x, bitmask(b))
+</span></span></span></code></pre></div><p>这些宏，有进行位移的操作，有进行与、或和异或操作，后面我们在进行颜色操作的时候，会频繁用到这些宏，逻辑都很直观，有程序基础的人看懂都不是问题。接下来，我们定义和颜色相关的宏：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">//luagc.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Color
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define WHITE0BIT       0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define WHITE1BIT       1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define BLACKBIT        2
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define WHITEBITS bit2mask(WHITE0BIT, WHITE1BIT)
+</span></span></span></code></pre></div><p>我们可以看到，白色有两个宏定义，黑色只有一个宏定义，而灰色则一个宏定义都没有，这是因为在lua官方的实现版本中，白色有两种，在不同的gc轮之间执行乒乓交换，而既不是白色也不是黑色则被视为是灰色，因此没有对灰色进行直接定义。最下面的WHITEBITS则是非常关键的存在，因为它是我们切换白色、判断对象是否dead以及标记对象为白色的重要参数，根据bit2mask的定义，WHITEBITS实际相当于被这样定义：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define WHITEBITS ((1&lt;&lt;0) | (1&lt;&lt;1))
+</span></span></span></code></pre></div><p>也就是说，WHITEBITS最后相当于二进制值11，现在我们可以来看一下标记一个对象为白色的接口是怎样的：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define luaC_white(g) (g-&gt;currentwhite &amp; WHITEBITS)
+</span></span></span></code></pre></div><p>g-&gt;currentwhite在初始化阶段，被赋值为01值，由于WHITEBITS是11，01 &amp; 11还是01能够获得当前白色的值。而切换不同白的宏定义，则是这样的：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define otherwhite(g) (g-&gt;currentwhite ^ WHITEBITS)
+</span></span></span></code></pre></div><p>这里是一个异或操作，也就是说如果g-&gt;currentwhite的值是01的话，通过otherwhite计算，则是01 ^ 11 = 10，如果g-&gt;currentwhite的值是10的话，结果正好相反。从这里的逻辑我们可以看出，white的值只有两种，要么是01，要么是10。
+现在我们来看看颜色相关的判断：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define iswhite(o) testbits((o)-&gt;marked, WHITEBITS)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define isgray(o)  (!testbits((o)-&gt;marked, bitmask(BLACKBIT) | WHITEBITS))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define isblack(o) testbit((o)-&gt;marked, bitmask(BLACKBIT))
+</span></span></span></code></pre></div><p>这段逻辑没什么好说的，都很直观，需要注意的是，灰色的值是0。接下来要看的是颜色间的互转宏：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define white2gray(o) resetbits((o)-&gt;marked, WHITEBITS)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define gray2black(o) l_setbit((o)-&gt;marked, BLACKBIT)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define black2gray(o) resetbit((o)-&gt;marked, BLACKBIT)
+</span></span></span></code></pre></div><p>从上可以看到，从白色转到灰色，需要把白色标记位清掉，因为灰色的值是0，黑色转灰色也是要把黑色标记位清掉，而灰色转黑色，则相当于把值设置为100。</p>
+<p>在迅速过一篇，基本的定义以后，我们要看看最终要的数据结构global_State和lua_State到底新增了什么字段：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luastate.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> lua_State {
+</span></span><span style="display:flex;"><span>     CommonHeader;       <span style="color:#75715e">// gc header, all gcobject should have the commonheader
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>     StkId stack;
+</span></span><span style="display:flex;"><span>     StkId stack_last;
+</span></span><span style="display:flex;"><span>     StkId top;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">int</span> stack_size;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> lua_longjmp<span style="color:#f92672">*</span> errorjmp;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">int</span> status;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> previous;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> CallInfo base_ci;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> CallInfo<span style="color:#f92672">*</span> ci;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">int</span> nci;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> l_G;
+</span></span><span style="display:flex;"><span>     ptrdiff_t errorfunc;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">int</span> ncalls;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> gclist;
+</span></span><span style="display:flex;"><span> } lua_State;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> global_State {
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> mainthread;
+</span></span><span style="display:flex;"><span>     lua_Alloc frealloc;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">void</span><span style="color:#f92672">*</span> ud; 
+</span></span><span style="display:flex;"><span>     lua_CFunction panic;
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>     <span style="color:#75715e">//gc fields
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>     lu_byte gcstate;
+</span></span><span style="display:flex;"><span>     lu_byte currentwhite;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> allgc;         <span style="color:#75715e">// gc root set
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>     <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">**</span> sweepgc;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> gray;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> grayagain;
+</span></span><span style="display:flex;"><span>     lu_mem totalbytes;
+</span></span><span style="display:flex;"><span>     l_mem GCdebt;                   <span style="color:#75715e">// GCdebt will be negative
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>     lu_mem GCmemtrav;               <span style="color:#75715e">// per gc step traverse memory bytes 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>     lu_mem GCestimate;              <span style="color:#75715e">// after finish a gc cycle,it records total memory bytes (totalbytes + GCdebt)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>     <span style="color:#66d9ef">int</span> GCstepmul;
+</span></span><span style="display:flex;"><span> } global_State;
+</span></span></code></pre></div><p>lua_State新增的字段很少，只有头部加了CommonHeader以及尾部加了一个GCObject指针的字段–gclist，这个gclist的作用是，当lua_State对象在gray链表时，它指向gray链表中的下一个灰色对象的地址，当lua_State对象在grayagain链表时，它指向grayagain链表中，下一个灰色对象的地址，其实就是相当于gray或者grayagain链表中，数据对象的next指针。
+相比于lua_State结构，我们的global_State结构新增的，与gc相关的字段则要多得多，现在一个一个对其进行解释：</p>
+<ul>
+<li>gcstate：标记gc当前处于哪个阶段，我们gc过程一共要经历几个阶段，分别是GCSpause、GCSpropagate、GCSatomic、GCSinsideatomic、GCSsweepgc和GCSsweepend，和我上面展示的伪代码有些出入，但是大体流程是相同的，后面我们会详细讨论。</li>
+<li>currentwhite：当前gc是哪种白色，10与01中的一种，在gc的atomic阶段结束时，会从一种切换为另一种。</li>
+<li>allgc：这是一个单向链表，所有新建的gc对象，都要放入到这个链表中，放入的方式是直接放在链表的头部。</li>
+<li>sweepgc：这个变量用于记录当前sweep的进度。</li>
+<li>gray：gc对象，首次从白色被标记为灰色的时候，会被放入这个列表，放入这个列表的gc对象，是准备被propagate的对象。</li>
+<li>grayagain：前文已经提到了grayagain的作用了，table对象，从黑色变回灰色时，会放入这个链表中，作用是避免table反复在黑色和灰色之间来回切换重复扫描。</li>
+<li>totalbytes：记录开辟内存字节大小的变量之一，真实的大小是totalbytes+GCdebt。</li>
+<li>GCdebt：这是一个可以为负数的变量，主要用于控制gc触发的时机。当GCdebt&gt;0时，才能触发gc流程。</li>
+<li>GCmemtrav：每次进行gc操作时，所遍历的对象字节大小之和，单位是byte，当其值大于单步执行的内存上限时，gc终止，上节的伪代码有这方面的展示，如果遗忘可以回顾一下。</li>
+<li>GCestimate：在sweep阶段结束时，会被重新计算，本质是totalbytes+GCdebt，它的作用是，在本轮gc结束时，将自身扩充两倍大小，然后让真实大小减去扩充后的自己得到差debt，然后totalbytes会等于扩充后的自己，而GCdebt则会被负数debt赋值，就是是说下一次执行gc流程，要在有|debt|个bytes内存被开辟后，才会开始。目的是避免gc太过频繁。</li>
+<li>GCstepmul：一个和GC单次处理多少字节相关的参数。
+gc对象，在创建的开始，就已经被gc机制所监管，而我们将通过一个通用的创建gc的函数，来处理这个gc机制监管的开始流程，该函数定义在luagc.c中：</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#75715e">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> <span style="color:#a6e22e">luaC_newobj</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L, <span style="color:#66d9ef">int</span> tt_, size_t size) {
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> g <span style="color:#f92672">=</span> G(L);
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> obj <span style="color:#f92672">=</span> (<span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span>)luaM_realloc(L, NULL, <span style="color:#ae81ff">0</span>, size);
+</span></span><span style="display:flex;"><span>     obj<span style="color:#f92672">-&gt;</span>marked <span style="color:#f92672">=</span> luaC_white(g);
+</span></span><span style="display:flex;"><span>     obj<span style="color:#f92672">-&gt;</span>next <span style="color:#f92672">=</span> g<span style="color:#f92672">-&gt;</span>allgc;
+</span></span><span style="display:flex;"><span>     obj<span style="color:#f92672">-&gt;</span>tt_ <span style="color:#f92672">=</span> tt_;
+</span></span><span style="display:flex;"><span>     g<span style="color:#f92672">-&gt;</span>allgc <span style="color:#f92672">=</span> obj;
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">return</span> obj;
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>不难发现，这个函数先创建指定字节大小的堆内存以后，将其转成GCObject指针对象，在标记为白色后，放入allgc链表的头部。所有创建出来的对象，都会被放入allgc链表，因此所有的对象都能被跟踪到。在这个创建过程中，我们开辟内存的函数luaM_realloc函数也有一些改动，变为：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#75715e">// luamem.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">#define luaM_free(L, ptr, osize) luaM_realloc(L, ptr, osize, 0)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span> <span style="color:#75715e">// luamem.c
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">void</span><span style="color:#f92672">*</span> <span style="color:#a6e22e">luaM_realloc</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L, <span style="color:#66d9ef">void</span><span style="color:#f92672">*</span> ptr, size_t osize, size_t nsize) {
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> g <span style="color:#f92672">=</span> G(L);
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">int</span> oldsize <span style="color:#f92672">=</span> ptr <span style="color:#f92672">?</span> osize : <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>         
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">void</span><span style="color:#f92672">*</span> ret <span style="color:#f92672">=</span> (<span style="color:#f92672">*</span>g<span style="color:#f92672">-&gt;</span>frealloc)(g<span style="color:#f92672">-&gt;</span>ud, ptr, oldsize, nsize);
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">if</span> (ret <span style="color:#f92672">==</span> NULL <span style="color:#f92672">&amp;&amp;</span> nsize <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>) {
+</span></span><span style="display:flex;"><span>         luaD_throw(L, LUA_ERRMEM);
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>     
+</span></span><span style="display:flex;"><span>     g<span style="color:#f92672">-&gt;</span>GCdebt <span style="color:#f92672">=</span> g<span style="color:#f92672">-&gt;</span>GCdebt <span style="color:#f92672">-</span> oldsize <span style="color:#f92672">+</span> nsize;
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">return</span> ret;
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>这里新增了对GCdebt进行统计的逻辑，当osize为0，且nsize &gt; 0时，说明这是一个创建新内存块，那么GCdebt就要加上这个新创建对象的内存大小。如果osize&gt;0且nsize为0时，说明程序要释放一个对象，那么GCdebt要减去这个内存的大小。如果这个对象调整了内存大小，GCdebt也能精确统计到实际的内存大小。
+一个对象被创建以后，我们就需要在合适的时机去进行gc检查和处理，这里将提供一个luaC_checkgc的宏来完成这个任务，事实上我们在创建完一个对象以后，都可以调用这个宏，因为这个宏所代表的逻辑，有对gc触发时机的管理流程，外部无需关注，这个宏定义在luagc.h中：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#75715e">// luagc.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">// try trigger gc
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">#define luaC_condgc(pre, L, pos) if (G(L)-&gt;GCdebt &gt; 0) { pre; luaC_step(L); pos; } 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">#define luaC_checkgc(L) luaC_condgc((void)0, L, (void)0)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#960050;background-color:#1e0010">我们可以看到，只有当</span>GCdebt的值大于0的时候<span style="color:#960050;background-color:#1e0010">，才能触发</span>gc运作机制<span style="color:#960050;background-color:#1e0010">，而</span>gc运作的机制均是在luaC_step函数里执行<span style="color:#960050;background-color:#1e0010">：</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#75715e">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">void</span> luaC_step(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span>L) {
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> g <span style="color:#f92672">=</span> G(L);
+</span></span><span style="display:flex;"><span>     l_mem debt <span style="color:#f92672">=</span> get_debt(L);
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>         l_mem work <span style="color:#f92672">=</span> singlestep(L);
+</span></span><span style="display:flex;"><span>         debt <span style="color:#f92672">-=</span> work;
+</span></span><span style="display:flex;"><span>     }<span style="color:#66d9ef">while</span>(debt <span style="color:#f92672">&gt;</span> <span style="color:#f92672">-</span>GCSTEPSIZE <span style="color:#f92672">&amp;&amp;</span> G(L)<span style="color:#f92672">-&gt;</span>gcstate <span style="color:#f92672">!=</span> GCSpause);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">if</span> (G(L)<span style="color:#f92672">-&gt;</span>gcstate <span style="color:#f92672">==</span> GCSpause) {
+</span></span><span style="display:flex;"><span>         setpause(L);
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>         debt <span style="color:#f92672">=</span> debt <span style="color:#f92672">/</span> g<span style="color:#f92672">-&gt;</span>GCstepmul <span style="color:#f92672">*</span> STEPMULADJ;
+</span></span><span style="display:flex;"><span>         setdebt(L, debt);
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>这个函数，首先获取了debt的字节大小，所有的gc流程都在singlestep函数里进行处理，这里需要注意的是，当lua解释器能被处理的内存字节总大小，小于debt+GCSTEPSIZE时，那么gc将是一步到位执行完毕（gc的初始状态就是GCSpause，在上述的逻辑中，如果while条件判断内，gcstate等于GCSpause的话，说明本轮gc已经彻底完结，即将进入下一个gc轮回中）。当创建的gc对象足够多时，每次触发luaC_step函数，只会处理至多debt+GCSTEPSIZE个字节的数据，GCSTEPSIZE我设置为1k，通常运行过程中，单次执行gc操作也差不多是处理1kb的数据。当程序满足跳出while循环的条件后，如果一轮gc已经完整执行完毕，那么需要重新设置totalbytes和GCdebt变量的大小，这些操作在setpause函数内执行：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#75715e">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span> <span style="color:#75715e">// when memory is twice bigger than current estimate, it will trigger gc
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">// again
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">setpause</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L) {
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> g <span style="color:#f92672">=</span> G(L);
+</span></span><span style="display:flex;"><span>     l_mem estimate <span style="color:#f92672">=</span> g<span style="color:#f92672">-&gt;</span>GCestimate <span style="color:#f92672">/</span> GCPAUSE;
+</span></span><span style="display:flex;"><span>     estimate <span style="color:#f92672">=</span> (estimate <span style="color:#f92672">*</span> g<span style="color:#f92672">-&gt;</span>GCstepmul) <span style="color:#f92672">&gt;=</span> MAX_LMEM <span style="color:#f92672">?</span> MAX_LMEM : estimate <span style="color:#f92672">*</span> g<span style="color:#f92672">-&gt;</span>GCstepmul;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>     l_mem debt <span style="color:#f92672">=</span> g<span style="color:#f92672">-&gt;</span>GCestimate <span style="color:#f92672">-</span> estimate;
+</span></span><span style="display:flex;"><span>     setdebt(L, debt);
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>在sweep阶段结束时，我们会重新计算GCestimate的值，其实质是totalbytes+GCdebt，代表当前lua解释器内存的真实大小。GCestimate首先除以一个GCPAUSE常量，然后再乘以GCstepmul变量，以获取新的估算值，这里我参照lua53的标准，将GCstepmul设置为GCPAUSE的两倍，也就是说GCestimate被扩充为当前内存实际大小的两倍。在计算实际大小和扩充大小的差值以后，将会进行设置操作：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#75715e">// luagc.c                                                                                                                                                        X 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">setdebt</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L, l_mem debt) {
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> g <span style="color:#f92672">=</span> G(L);
+</span></span><span style="display:flex;"><span>     lu_mem totalbytes <span style="color:#f92672">=</span> gettotalbytes(g);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>     g<span style="color:#f92672">-&gt;</span>totalbytes <span style="color:#f92672">=</span> totalbytes <span style="color:#f92672">-</span> debt;
+</span></span><span style="display:flex;"><span>     g<span style="color:#f92672">-&gt;</span>GCdebt <span style="color:#f92672">=</span> debt;
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>这里的处理很简单，将差值的绝对值累加到totalbytes上，并把GCdebt设置为负数，这里相当于内存”负债”，因为GCdebt小于0，gc操作不会被触发，但是真实的内存大小是totalbytes+GCdebt并没有改变，这样做的目的是，当新创建的内存大小，足以还清GCdebt所欠下的”债务”时（GCdebt&gt;0），才会触发新的gc流程。这种操作时为了避免gc过度频繁地被调用。同样的，在luaC_step内处理够足够多的对象以后（这里是1kb左右），我们会将这1kb左右的内存，累加到totalbytes上，而GCdebt则等于负的1kb，产生”负债”，当lua虚拟机有新的1kb的内存被开辟时，gc逻辑流程才会被再次触发。         上文我们介绍的gc的触发流程控制，接下来来看看我们的gc处理流程函数signlestep。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#75715e">// luagc.c                                                                                                                                                        X 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">static</span> lu_mem <span style="color:#a6e22e">singlestep</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L) {
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> g <span style="color:#f92672">=</span> G(L);
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">switch</span>(g<span style="color:#f92672">-&gt;</span>gcstate) {
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">case</span> GCSpause: {
+</span></span><span style="display:flex;"><span>             g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>             restart_collection(L);     <span style="color:#75715e">// markroot阶段，将lua_State标记为灰色，并push到gray列表中
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>             g<span style="color:#f92672">-&gt;</span>gcstate <span style="color:#f92672">=</span> GCSpropagate;
+</span></span><span style="display:flex;"><span>             <span style="color:#66d9ef">return</span> g<span style="color:#f92672">-&gt;</span>GCmemtrav;
+</span></span><span style="display:flex;"><span>         } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">case</span> GCSpropagate:{
+</span></span><span style="display:flex;"><span>             g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>             propagatemark(L);         <span style="color:#75715e">// 从gray列表中，pop出一个对象，并标记为黑色，同时扫描其关联对象，设置为灰色并放入gray列表。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>             <span style="color:#66d9ef">if</span> (g<span style="color:#f92672">-&gt;</span>gray <span style="color:#f92672">==</span> NULL) {
+</span></span><span style="display:flex;"><span>                 g<span style="color:#f92672">-&gt;</span>gcstate <span style="color:#f92672">=</span> GCSatomic;
+</span></span><span style="display:flex;"><span>             }
+</span></span><span style="display:flex;"><span>             <span style="color:#66d9ef">return</span> g<span style="color:#f92672">-&gt;</span>GCmemtrav;
+</span></span><span style="display:flex;"><span>         } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">case</span> GCSatomic:{
+</span></span><span style="display:flex;"><span>             g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>             <span style="color:#66d9ef">if</span> (g<span style="color:#f92672">-&gt;</span>gray) {
+</span></span><span style="display:flex;"><span>                 propagateall(L); <span style="color:#75715e">// 一次性将gray列表中所有的对象标记和扫描
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>             }
+</span></span><span style="display:flex;"><span>             atomic(L);           <span style="color:#75715e">// 一次性将grayagain链表中所有的对象标记和扫描
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>             entersweep(L);
+</span></span><span style="display:flex;"><span>             g<span style="color:#f92672">-&gt;</span>GCestimate <span style="color:#f92672">=</span> gettotalbytes(g);
+</span></span><span style="display:flex;"><span>             <span style="color:#66d9ef">return</span> g<span style="color:#f92672">-&gt;</span>GCmemtrav;
+</span></span><span style="display:flex;"><span>         } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">case</span> GCSsweepallgc: {
+</span></span><span style="display:flex;"><span>             g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>             sweepstep(L);
+</span></span><span style="display:flex;"><span>             <span style="color:#66d9ef">return</span> g<span style="color:#f92672">-&gt;</span>GCmemtrav;
+</span></span><span style="display:flex;"><span>         } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">case</span> GCSsweepend: {
+</span></span><span style="display:flex;"><span>             g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>             g<span style="color:#f92672">-&gt;</span>gcstate <span style="color:#f92672">=</span> GCSpause;
+</span></span><span style="display:flex;"><span>             <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>         } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span><span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">return</span> g<span style="color:#f92672">-&gt;</span>GCmemtrav;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>逻辑代码和伪代码很相似，如果能看懂上面展示的伪代码，这段逻辑应该不难理解。不过这里对部分逻辑做了注释，完整的项目代码可以在这里找到。</p>
+<pre><code>    到目前为止，重要的内容基本写完了，在文章的最后，我觉得有必要将测试用例贴出来，让大家直观感受一下最终的效果：
+</code></pre>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#75715e">// p2_test.c                                                                                                                                                      X 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;../clib/luaaux.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;../vm/luagc.h&#34; </span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;p2_test.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;time.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>             
+</span></span><span style="display:flex;"><span> <span style="color:#75715e">#define ELEMENTNUM 5
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>         
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">p2_test_main</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L <span style="color:#f92672">=</span> luaL_newstate();
+</span></span><span style="display:flex;"><span>             
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (; i <span style="color:#f92672">&lt;</span> ELEMENTNUM; i <span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>        luaL_pushnil(L);
+</span></span><span style="display:flex;"><span>    }        
+</span></span><span style="display:flex;"><span>         
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> start_time <span style="color:#f92672">=</span> time(NULL);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> end_time <span style="color:#f92672">=</span> time(NULL);
+</span></span><span style="display:flex;"><span>    size_t max_bytes <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> g <span style="color:#f92672">=</span> G(L);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> j <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (; j <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">500000000</span>; j <span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>         TValue<span style="color:#f92672">*</span> o <span style="color:#f92672">=</span> luaL_index2addr(L, (j <span style="color:#f92672">%</span> ELEMENTNUM) <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> gco <span style="color:#f92672">=</span> luaC_newobj(L, LUA_TSTRING, <span style="color:#66d9ef">sizeof</span>(TString));
+</span></span><span style="display:flex;"><span>         o<span style="color:#f92672">-&gt;</span>value_.gc <span style="color:#f92672">=</span> gco;
+</span></span><span style="display:flex;"><span>         o<span style="color:#f92672">-&gt;</span>tt_ <span style="color:#f92672">=</span> LUA_TSTRING;
+</span></span><span style="display:flex;"><span>         luaC_checkgc(L);
+</span></span><span style="display:flex;"><span>             
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">if</span> ((g<span style="color:#f92672">-&gt;</span>totalbytes <span style="color:#f92672">+</span> g<span style="color:#f92672">-&gt;</span>GCdebt) <span style="color:#f92672">&gt;</span> max_bytes) {
+</span></span><span style="display:flex;"><span>             max_bytes <span style="color:#f92672">=</span> g<span style="color:#f92672">-&gt;</span>totalbytes <span style="color:#f92672">+</span> g<span style="color:#f92672">-&gt;</span>GCdebt;
+</span></span><span style="display:flex;"><span>         } 
+</span></span><span style="display:flex;"><span>         
+</span></span><span style="display:flex;"><span>         <span style="color:#66d9ef">if</span> (j <span style="color:#f92672">%</span> <span style="color:#ae81ff">1000</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {
+</span></span><span style="display:flex;"><span>             printf(<span style="color:#e6db74">&#34;timestamp:%d totalbytes:%f kb </span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, (<span style="color:#66d9ef">int</span>)time(NULL), (<span style="color:#66d9ef">float</span>)(g<span style="color:#f92672">-&gt;</span>totalbytes <span style="color:#f92672">+</span> g<span style="color:#f92672">-&gt;</span>GCdebt) <span style="color:#f92672">/</span> <span style="color:#ae81ff">1024.0f</span>);
+</span></span><span style="display:flex;"><span>         }   
+</span></span><span style="display:flex;"><span>    }    
+</span></span><span style="display:flex;"><span>    end_time <span style="color:#f92672">=</span> time(NULL);
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#e6db74">&#34;finish test start_time:%d end_time:%d max_bytes:%f kb </span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, start_time, end_time, (<span style="color:#66d9ef">float</span>)max_bytes <span style="color:#f92672">/</span> <span style="color:#ae81ff">1024.0f</span>);
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    luaL_close(L);
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>上面的测试代码，创建了5亿次gc对象，新创建的对象，不断在适当的stack位置替换旧的gc对象，如图7所示，内存大小的峰值大约是1.7k，这说明gc在不断进行，回收不可达的gc对象：
+<img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part2/gc_test_result.png" alt="img"></p>
+<h1 id="总结">总结</h1>
+<p>到这里，gc相关的东西也基本完成了，通过这篇blog我们可以了解传统Mark and Sweep Garbage Collection算法的原理，以及其优势和劣势，同时我们也细致探索了其改进型Incremental Mark and Sweep算法。本文刻意简化了代码说明部分，希望让有兴趣了解更多细节的读者，下载源码结合blog深入研究，这样比我在这里说能获取的有效信息，将会多得多。GC相关的文章是个很难写的部分，本篇我也花了巨量的时间和精力，不过现在总算是交了答卷，下一章我们将进入探索lua string的设计和实现上。</p>
+<h1 id="reference">Reference</h1>
+<p>[1] 这是一篇关于Lua设计者的访谈记录，出版社中文翻译由云风负责审校，由于云风对翻译并不满意，因此他重新写了<a href="https://blog.codingnow.com/2010/06/masterminds_of_programming_7_lua.html">一篇</a>
+[2] 参考内容位于<a href="https://en.wikipedia.org/wiki/Tracing_garbage_collection">Tracing garbage collection</a>的Naive Mark and Sweep章节
+[3] 参考<a href="http://wiki.c2.com/?MarkAndSweep">Mark and Sweep</a> 其中有一段话这么阐述”The second pass traverses all pointers, starting at the accessible roots of a program (conventionally, globals, the stack, and registers) and for each object traversed it marks the object.“，即globals，stack和register是作为gc开始的起点，会被使用的变量基本在这上面，或者与在这上面的变量关联。</p>
+<p>let us build a lua interpreter</p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/lua" rel="tag" title="lua">#lua#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/08/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part3string%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/" rel="next" title="构建Lua解释器Part3：String设计与实现">
+        <i class="fa fa-chevron-left"></i> 构建Lua解释器Part3：String设计与实现
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/04/08/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part1%E8%99%9A%E6%8B%9F%E6%9C%BA%E7%9A%84%E5%9F%BA%E7%A1%80--lua%E5%9F%BA%E6%9C%AC%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E6%A0%88%E5%92%8C%E5%9F%BA%E4%BA%8E%E6%A0%88%E7%9A%84c%E5%87%BD%E6%95%B0%E8%B0%83%E7%94%A8%E7%9A%84%E8%AE%BE%E8%AE%A1%E4%B8%8E%E5%AE%9E%E7%8E%B0/" rel="prev" title="构建Lua解释器Part1：虚拟机的基础--Lua基本数据结构、栈和基于栈的C函数调用的设计与实现">
+        构建Lua解释器Part1：虚拟机的基础--Lua基本数据结构、栈和基于栈的C函数调用的设计与实现 <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">384</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">20</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">27</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

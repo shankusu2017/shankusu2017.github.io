@@ -1,0 +1,438 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>Kernel trace tools（三）：中断和软中断关闭时间过长问题追踪 - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="Kernel trace tools（三）：中断和软中断关闭时间过长问题追踪">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="Kernel trace tools（三）：中断和软中断关闭时间过长问题追踪 - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/07/27/kernel-trace-tools%E4%B8%89%E4%B8%AD%E6%96%AD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD%E5%85%B3%E9%97%AD%E6%97%B6%E9%97%B4%E8%BF%87%E9%95%BF%E9%97%AE%E9%A2%98%E8%BF%BD%E8%B8%AA/" itemprop="url">
+        Kernel trace tools（三）：中断和软中断关闭时间过长问题追踪
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-07-27">
+    2021-07-27
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/" itemprop="url" rel="index">
+        <span itemprop="name">[编程杂谈]</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">2676 字 ~6分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <h1 id="kernel-trace-tools三内核-runqueue-延迟跟踪">Kernel trace tools（三）：内核 runqueue 延迟跟踪</h1>
+<blockquote>
+<p>本文是由字节跳动系统部 STE 团队出品的“kernel trace tools”系列文章之一，以介绍团队自研多类延迟问题追踪工具。</p>
+<p>在实际工作中，会遇到由于 runqueue 太长导致调度延迟问题，我们想知道是哪些进程导致了延迟。但是，对于该类问题的定位和追踪缺乏行之有效的方案或客观依据，需要耗费大量时间和精力用于问题排查，trace-runqlat 工具便是在该背景下诞生的自研工具。</p>
+<p>目前，trace-runqlat 已开源，如感兴趣详见 <strong>Open Source Repo</strong> (<a href="https://github.com/bytedance/trace-runqlat">https://github.com/bytedance/trace-runqlat</a>)</p>
+</blockquote>
+<h1 id="1-问题背景">1. 问题背景</h1>
+<p><strong>Trace_irqoff</strong> (<a href="https://github.com/bytedance/trace-irqoff/tree/master">https://github.com/bytedance/trace-irqoff/tree/master</a>) 工具（之前已经开源）可以帮助我们排查由于中断被关闭导致的延迟抖动问题。但是这只是第一阶段可能遇到的问题。当我们将一个线程加入 runqueue 后，如果系统的负载很高，在 runqueue 中排在你前面的进程可能会由于执行很长时间（或许你会好奇怎么可能执行很长时间，难道不会抢占吗？还真可能出现这种情况。因为我们的 kernel 是不开抢占的。当然除此之外，负载很高 runqueue 长度很长，也会出问题）最终导致调度延迟很大。针对这种问题排查，我们开发一款新的排查工具<strong>Run queue latency tracer****简称：trace-runqlat。</strong> 作用是记录被跟踪的进程在加入 runqueue 后，前面的每个线程执行的时间及线程 command 等信息。</p>
+<h1 id="2-我们想做什么">2. 我们想做什么</h1>
+<p>在此之前开源工具 <strong>trace-noschedule</strong> (<a href="https://github.com/bytedance/trace-noschedule">https://github.com/bytedance/trace-noschedule</a>) 中，我们已经可以借助这个工具排查内核态不抢占导致的延迟问题。而 trace-runqlat 更多的是关注 runqueue 上每个进程是谁，并且 runqueue 有多长。首先，是否有现成的工具已经实现功能了呢？据我所知，bcc 存在 2 款工具 runqlen 和 runqlat。runqlen 显示的是每个 CPU 的就绪队列的长度分布柱状图。runqlat 可以针对某个特定 pid 绘制调度延迟柱状图。他们似乎很符合我们的需求。虽然我们知道了某个进程调度延迟很高。但是我们不知道是受到哪些进程的影响。你可能会有疑问，知道是谁有意义吗？当然有意义。对于混合部署来说，我们肯定希望优先保证在线业务，如果发现影响调度延迟的进程是离线业务进程，这对于我们进一步混部有一定指导意义。例如，我们是否应该考虑绑核？或者调整优先级？</p>
+<h1 id="3-如何实现">3. 如何实现</h1>
+<p>我们先定义一下调度延迟。调度延迟是指从进程被加入 runqueue 到开始执行的时间差。进程挂在 runqueue 中，我们称进程处于 runnable 状态，开始执行时为 running 状态。所以调度延迟是进程从 runnable 态切换 running 状态的时间。为了计算调度延迟，我们需要知道 2 个时间点，进程进入 runnable 状态时间点以及切换到 running 状态时间戳。进程开始执行的时间戳很容易获取。我们可以利用 tracepoint。这个 tracepoint 插在 schedule 里面。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">static</span> <span style="color:#a6e22e">void</span> <span style="color:#a6e22e">__sched</span> <span style="color:#a6e22e">notrace</span> <span style="color:#a6e22e">__schedule</span>(<span style="color:#66d9ef">bool</span> <span style="color:#a6e22e">preempt</span>)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* ... */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">trace_sched_switch</span>(<span style="color:#a6e22e">preempt</span>, <span style="color:#a6e22e">prev</span>, <span style="color:#a6e22e">next</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* ... */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>schedule 的时候判断 next 进程是否是我们跟踪的进程，如果是的话，这个时间戳就是截止时间。那么开始时间怎么获取呢？一个进程在什么情况下会变成 runnable 状态呢？有以下可能。</p>
+<ul>
+<li>进程被唤醒，会被加入 runqueue</li>
+<li>进程被抢占，会被重新加入 runqueue</li>
+<li>进程 yield，主动让出 CPU 使用权，但是依然挂在 runqueue 上 先考虑第一个问题，如何知道进程被唤醒呢？很幸运，我们有另一个 tracepoint 可以知道进程被唤醒。</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">static</span> <span style="color:#a6e22e">void</span> <span style="color:#a6e22e">ttwu_do_wakeup</span>(<span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">rq</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">rq</span>, <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">task_struct</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">p</span>, <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">wake_flags</span>,
+</span></span><span style="display:flex;"><span>                           <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">rq_flags</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">rf</span>)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* ... */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">trace_sched_wakeup</span>(<span style="color:#a6e22e">p</span>);
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* ... */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>借助 sched_wakeup tracepoint 我们可以知道是否是我们跟踪的进程被唤醒了，此时就是第一个时间戳，加入 runqueue 时间。</p>
+<p>这是第一种情况。另外两种情况，可以总结成一种情况处理。因为这两种情况下，进程是都是从 running 下切换 runnable 态。我们借助 sched_switch tracepoint 可以检测。现在我们得到了一个进程加入 runqueue 时间和进程开始运行时间，两个时间差值就是调度延迟时间。此时就可以记录数据，绘制柱状图，这相当于实现了 bcc 中 runqlat 工具的功能。但是，这不是我们的重点。当进程加入某个 CPU 的 runqueue 后，我们就需要对这个 CPU 的进程进行记录，记录每个进程的 comm，pid 以及执行时间。直到跟踪的进程开始执行。这些信息可以给我一定的指导作用。原理已经介绍完了，比较简单，具体的代码实现细节，可以前往源码查看。如果你发现 bug，记得 fix patch。我们很欢迎。</p>
+<h1 id="4-如何安装">4. 如何安装</h1>
+<p>trace_runqlat 工具已经放到 bytedance 私有云。因此可以通过如下命令安装：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">make</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">make</span> <span style="color:#a6e22e">install</span>
+</span></span></code></pre></div><p>Note: 由于工具使用 sched tracepoint，对性能有一定影响。调试完成记得执行<code>rmmod trace_runqlat</code>卸载模块。</p>
+<h1 id="5-如何使用">5. 如何使用</h1>
+<p>安装 trace-runqlat 工具成功后。会创建如下 /proc/trace_runqlat 目录。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">root</span><span style="color:#960050;background-color:#1e0010">@</span><span style="color:#a6e22e">n18</span><span style="color:#f92672">-</span><span style="color:#ae81ff">061</span><span style="color:#f92672">-</span><span style="color:#ae81ff">206</span>:<span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_runqlat</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">ls</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">distribution</span>  <span style="color:#a6e22e">pid</span>  <span style="color:#a6e22e">runqlat</span>  <span style="color:#a6e22e">threshold</span>
+</span></span></code></pre></div><p>/proc/trace_runqlat 目录下存在 4 个文件，分别：distribution, pid, runqlat 和 threshold。工具安装后，默认是打开状态，但是并没有 trace 任何线程，我们需要手动设置需要 trace 的线程 pid。</p>
+<h3 id="51-跟踪特定-pid-线程">5.1 跟踪特定 pid 线程</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">echo</span> <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#a6e22e">pid</span> &gt; <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_runqlat</span><span style="color:#f92672">/</span><span style="color:#a6e22e">pid</span>
+</span></span></code></pre></div><h3 id="52-关闭跟踪">5.2 关闭跟踪</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">echo</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span> &gt; <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_runqlat</span><span style="color:#f92672">/</span><span style="color:#a6e22e">pid</span>
+</span></span></code></pre></div><h3 id="53-设置阈值">5.3 设置阈值</h3>
+<p>trace-runqlat 只会针对延迟超过阈值的情况，记录 runqueue 前面的线程执行的时间情况。为了更高效的运作，我们有必要设定一个合理阈值。例如设置 60ms 的阈值：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">echo</span> <span style="color:#ae81ff">60000000</span> &gt; <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_runqlat</span><span style="color:#f92672">/</span><span style="color:#a6e22e">threshold</span> <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">单位ns</span>
+</span></span></code></pre></div><p>如果需要查看当前设定的阈值，可执行如下命令：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">cat</span> <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_runqlat</span><span style="color:#f92672">/</span><span style="color:#a6e22e">threshold</span>
+</span></span></code></pre></div><p><strong>5.4 查看线程</strong></p>
+<p>runqueue latency 分布 我们以直方图的形式展示被跟踪进程 runqueue latency 的分布情况。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">cat</span> <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_runqlat</span><span style="color:#f92672">/</span><span style="color:#a6e22e">distribution</span>
+</span></span></code></pre></div><p>你看到的信息展示如同下面这样：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>         <span style="color:#a6e22e">msecs</span>           : <span style="color:#a6e22e">count</span>     <span style="color:#a6e22e">distribution</span>
+</span></span><span style="display:flex;"><span>         <span style="color:#ae81ff">1</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">1</span>          : <span style="color:#ae81ff">0</span>        |                                        |
+</span></span><span style="display:flex;"><span>         <span style="color:#ae81ff">2</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">3</span>          : <span style="color:#ae81ff">0</span>        |                                        |
+</span></span><span style="display:flex;"><span>         <span style="color:#ae81ff">4</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">7</span>          : <span style="color:#ae81ff">0</span>        |                                        |
+</span></span><span style="display:flex;"><span>         <span style="color:#ae81ff">8</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">15</span>         : <span style="color:#ae81ff">0</span>        |                                        |
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">16</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">31</span>         : <span style="color:#ae81ff">0</span>        |                                        |
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">32</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">63</span>         : <span style="color:#ae81ff">68</span>       |<span style="color:#f92672">****************************************</span>|
+</span></span></code></pre></div><p>我们可以看到 latency 集中在[32, 63]毫秒，次数 68 次。</p>
+<h3 id="55-是谁在-runqueue-的前面">5.5 是谁在 runqueue 的前面</h3>
+<p>针对 latency 超过阈值的情况，我们会记录 runqueue 前面的线程执行情况。注意，必须关闭 trace 的情况下才能查看/proc/trace_runqlat/runqlat 信息。</p>
+<h1 id="6-案例分析">6. 案例分析</h1>
+<p>为了展示 trace-runqlat 工具的功能，我们构建一个场景，模拟高负载的情况。我在一个 CPU 上起 10 个进程，分别是 loop0-loop9。每个进程都在用户态无限循环执行，消耗 CPU 资源。我们跟踪 loop0 进程。查看 loop0 调度延迟的原因。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">cat</span> <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_runqlat</span><span style="color:#f92672">/</span><span style="color:#a6e22e">runqlat</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">latency</span>(<span style="color:#a6e22e">us</span>): <span style="color:#ae81ff">35999</span> <span style="color:#a6e22e">runqlen</span>: <span style="color:#ae81ff">10</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop7</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789453</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">4000</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop2</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789448</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">4001</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop4</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789450</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">3998</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop1</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789447</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">3999</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop3</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789449</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">4000</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop8</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789454</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">3999</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop9</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789455</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">4001</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">kworker</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0</span>:<span style="color:#ae81ff">2</span>      <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3621088</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):      <span style="color:#ae81ff">3</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop5</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789451</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">3994</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">loop6</span>            <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3789452</span>  <span style="color:#a6e22e">RUNTIME</span>(<span style="color:#a6e22e">us</span>):   <span style="color:#ae81ff">3999</span>
+</span></span></code></pre></div><p>我们可以看到 runqueue latency 是 35999us。runqueue 前面有 10 个进程。每个进程的执行时间加在一起差不多就是总的 latency。loop1-loop9 都在这里了。还多了个 kworker，不过转瞬即逝。我们看到每个 loop 执行时间基本是 4ms。这其实是 CFS 调度器给进程分配的最大时间片。</p>
+<h1 id="7-总结">7. 总结</h1>
+<p>根据字节内部实践来看，trace-runqlat 安装便捷且使用灵活度高，能将问题定位耗时缩短至分钟级别，使用收益可观，并且已经通过该工具定位问题，提高了工作效率。</p>
+<h1 id="更多分享">更多分享</h1>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c32fdea74a39c1b10634dce0daf09da163baec10a928c5cc61e2231344514c601a57689c&amp;idx=1&amp;lang=zh_CN&amp;mid=2247485645&amp;scene=21&amp;sn=0be38e487629931e7d9818159bb3c68c&amp;token=469580850#wechat_redirect">Kernel trace tools（一）：中断和软中断关闭时间过长问题追踪</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c306dea74a109aceb0fa803b1377d38f79d04da6f6e11d6271f95351053625e31d523cb7&amp;idx=1&amp;lang=zh_CN&amp;mid=2247485668&amp;scene=21&amp;sn=d83327b14f61672ab53e556c679bf94d&amp;token=469580850#wechat_redirect">Kernel trace tools（二）：内核态执行时间跟踪</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c2dedea74bc8179af39888a5b2b99266587cad32744ad11092b91ec2e2babc74e69090e6&amp;idx=1&amp;lang=zh_CN&amp;mid=2247485756&amp;scene=21&amp;sn=4d2712e4bfb9be27a790fa15159a7be1&amp;token=469580850#wechat_redirect">字节跳动在 Go 网络库上的实践</a></p>
+<h1 id="字节跳动系统部-ste-团队">字节跳动系统部 STE 团队</h1>
+<p>字节跳动 STE 团队一直致力于操作系统内核与虚拟化、系统基础软件与基础库的构建和性能优化、超大规模数据中心的稳定性和可靠性建设、新硬件与软件的协同设计等基础技术领域的研发与工程化落地，具备全面的基础软件工程能力，为字节上层业务保驾护航。同时，团队积极关注社区技术动向，拥抱开源和标准。欢迎更多有志之士加入，如有意向可发送简历至 <strong><a href="mailto:sysrecruitment@bytedance.com">sysrecruitment@bytedance.com</a></strong> 。</p>
+<hr>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPZ0thMjgwYVRFQ3UzdExNemx0SzlFUGJlb05abThUcE5kWFJzaFV5V1FiU1AzTWlhY05FWnhXRU1iUWJUZ2VEN3NWdXRPNWtWbTlBTFEvNjQw?x-oss-process=image/format,png" alt="img"><img src="https://g.csdnimg.cn/side-toolbar/3.0/images/fanhuidingbucopy.png" alt="img"></p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/%e7%bc%96%e7%a8%8b%e6%9d%82%e8%b0%88" rel="tag" title="编程杂谈">#编程杂谈#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/07/27/%E5%AD%97%E8%8A%82%E8%B7%B3%E5%8A%A8-flink-%E5%8D%95%E7%82%B9%E6%81%A2%E5%A4%8D%E5%8A%9F%E8%83%BD%E5%AE%9E%E8%B7%B5/" rel="next" title="字节跳动 Flink 单点恢复功能实践">
+        <i class="fa fa-chevron-left"></i> 字节跳动 Flink 单点恢复功能实践
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/07/27/kernel-trace-tools%E4%BA%8C%E4%B8%AD%E6%96%AD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD%E5%85%B3%E9%97%AD%E6%97%B6%E9%97%B4%E8%BF%87%E9%95%BF%E9%97%AE%E9%A2%98%E8%BF%BD%E8%B8%AA/" rel="prev" title="Kernel trace tools（二）：中断和软中断关闭时间过长问题追踪">
+        Kernel trace tools（二）：中断和软中断关闭时间过长问题追踪 <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">384</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">20</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">27</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>

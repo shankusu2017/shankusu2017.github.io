@@ -1,0 +1,511 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>Kernel trace tools（二）：中断和软中断关闭时间过长问题追踪 - 愿星光伴你左右</title>
+    <meta name="keywords" content="愿星光伴你左右,openresty,nginx,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="Kernel trace tools（二）：中断和软中断关闭时间过长问题追踪">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="Kernel trace tools（二）：中断和软中断关闭时间过长问题追踪 - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-user"></i> <br />关于
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/07/27/kernel-trace-tools%E4%BA%8C%E4%B8%AD%E6%96%AD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD%E5%85%B3%E9%97%AD%E6%97%B6%E9%97%B4%E8%BF%87%E9%95%BF%E9%97%AE%E9%A2%98%E8%BF%BD%E8%B8%AA/" itemprop="url">
+        Kernel trace tools（二）：中断和软中断关闭时间过长问题追踪
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-07-27">
+    2021-07-27
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/" itemprop="url" rel="index">
+        <span itemprop="name">[编程杂谈]</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">2882 字 ~6分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <h1 id="kernel-trace-tools二内核态执行时间跟踪">Kernel trace tools（二）：内核态执行时间跟踪</h1>
+<blockquote>
+<p>本文是由字节跳动系统部 STE 团队出品的“kernel trace tools”系列文章之一，以介绍团队自研多类延迟问题追踪工具。</p>
+<p>在实际工作中，会遇到由于内核态不调度而引发的高网络延迟或者卡顿问题。但是，对于该类问题的定位和追踪缺乏行之有效的方案或客观依据，需要耗费大量时间和精力用于问题排查，trace-noschedule 工具便是在该背景下诞生的自研工具。</p>
+<p>目前，trace-noschedule 已开源，感兴趣详见 Open Source Repo：</p>
+<p>（https://github.com/bytedance/trace-noschedule）</p>
+</blockquote>
+<h1 id="1-问题背景">1. 问题背景</h1>
+<p>在实际项目实践中，我们经常会遇到延迟高导致的问题。由于我们服务器的内核默认配成内核态不支持抢占，因此不抢占这点也是可能导致问题的原因之一。例如 A 进程陷入内核态执行时间过长，必然影响其他希望在该核运行的进程。此时就会导致调度延迟。针对这种 case，我们开发了一款工具专门跟踪陷入内核态长时间不调度的进程。这对于我们排查问题可以有一定的指导方向。同时如果是此类原因导致的延迟，也可以快速定位问题原因。</p>
+<h1 id="2-我们想做什么">2. 我们想做什么</h1>
+<p>当一个进程陷入内核态时，我们应该记录其时间戳。当离开内核时，再一次记录时间戳。然后求差值即可得到进程在内核态运行的时间。思路比较清晰。</p>
+<h1 id="3-如何实现">3. 如何实现</h1>
+<p>我们知道应用程序陷入内核态的方式主要是系统调用。我们是否可以通过系统调用提供的 tracepoint 完成呢？当系统调用开始，记录时间戳，系统调用退出，再次记录时间戳。求差值，就是本次系统调用花费的时间。这种方法是否可靠？很明显不可靠。因为进程在内核态很可能由于资源不满足导致主动 schedule。这种情况下，根本不是一直占用 CPU 不调度的情况。因此，这种方法不可行。</p>
+<p>既然系统调用这条路走不通，我们就换一种方式。我们知道一个线程执行的生命周期，起于 schedule，止于 schedule。所以我们可以知道一个线程从开始执行到主动或被动放弃 CPU 之间的时间差。这部分时间是总时间，即 user+kernel 的时间。我们是否有办法获取总时间呢？很幸运我们有 schedule 的 tracepoint 可以获取。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void __sched notrace __schedule(bool preempt)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    /* ... */
+</span></span><span style="display:flex;"><span>    trace_sched_switch(preempt, prev, next);
+</span></span><span style="display:flex;"><span>    /* ... */
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们只需要 enable sched_switch 即可获取每个线程执行的总时间。是不是激动的心，颤抖的手，是不是马上想用 bcc 行动了？但是有个新的问题摆在我们面前，如何过滤掉 user 态执行的时间？因为用户态支持抢占，内核态不支持抢占。所以统计内核态的时间才是有意义的。</p>
+<p>过滤用户态执行时间可以间接的通过定时器实现。我们知道周期性定时中断，可以获取被打断的上下文是用户态或者内核态。所以开始时间戳 last 需要不断的更新。第一次是从 schedule 开始，后面每次更新是在定时器中断中，如果发现当前中断是打断的用户态，那么更新 last 时间戳，否则不更新。此刻认为用户线程在内核态执行。我们看下示例代码。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">static</span> <span style="color:#a6e22e">enum</span> <span style="color:#a6e22e">hrtimer_restart</span> <span style="color:#a6e22e">trace_nosched_hrtimer_handler</span>(<span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">hrtimer</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">hrtimer</span>)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * Skip the idle task and make sure we are not only the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * running task on the CPU. If we are interrupted from
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * user mode, it indicate that we are not executing in
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * the kernel space, so we should also skip it.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (!<span style="color:#a6e22e">is_idle_task</span>(<span style="color:#a6e22e">current</span>) <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">regs</span> <span style="color:#f92672">&amp;&amp;</span> !<span style="color:#a6e22e">user_mode</span>(<span style="color:#a6e22e">regs</span>) <span style="color:#f92672">&amp;&amp;</span>
+</span></span><span style="display:flex;"><span>            !<span style="color:#a6e22e">single_task_running</span>()) {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">/* The kernel mode */</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">                 * If the execution time exceeds the threshold, record
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">                 * the call trace.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">                 */</span>
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">/* The user mode */</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">stack_trace</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">last_timestamp</span> = <span style="color:#a6e22e">now</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们看到不更新时间戳的条件比较苛刻。主要考虑以下几种情况：</p>
+<ul>
+<li>如果中断时从用户态发生，则更新 last_timestamp 时间戳。</li>
+<li>如果当前 CPU 运行队列只有一个 task，更新 last_timestamp 时间戳。因为这种情况下，占有 CPU 不放没有任何问题。</li>
+<li>如果当前进程是 idle 进程，同样更新 last_timestamp 时间戳。因为 idle 进程本身就可能在内核态长时间运行，没有任何问题。</li>
+</ul>
+<p>我们再看下 tracepoint 的 hook 函数实现。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">static</span> <span style="color:#a6e22e">void</span> <span style="color:#a6e22e">probe_sched_switch</span>(<span style="color:#a6e22e">void</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">priv</span>, <span style="color:#66d9ef">bool</span> <span style="color:#a6e22e">preempt</span>,
+</span></span><span style="display:flex;"><span>                               <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">task_struct</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">prev</span>,
+</span></span><span style="display:flex;"><span>                               <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">task_struct</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">next</span>)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">u64</span> <span style="color:#a6e22e">now</span> = <span style="color:#a6e22e">local_clock</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">u64</span> <span style="color:#a6e22e">last</span> = <span style="color:#a6e22e">cpu_stack_trace</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">last_timestamp</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">cpu_stack_trace</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">last_timestamp</span> = <span style="color:#a6e22e">now</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * Skip the idle task and make sure we are not only the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         * running task on the CPU.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (!<span style="color:#a6e22e">is_idle_task</span>(<span style="color:#a6e22e">prev</span>) <span style="color:#f92672">&amp;&amp;</span> !<span style="color:#a6e22e">single_task_running</span>())
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">hist_update</span>(<span style="color:#a6e22e">cpu_stack_trace</span>, <span style="color:#a6e22e">now</span> <span style="color:#f92672">-</span> <span style="color:#a6e22e">last</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>记录时间差值，差不多可以认为是内核态执行的时间。当操作设定阈值，我们更新柱状图统计计数。</p>
+<h1 id="4-如何安装">4. 如何安装</h1>
+<p>安装 trace-noschedule 工具很简单，git clone 代码后执行如下命令即可安装。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">make</span> <span style="color:#f92672">-</span><span style="color:#a6e22e">j8</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">make</span> <span style="color:#a6e22e">install</span>
+</span></span></code></pre></div><h1 id="5-如何使用">5. 如何使用</h1>
+<p>安装 trace-noschedule 工具成功后。会创建如下 /proc/trace_noschedule 目录。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">root</span><span style="color:#960050;background-color:#1e0010">@</span><span style="color:#a6e22e">n18</span><span style="color:#f92672">-</span><span style="color:#ae81ff">061</span><span style="color:#f92672">-</span><span style="color:#ae81ff">206</span>:<span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_noschedule</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">ls</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">distribution</span>  <span style="color:#a6e22e">enable</span>  <span style="color:#a6e22e">stack_trace</span>  <span style="color:#a6e22e">threshold</span>
+</span></span></code></pre></div><p>/proc/trace_noschedule 目录下存在 4 个文件，分别：distribution, enable, stack_trace 和 threshold。工具安装后，默认是关闭状态。</p>
+<h3 id="51-打开-tracer">5.1 打开 tracer</h3>
+<p>执行以下命令打开 tracer。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">echo</span> <span style="color:#ae81ff">1</span> &gt; <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_noschedule</span><span style="color:#f92672">/</span><span style="color:#a6e22e">enable</span>
+</span></span></code></pre></div><h3 id="52-关闭-tracer">5.2 关闭 tracer</h3>
+<p>执行如下命令关闭 tracer。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">echo</span> <span style="color:#ae81ff">0</span> &gt; <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_noschedule</span><span style="color:#f92672">/</span><span style="color:#a6e22e">enable</span>
+</span></span></code></pre></div><p>Note: debug 问题后请记得关闭 tracer。因为模块内部实现基于 sched tracepoint，overhead 不能忽略。</p>
+<h3 id="53-设置阈值">5.3 设置阈值</h3>
+<p>trace_noschedule 只会针对内核态执行时间超过阈值不调度的进程记录 stack trace。为了更高效的运作，我们有必要设定一个合理阈值。例如设置 60ms 的阈值(单位：ns)：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">echo</span> <span style="color:#ae81ff">60000000</span> &gt; <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_noschedule</span><span style="color:#f92672">/</span><span style="color:#a6e22e">threshold</span>
+</span></span></code></pre></div><h3 id="54-查看内核态长时间未调度进程执行的时间分布">5.4 查看内核态长时间未调度进程执行的时间分布。</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">root</span><span style="color:#960050;background-color:#1e0010">@</span><span style="color:#a6e22e">n18</span><span style="color:#f92672">-</span><span style="color:#ae81ff">061</span><span style="color:#f92672">-</span><span style="color:#ae81ff">206</span>:<span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_noschedule</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">cat</span> <span style="color:#a6e22e">distribution</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">Trace</span> <span style="color:#a6e22e">noschedule</span> <span style="color:#a6e22e">thread</span>:
+</span></span><span style="display:flex;"><span>         <span style="color:#a6e22e">msecs</span>           : <span style="color:#a6e22e">count</span>     <span style="color:#a6e22e">distribution</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">20</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">39</span>         : <span style="color:#ae81ff">1</span>        |<span style="color:#f92672">**********</span>                              |
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">40</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">79</span>         : <span style="color:#ae81ff">0</span>        |                                        |
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">80</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">159</span>        : <span style="color:#ae81ff">4</span>        |<span style="color:#f92672">****************************************</span>|
+</span></span><span style="display:flex;"><span>       <span style="color:#ae81ff">160</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">319</span>        : <span style="color:#ae81ff">2</span>        |<span style="color:#f92672">********************</span>                    |
+</span></span></code></pre></div><p>在内核态有 4 次执行时间在[80, 159]ms 范围内没有调度。</p>
+<h3 id="55-是谁占用-cpu-不调度">5.5 是谁占用 CPU 不调度</h3>
+<p>stack_trace 记录占用 CPU 时间超过阈值不调度进程的栈。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">root</span><span style="color:#960050;background-color:#1e0010">@</span><span style="color:#a6e22e">n18</span><span style="color:#f92672">-</span><span style="color:#ae81ff">061</span><span style="color:#f92672">-</span><span style="color:#ae81ff">206</span>:<span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_noschedule</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">cat</span> <span style="color:#a6e22e">stack_trace</span>
+</span></span><span style="display:flex;"><span> <span style="color:#a6e22e">cpu</span>: <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">sh</span> <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">1270013</span> <span style="color:#a6e22e">DURATION</span>: <span style="color:#ae81ff">100</span><span style="color:#a6e22e">ms</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">delay_tsc</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x21</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x50</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">nosched_test_write</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x53</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x90</span> [<span style="color:#a6e22e">trace_noschedule</span>]
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">proc_reg_write</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x36</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x60</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">__vfs_write</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x33</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x190</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">vfs_write</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0xb0</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x190</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">ksys_write</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x52</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xc0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">do_syscall_64</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x4f</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xe0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">entry_SYSCALL_64_after_hwframe</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x44</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xa9</span>
+</span></span></code></pre></div><p>这是个内核态测试的 case，在内核态执行 mdelay(100)占用 CPU 100ms 不调度。此时记录的栈如上面所示。&ldquo;DURATION&quot;记录的就是执行持续时间。</p>
+<h3 id="56-清除-stack-trace">5.6 清除 stack trace</h3>
+<p>如果我们需要清除 stack trace 记录的信息（stack trace buffer 是有大小限制的，必要的时候需要 clear）。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">echo</span> <span style="color:#ae81ff">0</span> &gt; <span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_noschedule</span><span style="color:#f92672">/</span><span style="color:#a6e22e">stack_trace</span>
+</span></span></code></pre></div><h1 id="6-案例展示">6. 案例展示</h1>
+<p>这里以一个实际问题带你了解工具的使用。问题是背景是，业务发现 docker 好像有问题，pull 不下来镜像。登录机器会卡顿，执行很多命令也会卡顿。</p>
+<h3 id="61-首先看下-cpu-使用情况">6.1 首先看下 CPU 使用情况。</h3>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPajkwMHlHWnlpYXkyc1lyWkZ1SVNrUHpmdW1aclY5TFA1YW9RWllJZmU2aWFDcDc2dGljb2ljSU5PeFgxQmFpYWFjNGhEcXJaOEJXMGljaHo5Zy82NDA?x-oss-process=image/format,png" alt="img"></p>
+<p>有几个 CPU 100%，而且还是 sys 态使用。系统究竟在干吗？</p>
+<h3 id="62-使用-perf-工具">6.2 使用 perf 工具</h3>
+<p>使用 perf top 看下 CPU 情况，发现 60%左右的时间在 spinlock 上。但是没看出内核哪个路径的 spinlock。使用 trace-noschedule 工具看看是否有发现。</p>
+<h3 id="63-trace-noschedule-跟踪">6.3 trace-noschedule 跟踪</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">root</span><span style="color:#960050;background-color:#1e0010">@</span><span style="color:#a6e22e">n131</span><span style="color:#f92672">-</span><span style="color:#ae81ff">103</span><span style="color:#f92672">-</span><span style="color:#ae81ff">013</span>:<span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span><span style="color:#f92672">/</span><span style="color:#a6e22e">trace_noschedule</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">cat</span> <span style="color:#a6e22e">distribution</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">Trace</span> <span style="color:#a6e22e">noschedule</span> <span style="color:#a6e22e">thread</span>:
+</span></span><span style="display:flex;"><span>         <span style="color:#a6e22e">msecs</span>           : <span style="color:#a6e22e">count</span>     <span style="color:#a6e22e">distribution</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">20</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">39</span>         : <span style="color:#ae81ff">760</span>      |<span style="color:#f92672">****************************************</span>|
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">40</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">79</span>         : <span style="color:#ae81ff">488</span>      |<span style="color:#f92672">*************************</span>               |
+</span></span><span style="display:flex;"><span>        <span style="color:#ae81ff">80</span> <span style="color:#f92672">-</span>&gt; <span style="color:#ae81ff">159</span>        : <span style="color:#ae81ff">73</span>       |<span style="color:#f92672">***</span>                                     |
+</span></span></code></pre></div><p>内核态长时间未调度，而且时间很长。看下工具记录的栈信息，截取如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">runc</span> <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">499045</span> <span style="color:#a6e22e">DURATION</span>: <span style="color:#ae81ff">75</span><span style="color:#a6e22e">ms</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">native_queued_spin_lock_slowpath</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x112</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x190</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">_raw_spin_lock</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x1d</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x20</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">prepend_path</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x266</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x2d0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">__d_path</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x4b</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x80</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">seq_path_root</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x53</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xb0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">show_mountinfo</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0xb8</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x290</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">seq_read</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x321</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x3f0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">__vfs_read</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x33</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x160</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">vfs_read</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x91</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x130</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">SyS_read</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x52</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xc0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">do_syscall_64</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x68</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x100</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">entry_SYSCALL_64_after_hwframe</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x3d</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xa2</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">COMM</span>: <span style="color:#a6e22e">falcon</span><span style="color:#f92672">-</span><span style="color:#a6e22e">agent</span> <span style="color:#a6e22e">PID</span>: <span style="color:#ae81ff">3002056</span> <span style="color:#a6e22e">DURATION</span>: <span style="color:#ae81ff">114</span><span style="color:#a6e22e">ms</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">native_queued_spin_lock_slowpath</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x10f</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x190</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">_raw_spin_lock</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x1d</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x20</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">prepend_path</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x266</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x2d0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">__d_path</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x4b</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x80</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">seq_path_root</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x53</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xb0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">show_vfsmnt</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x7a</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x170</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">seq_read</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x321</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x3f0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">__vfs_read</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x33</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x160</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">vfs_read</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x91</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x130</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">SyS_read</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x52</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xc0</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">do_syscall_64</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x68</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0x100</span>
+</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">entry_SYSCALL_64_after_hwframe</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0x3d</span><span style="color:#f92672">/</span><span style="color:#ae81ff">0xa2</span>
+</span></span></code></pre></div><p>说明内核态确实一直在 spin。主要集中在以上两个路径文件的读取。分别是<code>/proc/$pid/mounts</code>和<code>/proc/$pid/mountinfo</code>文件。</p>
+<h3 id="64-查看-mountinfo-信息">6.4 查看 mountinfo 信息</h3>
+<p>可能是 mount 太多，导致遍历时间很久。而且长时间持锁。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">root</span><span style="color:#960050;background-color:#1e0010">@</span><span style="color:#a6e22e">n131</span><span style="color:#f92672">-</span><span style="color:#ae81ff">103</span><span style="color:#f92672">-</span><span style="color:#ae81ff">013</span>:<span style="color:#f92672">/</span><span style="color:#66d9ef">var</span><span style="color:#f92672">/</span><span style="color:#a6e22e">log</span><span style="color:#f92672">/</span><span style="color:#a6e22e">atop</span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">mount</span> <span style="color:#f92672">-</span><span style="color:#a6e22e">v</span> | <span style="color:#a6e22e">wc</span> <span style="color:#f92672">-</span><span style="color:#a6e22e">l</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">65803</span>
+</span></span></code></pre></div><p>确实很多，65803 多个。大量的/dev/shm 挂载。以下信息只是其中一部分展示。既然知道了问题原因就可以对症下药了，下一步就是排查为什么/dev/shm 挂载很多。这让我们很快定位问题原因。</p>
+<h1 id="7-总结">7. 总结</h1>
+<p>根据字节内部实践来看，trace-noschedule 安装便捷且使用灵活度高，能将问题定位耗时缩短至分钟级别，使用收益可观，并且已经通过该工具定位一些，提高了工作效率。</p>
+<h1 id="更多分享">更多分享</h1>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c32fdea74a39c1b10634dce0daf09da163baec10a928c5cc61e2231344514c601a57689c&amp;idx=1&amp;lang=zh_CN&amp;mid=2247485645&amp;scene=21&amp;sn=0be38e487629931e7d9818159bb3c68c&amp;token=1885959671#wechat_redirect">Kernel trace tools（一）：中断和软中断关闭时间过长问题追踪</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c33fdea74a29040dc5905f9b30b594f0b08264afee25593c64c1b798c04292493766f6a1&amp;idx=1&amp;lang=zh_CN&amp;mid=2247485661&amp;scene=21&amp;sn=0f74be70239f9049b991f1bf9ac379cf&amp;token=1885959671#wechat_redirect">字节跳动混沌工程实践总结</a></p>
+<p><a href="https://mp.weixin.qq.com/s?__biz=MzI1MzYzMjE0MQ%3D%3D&amp;chksm=e9d0c324dea74a323b46925e252a87ad85b104200eeefb77603ae0e9d9af937b158750228aa2&amp;idx=1&amp;lang=zh_CN&amp;mid=2247485638&amp;scene=21&amp;sn=dd61ebefb4e3e20241a2f61f69c1d46f&amp;token=1885959671#wechat_redirect">gdb 提示 coredump 文件 truncated 问题排查</a></p>
+<h1 id="字节跳动系统部-ste-团队">字节跳动系统部 STE 团队</h1>
+<p>字节跳动系统部 STE 团队一直致力于操作系统内核与虚拟化、系统基础软件与基础库的构建和性能优化、超大规模数据中心的稳定性和可靠性建设、新硬件与软件的协同设计等基础技术领域的研发与工程化落地，具备全面的基础软件工程能力，为字节上层业务保驾护航。同时，团队积极关注社区技术动向，拥抱开源和标准。欢迎更多有志之士加入，如有意向可发送简历至 <a href="mailto:sysrecruitment@bytedance.com">sysrecruitment@bytedance.com</a>。</p>
+<hr>
+<p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPZ0thMjgwYVRFQ3UzdExNemx0SzlFUGJlb05abThUcE5kWFJzaFV5V1FiU1AzTWlhY05FWnhXRU1iUWJUZ2VEN3NWdXRPNWtWbTlBTFEvNjQw?x-oss-process=image/format,png" alt="img"></p>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/%e7%bc%96%e7%a8%8b%e6%9d%82%e8%b0%88" rel="tag" title="编程杂谈">#编程杂谈#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/07/27/kernel-trace-tools%E4%B8%89%E4%B8%AD%E6%96%AD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD%E5%85%B3%E9%97%AD%E6%97%B6%E9%97%B4%E8%BF%87%E9%95%BF%E9%97%AE%E9%A2%98%E8%BF%BD%E8%B8%AA/" rel="next" title="Kernel trace tools（三）：中断和软中断关闭时间过长问题追踪">
+        <i class="fa fa-chevron-left"></i> Kernel trace tools（三）：中断和软中断关闭时间过长问题追踪
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2021/07/27/kernel-trace-tools%E4%B8%80%E4%B8%AD%E6%96%AD%E5%92%8C%E8%BD%AF%E4%B8%AD%E6%96%AD%E5%85%B3%E9%97%AD%E6%97%B6%E9%97%B4%E8%BF%87%E9%95%BF%E9%97%AE%E9%A2%98%E8%BF%BD%E8%B8%AA/" rel="prev" title="Kernel trace tools（一）：中断和软中断关闭时间过长问题追踪">
+        Kernel trace tools（一）：中断和软中断关闭时间过长问题追踪 <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> 
+        Programmer life</p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">384</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">20</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">27</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>
