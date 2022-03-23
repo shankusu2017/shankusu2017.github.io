@@ -65,6 +65,12 @@
         </li>
       
         <li class="menu-item ">
+          <a href="http://shanks.link/categories/lua/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />lua
+          </a>
+        </li>
+      
+        <li class="menu-item ">
           <a href="http://shanks.link/links/" rel="section">
               <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
           </a>
@@ -157,20 +163,20 @@
 你可以看到一个单独处理器有4个物理核心。配置表上没说每个物理核心有多少个硬件线程。Intel Core i7 处理器有自己的超线程，也就是每个物理内核上有两个硬件线程。因此Go程序知道并行执行操作系统线程的时候，会有8个虚拟内核可以用
 验证一下，看一下下面的程序
 <strong>L1</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f92672">import</span> (
-</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;fmt&#34;</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#e6db74">&#34;runtime&#34;</span>
-</span></span><span style="display:flex;"><span>)
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// NumCPU returns the number of logical
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// CPUs usable by the current process.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">NumCPU</span>())
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><h2 id="goroutine状态">我在我的本机上运行这个程序，NumCPU()方法会返回8，我在本机上跑的任何Go程序会分配8个逻辑处理器(P)。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+
+<span style="color:#f92672">import</span> (
+	<span style="color:#e6db74">&#34;fmt&#34;</span>
+	<span style="color:#e6db74">&#34;runtime&#34;</span>
+)
+
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+
+    <span style="color:#75715e">// NumCPU returns the number of logical
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">// CPUs usable by the current process.
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">NumCPU</span>())
+}
+</code></pre></div><h2 id="goroutine状态">我在我的本机上运行这个程序，NumCPU()方法会返回8，我在本机上跑的任何Go程序会分配8个逻辑处理器(P)。
 每个P会分配一个<strong>OS线程（M）</strong>。M代表machine。这个线程是OS来处理的，并且OS还负责把线程放置到一个core上去执行。这意味着当我跑一个Go程序在我的机器上，我有8个可用的线程去执行我的工作，每个线程单独连到一个P上。
 每个Go程序同时也会有一个初始的<strong>Goroutine（G）</strong>。一个Goroutine本质上是一个协程（<a href="https://en.wikipedia.org/wiki/Coroutine">Coroutine）</a>，但是在go里，把字面“C”替换为“G”所以我们叫Goroutine。你可以认为Goroutine是一个用户程序级别的线程而且它跟OS线程很多方面都类似。区别仅仅是OS线程在内核(Core)上进行上下文切换，而Goroutines是在M上。
 最后一个让人困惑的就是运行队列。在Go 调度器中有两种不同的运行队列：全局运行队列**（GRQ）<strong>和本地运行队列</strong>(LRQ)**。每个P会分配一个LRQ去处理P的上下文要执行的Goroutines 。这些Goroutines会在绑定到P的M上进行上下文的切换。GRQ会处理还没有分配到P上的Goroutines 。Goroutines从GRQ挪到LRQ的过程一会我们一会儿会说。
@@ -241,15 +247,15 @@ GC时候会有它自己的Goroutines，这些Goroutines也需要M上的时间片
 <img src="https://user-gold-cdn.xitu.io/2019/5/19/16acf565adfce212?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 P1没有更多Goroutine去执行了，但是在GRQ和P2的LRQ中都有可执行的Goroutines。这种情况P1会去窃取工作，Work Stealing的规则如下
 <strong>L2</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">schedule</span>() {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// only 1/61 of the time, check the global runnable queue for a G.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// if not found, check the local queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// if not found,
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//     try to steal from other Ps.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//     if not, check the global runnable queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//     if not found, poll network.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
-</span></span></code></pre></div><p>所以基于L2的规则，P1需要去看P2的LRQ上的Goroutines并且拿走一半。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">schedule</span>() {
+    <span style="color:#75715e">// only 1/61 of the time, check the global runnable queue for a G.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">// if not found, check the local queue.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">// if not found,
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//     try to steal from other Ps.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//     if not, check the global runnable queue.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//     if not found, poll network.
+</span><span style="color:#75715e"></span>}
+</code></pre></div><p>所以基于L2的规则，P1需要去看P2的LRQ上的Goroutines并且拿走一半。</p>
 <p>图2.11
 <img src="https://user-gold-cdn.xitu.io/2019/5/19/16acf56793b6a00a?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 图2.11中，一半的Goroutines从P2上偷走，P1现在可以执行那些Goroutines
@@ -361,8 +367,7 @@ Go调度程序的设计在考虑操作系统和硬件工作复杂性方面确实
         src="http://shanks.link/img/logo.jpg"
         alt="shankusu2017@gmail.com" />
     <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
-    <p class="site-description motion-element" itemprop="description"> 
-        Programmer life</p>
+    <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
@@ -427,7 +432,7 @@ Go调度程序的设计在考虑操作系统和硬件工作复杂性方面确实
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

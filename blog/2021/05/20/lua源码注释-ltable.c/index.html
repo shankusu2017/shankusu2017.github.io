@@ -65,6 +65,12 @@
         </li>
       
         <li class="menu-item ">
+          <a href="http://shanks.link/categories/lua/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />lua
+          </a>
+        </li>
+      
+        <li class="menu-item ">
           <a href="http://shanks.link/links/" rel="section">
               <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
           </a>
@@ -148,650 +154,651 @@
     </header>
     <div class="post-body" itemprop="articleBody">
     <p><a href="https://github.com/shankusu2017/lua">github链接</a> lua515子域</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** $Id: ltable.c,v 2.32.1.2 2007/12/28 15:32:23 roberto Exp $
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Lua tables (hash)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** See Copyright Notice in lua.h
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Implementation of tables (aka(又名) arrays, objects, or hash tables).
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Tables keep its elements in two parts: an array part and a hash part.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Non-negative integer keys are all candidates(考虑) to be kept in the array
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** part. The actual size of the array is the largest `n&#39; such that at
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** least half the slots between 0 and n are in use.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Hash uses a mix of chained scatter（分散） table with Brent&#39;s variation.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** A main invariant(不变的) of these tables is that, if an element is not
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** in its main position (i.e. the `original&#39; position that its hash gives
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** to it), then the colliding(碰撞的) element is in its own main position.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Hence even when the load factor reaches 100%, performance remains good.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">/* 和lstring的闭散列不同，这里采用的是开散列算法                    https://blog.csdn.net/Boring_Wednesday/article/details/80316884
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 结合gc流程和table&#39;insert的流程来看
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">**
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** tbl[k]=nil,若k仅被此表引用,则此k会被gc回收,for中进行tbl[k]=nil的操作，并不会修改影响表遍历的完整性
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** next函数有对此进行了专门的处理(deadkey)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** tbl[k]=nil后，node经过gc后被标记为deadkey,在此之前resize之前，此node是个&#34;正常的node&#34;，可以被复用
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** gc被标记为deadkey后，进入了dead流程，是一个deadkey了。没作用了
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;math.h&gt;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#define ltable_c
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define LUA_CORE
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lua.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldebug.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldo.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lgc.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lmem.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lobject.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstate.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ltable.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** max size of array part is 2^MAXBITS
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#if LUAI_BITSINT &gt; 26
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define MAXBITS		26
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#else
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define MAXBITS		(LUAI_BITSINT-2)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#define MAXASIZE	(1 &lt;&lt; MAXBITS)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#define hashpow2(t,n)      (gnode(t, lmod((n), sizenode(t))))
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#define hashstr(t,str)  hashpow2(t, (str)-&gt;tsv.hash)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define hashboolean(t,p)        hashpow2(t, p)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** for some types, it is better to avoid modulus by power of 2, as
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** they tend to have many 2 factors.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#define hashmod(t,n)	(gnode(t, ((n) % ((sizenode(t)-1)|1))))
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#define hashpointer(t,p)	hashmod(t, IntPoint(p))
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** number of ints inside a lua_Number
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#define numints		cast_int(sizeof(lua_Number)/sizeof(int))
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#define dummynode		(&amp;dummynode_)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">const</span> Node dummynode_ <span style="color:#f92672">=</span> {
-</span></span><span style="display:flex;"><span>  {{NULL}, LUA_TNIL},  <span style="color:#75715e">/* value */</span>
-</span></span><span style="display:flex;"><span>  {{{NULL}, LUA_TNIL, NULL}}  <span style="color:#75715e">/* key */</span>
-</span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** hash for lua_Numbers
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> Node <span style="color:#f92672">*</span><span style="color:#a6e22e">hashnum</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, lua_Number n) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> a[numints];
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (luai_numeq(n, <span style="color:#ae81ff">0</span>))  <span style="color:#75715e">/* avoid problems with -0 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> gnode(t, <span style="color:#ae81ff">0</span>);
-</span></span><span style="display:flex;"><span>  memcpy(a, <span style="color:#f92672">&amp;</span>n, <span style="color:#66d9ef">sizeof</span>(a));
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&lt;</span> numints; i<span style="color:#f92672">++</span>) a[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">+=</span> a[i];
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> hashmod(t, a[<span style="color:#ae81ff">0</span>]);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** returns the `main&#39; position of an element in a table (that is, the index
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** of its hash value)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> Node <span style="color:#f92672">*</span><span style="color:#a6e22e">mainposition</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">switch</span> (ttype(key)) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_TNUMBER:
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> hashnum(t, nvalue(key));
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_TSTRING:
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> hashstr(t, rawtsvalue(key));
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_TBOOLEAN:
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> hashboolean(t, bvalue(key));
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_TLIGHTUSERDATA:
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> hashpointer(t, pvalue(key));
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> hashpointer(t, gcvalue(key));
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** returns the index for `key&#39; if `key&#39; is an appropriate(合适的) key to live in
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** the array part of the table, -1 otherwise.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">arrayindex</span> (<span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (ttisnumber(key)) {
-</span></span><span style="display:flex;"><span>    lua_Number n <span style="color:#f92672">=</span> nvalue(key);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> k;
-</span></span><span style="display:flex;"><span>    lua_number2int(k, n);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (luai_numeq(cast_num(k), n))
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> k;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;  <span style="color:#75715e">/* `key&#39; did not match some condition */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** returns the index of a `key&#39; for table traversals(遍历). First goes all
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** elements in the array part, then elements in the hash part. The
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** beginning of a traversal is signalled by -1.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">findindex</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, StkId key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (ttisnil(key)) { <span style="color:#75715e">/* 下面i++后，开始从数组的第一个slot开始匹配 */</span>
-</span></span><span style="display:flex;"><span>  	<span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;  <span style="color:#75715e">/* first iteration */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  i <span style="color:#f92672">=</span> arrayindex(key);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#ae81ff">0</span> <span style="color:#f92672">&lt;</span> i <span style="color:#f92672">&amp;&amp;</span> i <span style="color:#f92672">&lt;=</span> t<span style="color:#f92672">-&gt;</span>sizearray)  <span style="color:#75715e">/* is `key&#39; inside array part? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> i<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;  <span style="color:#75715e">/* yes; that&#39;s the index (corrected to C) */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>    Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> mainposition(t, key);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">do</span> {  <span style="color:#75715e">/* check whether `key&#39; is somewhere in the chain */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#75715e">/* key may be dead already, but it is ok to use it in `next&#39; 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      **
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** for k,v pair(tbl) do
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      **      tbl[k] = nil
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      **      可能的gc导致出现DEADKEY
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** end
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      **
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** LUA_TDEADKEY的key对应的mem可能被释放了，所以这里可能gcvalue(gkey(n) == gcvalue(key)) 这个判断不准确，要使其准确的前提是mem不释放，
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** 上面for循环中k保持了对其引用所以不会导致mem释放，其它环境下调用tbl.next(deadKey)因为不确定mem是否被释放所以结果是未定义的，我的妈妈咪耶，搞明白了吗
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** 不管是lua还是C调用,tbl[k]=nil导致deadkey，但k的存在使key对应的gc内存不被释放(k还引用着它呢)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** C中调用tbl[k]=nil导致死键后，top-=2,key也被抛弃，如果stack还有其它的slot引用key则key对应的内存
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** 不会被释放，也可以再次利用key调用next,如果statck中没有其它的slot引用该key，则对应的内存可能会被释放
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">      ** 但key也不存在了，故而gcvalue(gkey(n)==gcvalue(key))中的key也不存在了，该判断就不可能成立了
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	  */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (luaO_rawequalObj(key2tval(n), key) <span style="color:#f92672">||</span>
-</span></span><span style="display:flex;"><span>	  		<span style="color:#75715e">/* 支持lua中的在next中tbl[k]=nil的操作后，k-&gt;k.next */</span>
-</span></span><span style="display:flex;"><span>            (ttype(gkey(n)) <span style="color:#f92672">==</span> LUA_TDEADKEY <span style="color:#f92672">&amp;&amp;</span> iscollectable(key) <span style="color:#f92672">&amp;&amp;</span> gcvalue(gkey(n)) <span style="color:#f92672">==</span> gcvalue(key))) {
-</span></span><span style="display:flex;"><span>        i <span style="color:#f92672">=</span> cast_int(n <span style="color:#f92672">-</span> gnode(t, <span style="color:#ae81ff">0</span>));  <span style="color:#75715e">/* key index in hash table */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* hash elements are numbered after array ones */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> i <span style="color:#f92672">+</span> t<span style="color:#f92672">-&gt;</span>sizearray;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span> n <span style="color:#f92672">=</span> gnext(n);
-</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">while</span> (n);
-</span></span><span style="display:flex;"><span>    luaG_runerror(L, <span style="color:#e6db74">&#34;invalid key to &#34;</span> LUA_QL(<span style="color:#e6db74">&#34;next&#34;</span>));  <span style="color:#75715e">/* key not found */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* to avoid warnings */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaH_next</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, StkId key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> findindex(L, t, key);  <span style="color:#75715e">/* find original element */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 这里先来个i++,配合着上面的findindex，就形成了如果传入的是nil，则从数组第一个slot开始查找
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 如果传入的是前面找到的oldKey，则在oldKey的下一个slot开始匹配,符合next函数定义
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">++</span>; i <span style="color:#f92672">&lt;</span> t<span style="color:#f92672">-&gt;</span>sizearray; i<span style="color:#f92672">++</span>) {  <span style="color:#75715e">/* try first array part */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i])) {  <span style="color:#75715e">/* a non-nil value? */</span>
-</span></span><span style="display:flex;"><span>      setnvalue(key, cast_num(i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>));	<span style="color:#75715e">/* c下表从0开始，lua从1开始，所以这里要补1 */</span>
-</span></span><span style="display:flex;"><span>      setobj2s(L, key<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>, <span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i]);
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">-=</span> t<span style="color:#f92672">-&gt;</span>sizearray; i <span style="color:#f92672">&lt;</span> sizenode(t); i<span style="color:#f92672">++</span>) {  <span style="color:#75715e">/* then hash part */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(gval(gnode(t, i)))) {  <span style="color:#75715e">/* a non-nil value? */</span>
-</span></span><span style="display:flex;"><span>      setobj2s(L, key, key2tval(gnode(t, i)));
-</span></span><span style="display:flex;"><span>      setobj2s(L, key<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>, gval(gnode(t, i)));
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* no more elements */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** {=============================================================
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Rehash
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** ==============================================================
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">computesizes</span> (<span style="color:#66d9ef">int</span> nums[], <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>narray) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> twotoi;  <span style="color:#75715e">/* 2^i */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> a <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* number of elements smaller than 2^i */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> na <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* number of elements to go to array part */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> n <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* optimal size for array part */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>, twotoi <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>; twotoi<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span> <span style="color:#f92672">&lt;</span> <span style="color:#f92672">*</span>narray; i<span style="color:#f92672">++</span>, twotoi <span style="color:#f92672">*=</span> <span style="color:#ae81ff">2</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (nums[i] <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>) {
-</span></span><span style="display:flex;"><span>      a <span style="color:#f92672">+=</span> nums[i];	<span style="color:#75715e">/* 加上当前区间 */</span>
-</span></span><span style="display:flex;"><span>	  <span style="color:#75715e">/* 截至到当前区间.left，利用率超过了1/2，存个档 */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (a <span style="color:#f92672">&gt;</span> twotoi<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>) {  <span style="color:#75715e">/* more than half elements present? */</span>
-</span></span><span style="display:flex;"><span>        n <span style="color:#f92672">=</span> twotoi;  <span style="color:#75715e">/* optimal size (till now) */</span>
-</span></span><span style="display:flex;"><span>        na <span style="color:#f92672">=</span> a;  <span style="color:#75715e">/* all elements smaller than n will go to array part */</span>
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* 所有已存在的元素都已统计完毕，无需再往后面统计了(nums[i+]及后面都是0了)，这里提前跳出 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (a <span style="color:#f92672">==</span> <span style="color:#f92672">*</span>narray) 
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">break</span>;  <span style="color:#75715e">/* all elements already counted */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#f92672">*</span>narray <span style="color:#f92672">=</span> n;
-</span></span><span style="display:flex;"><span>  lua_assert(<span style="color:#f92672">*</span>narray<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span> <span style="color:#f92672">&lt;=</span> na <span style="color:#f92672">&amp;&amp;</span> na <span style="color:#f92672">&lt;=</span> <span style="color:#f92672">*</span>narray);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> na;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">countint</span> (<span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key, <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>nums) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> k <span style="color:#f92672">=</span> arrayindex(key);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#ae81ff">0</span> <span style="color:#f92672">&lt;</span> k <span style="color:#f92672">&amp;&amp;</span> k <span style="color:#f92672">&lt;=</span> MAXASIZE) {  <span style="color:#75715e">/* is `key&#39; an appropriate array index? */</span>
-</span></span><span style="display:flex;"><span>    nums[ceillog2(k)]<span style="color:#f92672">++</span>;  <span style="color:#75715e">/* count as such */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">numusearray</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>nums) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> lg;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> ttlg;  <span style="color:#75715e">/* 2^lg */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> ause <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* summation of `nums&#39; */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;  <span style="color:#75715e">/* count to traverse all array keys */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (lg<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>, ttlg<span style="color:#f92672">=</span><span style="color:#ae81ff">1</span>; lg<span style="color:#f92672">&lt;=</span>MAXBITS; lg<span style="color:#f92672">++</span>, ttlg<span style="color:#f92672">*=</span><span style="color:#ae81ff">2</span>) {  <span style="color:#75715e">/* for each slice */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> lc <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* counter */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> lim <span style="color:#f92672">=</span> ttlg;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (lim <span style="color:#f92672">&gt;</span> t<span style="color:#f92672">-&gt;</span>sizearray) {
-</span></span><span style="display:flex;"><span>      lim <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>sizearray;  <span style="color:#75715e">/* adjust upper limit */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (i <span style="color:#f92672">&gt;</span> lim)	<span style="color:#75715e">/* 下面的for循环中i提前++了。所以这里要对其评估 */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>;  <span style="color:#75715e">/* no more elements to count */</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>	
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* count elements in range (2^(lg-1), 2^lg] */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (; i <span style="color:#f92672">&lt;=</span> lim; i<span style="color:#f92672">++</span>) {
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>]))	<span style="color:#75715e">/* 这里要-1,因为C的下标从0开始 */</span>
-</span></span><span style="display:flex;"><span>        lc<span style="color:#f92672">++</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>	
-</span></span><span style="display:flex;"><span>    nums[lg] <span style="color:#f92672">+=</span> lc;	<span style="color:#75715e">/* 更新区间内used的数量 */</span>
-</span></span><span style="display:flex;"><span>    ause <span style="color:#f92672">+=</span> lc;		<span style="color:#75715e">/* 更新总的used数量 */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> ause;	<span style="color:#75715e">/* 返回 array中used的总数 */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 更新node中int的key到nums和pnasize中，返回node中key的总数 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">numusehash</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>nums, <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>pnasize) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> totaluse <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* total number of elements */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> ause <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* summation of `nums&#39; */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> sizenode(t);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (i<span style="color:#f92672">--</span>) {
-</span></span><span style="display:flex;"><span>    Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>node[i];
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(gval(n))) {	<span style="color:#75715e">/* 这里没有判断gkey而是gval!!! */</span>
-</span></span><span style="display:flex;"><span>      ause <span style="color:#f92672">+=</span> countint(key2tval(n), nums);
-</span></span><span style="display:flex;"><span>      totaluse<span style="color:#f92672">++</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#f92672">*</span>pnasize <span style="color:#f92672">+=</span> ause;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> totaluse;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">setarrayvector</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> size) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
-</span></span><span style="display:flex;"><span>  luaM_reallocvector(L, t<span style="color:#f92672">-&gt;</span>array, t<span style="color:#f92672">-&gt;</span>sizearray, size, TValue);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span>t<span style="color:#f92672">-&gt;</span>sizearray; i<span style="color:#f92672">&lt;</span>size; i<span style="color:#f92672">++</span>)	<span style="color:#75715e">/* 多出来的数组部分填nil */</span>
-</span></span><span style="display:flex;"><span>     setnilvalue(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i]);
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>sizearray <span style="color:#f92672">=</span> size;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 按照新的node区大小size，申请新内存且将其全部set-nil */</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">setnodevector</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> size) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> lsize;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (size <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {  <span style="color:#75715e">/* no elements to hash part? */</span>
-</span></span><span style="display:flex;"><span>    t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">=</span> cast(Node <span style="color:#f92672">*</span>, dummynode);  <span style="color:#75715e">/* use common `dummynode&#39; */</span>
-</span></span><span style="display:flex;"><span>    lsize <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
-</span></span><span style="display:flex;"><span>    lsize <span style="color:#f92672">=</span> ceillog2(size);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (lsize <span style="color:#f92672">&gt;</span> MAXBITS)
-</span></span><span style="display:flex;"><span>      luaG_runerror(L, <span style="color:#e6db74">&#34;table overflow&#34;</span>);
-</span></span><span style="display:flex;"><span>    size <span style="color:#f92672">=</span> twoto(lsize);
-</span></span><span style="display:flex;"><span>    t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">=</span> luaM_newvector(L, size, Node);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>size; i<span style="color:#f92672">++</span>) {
-</span></span><span style="display:flex;"><span>      Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> gnode(t, i);
-</span></span><span style="display:flex;"><span>      gnext(n) <span style="color:#f92672">=</span> NULL;
-</span></span><span style="display:flex;"><span>      setnilvalue(gkey(n));
-</span></span><span style="display:flex;"><span>      setnilvalue(gval(n));
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>lsizenode <span style="color:#f92672">=</span> cast_byte(lsize);
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>lastfree <span style="color:#f92672">=</span> gnode(t, size);  <span style="color:#75715e">/* all positions are free */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* nasize:调整后的数组大小
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** nhsize:调整后node部分的元素个数 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">resize</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> nasize, <span style="color:#66d9ef">int</span> nhsize) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> oldasize <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>sizearray;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> oldhsize <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>lsizenode;
-</span></span><span style="display:flex;"><span>  Node <span style="color:#f92672">*</span>nold <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>node;  <span style="color:#75715e">/* save old hash ... */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (nasize <span style="color:#f92672">&gt;</span> oldasize)  <span style="color:#75715e">/* array part must grow? */</span>
-</span></span><span style="display:flex;"><span>    setarrayvector(L, t, nasize);
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* create new hash part with appropriate size 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 准备好全新的node，以便下面调整array时，接收array中溢出的slot
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
-</span></span><span style="display:flex;"><span>  setnodevector(L, t, nhsize);  
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (nasize <span style="color:#f92672">&lt;</span> oldasize) {  <span style="color:#75715e">/* array part must shrink? */</span>
-</span></span><span style="display:flex;"><span>    t<span style="color:#f92672">-&gt;</span>sizearray <span style="color:#f92672">=</span> nasize;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* re-insert elements from vanishing slice */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span>nasize; i<span style="color:#f92672">&lt;</span>oldasize; i<span style="color:#f92672">++</span>) {	<span style="color:#75715e">/* new的array-size下将数组溢出的slot移动到node区域去 */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i]))
-</span></span><span style="display:flex;"><span>        setobjt2t(L, luaH_setnum(L, t, i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>), <span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i]);
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* shrink array */</span>
-</span></span><span style="display:flex;"><span>    luaM_reallocvector(L, t<span style="color:#f92672">-&gt;</span>array, oldasize, nasize, TValue);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* re-insert elements from hash part */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> twoto(oldhsize) <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
-</span></span><span style="display:flex;"><span>    Node <span style="color:#f92672">*</span>old <span style="color:#f92672">=</span> nold<span style="color:#f92672">+</span>i;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(gval(old)))	<span style="color:#75715e">/* 这里没拿gkey判断!!       */</span>
-</span></span><span style="display:flex;"><span>      setobjt2t(L, luaH_set(L, t, key2tval(old)), gval(old));
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (nold <span style="color:#f92672">!=</span> dummynode)
-</span></span><span style="display:flex;"><span>    luaM_freearray(L, nold, twoto(oldhsize), Node);  <span style="color:#75715e">/* free old array */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 供lvm调用，一次到位申请对应的array区域的内存 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaH_resizearray</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> nasize) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> nsize <span style="color:#f92672">=</span> (t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">==</span> dummynode) <span style="color:#f92672">?</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">:</span> sizenode(t);
-</span></span><span style="display:flex;"><span>  resize(L, t, nasize, nsize);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 尝试插入新的key(ek时发现空间不足，从而rehash) */</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">rehash</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>ek) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> nasize, na;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> nums[MAXBITS<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>];  <span style="color:#75715e">/* nums[i] = number of keys between 2^(i-1) and 2^i */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> totaluse;	<span style="color:#75715e">/* 所有元素总和 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;=</span>MAXBITS; i<span style="color:#f92672">++</span>) nums[i] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* reset counts */</span>
-</span></span><span style="display:flex;"><span>  nasize <span style="color:#f92672">=</span> numusearray(t, nums);  <span style="color:#75715e">/* count keys in array part */</span>
-</span></span><span style="display:flex;"><span>  totaluse <span style="color:#f92672">=</span> nasize;  <span style="color:#75715e">/* all those keys are integer keys */</span>
-</span></span><span style="display:flex;"><span>  totaluse <span style="color:#f92672">+=</span> numusehash(t, nums, <span style="color:#f92672">&amp;</span>nasize);  <span style="color:#75715e">/* count keys in hash part */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* count extra key */</span>
-</span></span><span style="display:flex;"><span>  nasize <span style="color:#f92672">+=</span> countint(ek, nums);
-</span></span><span style="display:flex;"><span>  totaluse<span style="color:#f92672">++</span>;
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* compute new size for array part */</span>
-</span></span><span style="display:flex;"><span>  na <span style="color:#f92672">=</span> computesizes(nums, <span style="color:#f92672">&amp;</span>nasize);	<span style="color:#75715e">/* 计算下最优解下的nasize，以及即将落在array中的数量(na) */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* resize the table to new computed sizes */</span>
-</span></span><span style="display:flex;"><span>  resize(L, t, nasize, totaluse <span style="color:#f92672">-</span> na);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** }=============================================================
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>Table <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_new</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> narray, <span style="color:#66d9ef">int</span> nhash) {
-</span></span><span style="display:flex;"><span>  Table <span style="color:#f92672">*</span>t <span style="color:#f92672">=</span> luaM_new(L, Table);
-</span></span><span style="display:flex;"><span>  luaC_link(L, obj2gco(t), LUA_TTABLE);
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>metatable <span style="color:#f92672">=</span> NULL;
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>flags <span style="color:#f92672">=</span> cast_byte(<span style="color:#f92672">~</span><span style="color:#ae81ff">0</span>);	<span style="color:#75715e">/* 新表，tag&#39;method都不存在 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* temporary values (kept only if some malloc fails) */</span>
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>array <span style="color:#f92672">=</span> NULL;
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>sizearray <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* n的0次幂==1，这里不能简单的t-&gt;node==NULL */</span>
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>lsizenode <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">=</span> cast(Node <span style="color:#f92672">*</span>, dummynode);
-</span></span><span style="display:flex;"><span>  setarrayvector(L, t, narray);
-</span></span><span style="display:flex;"><span>  setnodevector(L, t, nhash);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> t;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaH_free</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">!=</span> dummynode)
-</span></span><span style="display:flex;"><span>    luaM_freearray(L, t<span style="color:#f92672">-&gt;</span>node, sizenode(t), Node);
-</span></span><span style="display:flex;"><span>  luaM_freearray(L, t<span style="color:#f92672">-&gt;</span>array, t<span style="color:#f92672">-&gt;</span>sizearray, TValue);
-</span></span><span style="display:flex;"><span>  luaM_free(L, t);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> Node <span style="color:#f92672">*</span><span style="color:#a6e22e">getfreepos</span> (Table <span style="color:#f92672">*</span>t) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (t<span style="color:#f92672">-&gt;</span>lastfree<span style="color:#f92672">--</span> <span style="color:#f92672">&gt;</span> t<span style="color:#f92672">-&gt;</span>node) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (ttisnil(gkey(t<span style="color:#f92672">-&gt;</span>lastfree)))
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> t<span style="color:#f92672">-&gt;</span>lastfree;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> NULL;  <span style="color:#75715e">/* could not find a free place */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** inserts a new key into a hash table; first, check whether key&#39;s main 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** position is free. If not, check whether colliding node is in its main 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** position or not: if it is not, move colliding node to an empty place and 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** put new key in its main position; otherwise (colliding node is in its main 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** position), new key goes to an empty position. 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">newkey</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
-</span></span><span style="display:flex;"><span>  Node <span style="color:#f92672">*</span>mp <span style="color:#f92672">=</span> mainposition(t, key);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(gval(mp)) <span style="color:#f92672">||</span> mp <span style="color:#f92672">==</span> dummynode) {
-</span></span><span style="display:flex;"><span>    Node <span style="color:#f92672">*</span>othern;
-</span></span><span style="display:flex;"><span>    Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> getfreepos(t);  <span style="color:#75715e">/* get a free place */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (n <span style="color:#f92672">==</span> NULL) {  <span style="color:#75715e">/* cannot find a free place? */</span>
-</span></span><span style="display:flex;"><span>      rehash(L, t, key);  <span style="color:#75715e">/* grow table */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> luaH_set(L, t, key);  <span style="color:#75715e">/* re-insert key into grown table */</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    lua_assert(n <span style="color:#f92672">!=</span> dummynode);	<span style="color:#75715e">/* mp==dummynode时，getfreepos必然返回NULL,不应该走到这里 */</span>
-</span></span><span style="display:flex;"><span>	
-</span></span><span style="display:flex;"><span>    othern <span style="color:#f92672">=</span> mainposition(t, key2tval(mp));
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (othern <span style="color:#f92672">!=</span> mp) {  <span style="color:#75715e">/* is colliding node out of its main position? */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#75715e">/* yes; move colliding node into free position */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">while</span> (gnext(othern) <span style="color:#f92672">!=</span> mp) othern <span style="color:#f92672">=</span> gnext(othern);  <span style="color:#75715e">/* find previous */</span>
-</span></span><span style="display:flex;"><span>	  <span style="color:#75715e">/* 更新下链表 */</span>
-</span></span><span style="display:flex;"><span>      gnext(othern) <span style="color:#f92672">=</span> n;  <span style="color:#75715e">/* redo the chain with `n&#39; in place of `mp&#39; */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>mp;  <span style="color:#75715e">/* copy colliding node into free pos. (mp-&gt;next also goes) */</span>
-</span></span><span style="display:flex;"><span>      gnext(mp) <span style="color:#f92672">=</span> NULL;  <span style="color:#75715e">/* now `mp&#39; is free */</span>
-</span></span><span style="display:flex;"><span>      setnilvalue(gval(mp));	<span style="color:#75715e">/* key在下面设置 */</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* colliding node is in its own main position */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#75715e">/* new node will go into free position */</span>
-</span></span><span style="display:flex;"><span>      gnext(n) <span style="color:#f92672">=</span> gnext(mp);  <span style="color:#75715e">/* chain new position */</span>
-</span></span><span style="display:flex;"><span>      gnext(mp) <span style="color:#f92672">=</span> n;
-</span></span><span style="display:flex;"><span>      mp <span style="color:#f92672">=</span> n;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  gkey(mp)<span style="color:#f92672">-&gt;</span>value <span style="color:#f92672">=</span> key<span style="color:#f92672">-&gt;</span>value; gkey(mp)<span style="color:#f92672">-&gt;</span>tt <span style="color:#f92672">=</span> key<span style="color:#f92672">-&gt;</span>tt;
-</span></span><span style="display:flex;"><span>  luaC_barriert(L, t, key);
-</span></span><span style="display:flex;"><span>  lua_assert(ttisnil(gval(mp)));	<span style="color:#75715e">/* new的node，其val必然是一个崭新的，必须为nil */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> gval(mp);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** search function for integers
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_getnum</span> (Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* (1 &lt;= key &amp;&amp; key &lt;= t-&gt;sizearray) */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 如果key为负数，按照C的int-&gt;uint规则，转换的结果将是一个巨大的数，故而下面判断为false */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (cast(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>, key<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#f92672">&lt;</span> cast(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>, t<span style="color:#f92672">-&gt;</span>sizearray))
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[key<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>];
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>    lua_Number nk <span style="color:#f92672">=</span> cast_num(key);
-</span></span><span style="display:flex;"><span>    Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> hashnum(t, nk);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">do</span> {  <span style="color:#75715e">/* check whether `key&#39; is somewhere in the chain */</span>
-</span></span><span style="display:flex;"><span>	  <span style="color:#75715e">/* 由于Value是union,故而可能n=nk但！！！！！ n对应的value的type和nk.对应的value不相等的情况
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	   ** 所以这里必须要有个ttisnumber的判断 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	   */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (ttisnumber(gkey(n)) <span style="color:#f92672">&amp;&amp;</span> luai_numeq(nvalue(gkey(n)), nk))
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> gval(n);  <span style="color:#75715e">/* that&#39;s it */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span> <span style="color:#75715e">/* 如果key已存在于tbl，则必然在mp&#39;link上，故而这里可以遍历列表来查找，下同 */</span>
-</span></span><span style="display:flex;"><span>	  	n <span style="color:#f92672">=</span> gnext(n);
-</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">while</span> (n);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> luaO_nilobject;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** search function for strings
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_getstr</span> (Table <span style="color:#f92672">*</span>t, TString <span style="color:#f92672">*</span>key) {
-</span></span><span style="display:flex;"><span>  Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> hashstr(t, key);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">do</span> {  <span style="color:#75715e">/* check whether `key&#39; is somewhere in the chain */</span>
-</span></span><span style="display:flex;"><span>  	<span style="color:#75715e">/* 这里ttisstring(gkey(n))的判断排除掉已经被gc标记为deadkey的key,和上面的value相等但type不相等的情况
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  	** 如果运行了tbl[key]=nil，再到调用本函数之前，gc还没来得及将其node标记为deadkey,且还没调用resize
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  	** 则是复用该node
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  	*/</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (ttisstring(gkey(n)) <span style="color:#f92672">&amp;&amp;</span> rawtsvalue(gkey(n)) <span style="color:#f92672">==</span> key)
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> gval(n);  <span style="color:#75715e">/* that&#39;s it */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> 
-</span></span><span style="display:flex;"><span>		n <span style="color:#f92672">=</span> gnext(n);	
-</span></span><span style="display:flex;"><span>  } <span style="color:#66d9ef">while</span> (n);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> luaO_nilobject;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** main search function
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_get</span> (Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">switch</span> (ttype(key)) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_TNIL: <span style="color:#66d9ef">return</span> luaO_nilobject;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_TSTRING: <span style="color:#66d9ef">return</span> luaH_getstr(t, rawtsvalue(key));
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_TNUMBER: {
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">int</span> k;
-</span></span><span style="display:flex;"><span>      lua_Number n <span style="color:#f92672">=</span> nvalue(key);
-</span></span><span style="display:flex;"><span>      lua_number2int(k, n);
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (luai_numeq(cast_num(k), nvalue(key))) <span style="color:#75715e">/* index is int? */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> luaH_getnum(t, k);  <span style="color:#75715e">/* use specialized version */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#75715e">/* else go through */</span>  <span style="color:#75715e">/* 所以这里没有break,看懂了吗？ 非int的，走到default分支去了 */</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> {
-</span></span><span style="display:flex;"><span>      Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> mainposition(t, key);
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">do</span> {  <span style="color:#75715e">/* check whether `key&#39; is somewhere in the chain */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (luaO_rawequalObj(key2tval(n), key))		<span style="color:#75715e">/* 这里必须rawequlObj进行type==type的判断，以忽略掉deadKey的Node,以及union带来的影响 */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">return</span> gval(n);  <span style="color:#75715e">/* that&#39;s it */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> n <span style="color:#f92672">=</span> gnext(n);
-</span></span><span style="display:flex;"><span>      } <span style="color:#66d9ef">while</span> (n);
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> luaO_nilobject;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_set</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> luaH_get(t, key);
-</span></span><span style="display:flex;"><span>  t<span style="color:#f92672">-&gt;</span>flags <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;	<span style="color:#75715e">/* 如果本tbl当作meta，那么set后可能其tag有更新，这里索性假设所有的tag&#39;methods都更新了，假设所有的tag&#39;methaod都有了 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (p <span style="color:#f92672">!=</span> luaO_nilobject)
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> cast(TValue <span style="color:#f92672">*</span>, p);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (ttisnil(key)) luaG_runerror(L, <span style="color:#e6db74">&#34;table index is nil&#34;</span>);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (ttisnumber(key) <span style="color:#f92672">&amp;&amp;</span> luai_numisnan(nvalue(key)))
-</span></span><span style="display:flex;"><span>      luaG_runerror(L, <span style="color:#e6db74">&#34;table index is NaN&#34;</span>);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> newkey(L, t, key);	<span style="color:#75715e">/* 构造新的slot */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_setnum</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> luaH_getnum(t, key);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (p <span style="color:#f92672">!=</span> luaO_nilobject)
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> cast(TValue <span style="color:#f92672">*</span>, p);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>    TValue k;
-</span></span><span style="display:flex;"><span>    setnvalue(<span style="color:#f92672">&amp;</span>k, cast_num(key));
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> newkey(L, t, <span style="color:#f92672">&amp;</span>k);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_setstr</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, TString <span style="color:#f92672">*</span>key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> luaH_getstr(t, key);	<span style="color:#75715e">/* key现存，则直接返回node&#39;key */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (p <span style="color:#f92672">!=</span> luaO_nilobject)
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> cast(TValue <span style="color:#f92672">*</span>, p);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>    TValue k;
-</span></span><span style="display:flex;"><span>    setsvalue(L, <span style="color:#f92672">&amp;</span>k, key);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> newkey(L, t, <span style="color:#f92672">&amp;</span>k);	<span style="color:#75715e">/* 没有则构造一个new&#39;node出来，其中node.key=key,并返回其node.val */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">unbound_search</span> (Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> j) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> j;  <span style="color:#75715e">/* i is zero or a present index */</span>
-</span></span><span style="display:flex;"><span>  j<span style="color:#f92672">++</span>;
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* find `i&#39; and `j&#39; such that i is present and j is not */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (<span style="color:#f92672">!</span>ttisnil(luaH_getnum(t, j))) {
-</span></span><span style="display:flex;"><span>    i <span style="color:#f92672">=</span> j;
-</span></span><span style="display:flex;"><span>    j <span style="color:#f92672">*=</span> <span style="color:#ae81ff">2</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (j <span style="color:#f92672">&gt;</span> cast(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>, MAX_INT)) {  <span style="color:#75715e">/* overflow? */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#75715e">/* table was built with bad purposes: resort to linear search */</span>
-</span></span><span style="display:flex;"><span>      i <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">while</span> (<span style="color:#f92672">!</span>ttisnil(luaH_getnum(t, i))) i<span style="color:#f92672">++</span>;
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> i <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* now do a binary search between them */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (j <span style="color:#f92672">-</span> i <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">1</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> m <span style="color:#f92672">=</span> (i<span style="color:#f92672">+</span>j)<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (ttisnil(luaH_getnum(t, m))) j <span style="color:#f92672">=</span> m;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> i <span style="color:#f92672">=</span> m;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> i;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Try to find a boundary in table `t&#39;. A `boundary&#39; is an integer index
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** such that t[i] is non-nil and t[i+1] is nil (and 0 if t[1] is nil).
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaH_getn</span> (Table <span style="color:#f92672">*</span>t) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> j <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>sizearray;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (j <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[j <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>])) {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* there is a boundary in the array part: (binary) search for it */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span> (j <span style="color:#f92672">-</span> i <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">1</span>) {
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> m <span style="color:#f92672">=</span> (i<span style="color:#f92672">+</span>j)<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>;
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[m <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>])) j <span style="color:#f92672">=</span> m;
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span> i <span style="color:#f92672">=</span> m;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> i;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* else must find a boundary in hash part */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">==</span> dummynode)  <span style="color:#75715e">/* hash part is empty? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> j;  <span style="color:#75715e">/* that is easy... */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">return</span> unbound_search(t, j);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#if defined(LUA_DEBUG)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>Node <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_mainposition</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> mainposition(t, key);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaH_isdummy</span> (Node <span style="color:#f92672">*</span>n) { <span style="color:#66d9ef">return</span> n <span style="color:#f92672">==</span> dummynode; }
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
-</span></span></span></code></pre></div>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#75715e">/*
+</span><span style="color:#75715e">** $Id: ltable.c,v 2.32.1.2 2007/12/28 15:32:23 roberto Exp $
+</span><span style="color:#75715e">** Lua tables (hash)
+</span><span style="color:#75715e">** See Copyright Notice in lua.h
+</span><span style="color:#75715e">*/</span>
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** Implementation of tables (aka(又名) arrays, objects, or hash tables).
+</span><span style="color:#75715e">** Tables keep its elements in two parts: an array part and a hash part.
+</span><span style="color:#75715e">** Non-negative integer keys are all candidates(考虑) to be kept in the array
+</span><span style="color:#75715e">** part. The actual size of the array is the largest `n&#39; such that at
+</span><span style="color:#75715e">** least half the slots between 0 and n are in use.
+</span><span style="color:#75715e">** Hash uses a mix of chained scatter（分散） table with Brent&#39;s variation.
+</span><span style="color:#75715e">** A main invariant(不变的) of these tables is that, if an element is not
+</span><span style="color:#75715e">** in its main position (i.e. the `original&#39; position that its hash gives
+</span><span style="color:#75715e">** to it), then the colliding(碰撞的) element is in its own main position.
+</span><span style="color:#75715e">** Hence even when the load factor reaches 100%, performance remains good.
+</span><span style="color:#75715e">*/</span>
+
+
+<span style="color:#75715e">/* 
+</span><span style="color:#75715e">** 
+</span><span style="color:#75715e">/* 和lstring的闭散列不同，这里采用的是开散列算法                    https://blog.csdn.net/Boring_Wednesday/article/details/80316884
+</span><span style="color:#75715e">** 结合gc流程和table&#39;insert的流程来看
+</span><span style="color:#75715e">**
+</span><span style="color:#75715e">** tbl[k]=nil,若k仅被此表引用,则此k会被gc回收,for中进行tbl[k]=nil的操作，并不会修改影响表遍历的完整性
+</span><span style="color:#75715e">** next函数有对此进行了专门的处理(deadkey)
+</span><span style="color:#75715e">** 
+</span><span style="color:#75715e">** tbl[k]=nil后，node经过gc后被标记为deadkey,在此之前resize之前，此node是个&#34;正常的node&#34;，可以被复用
+</span><span style="color:#75715e">** gc被标记为deadkey后，进入了dead流程，是一个deadkey了。没作用了
+</span><span style="color:#75715e">*/</span>
+
+<span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;math.h&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">#define ltable_c
+</span><span style="color:#75715e">#define LUA_CORE
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lua.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldebug.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldo.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lgc.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lmem.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lobject.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstate.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ltable.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e"></span>
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** max size of array part is 2^MAXBITS
+</span><span style="color:#75715e">*/</span>
+<span style="color:#75715e">#if LUAI_BITSINT &gt; 26
+</span><span style="color:#75715e">#define MAXBITS		26
+</span><span style="color:#75715e">#else
+</span><span style="color:#75715e">#define MAXBITS		(LUAI_BITSINT-2)
+</span><span style="color:#75715e">#endif
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">#define MAXASIZE	(1 &lt;&lt; MAXBITS)
+</span><span style="color:#75715e"></span>
+
+<span style="color:#75715e">#define hashpow2(t,n)      (gnode(t, lmod((n), sizenode(t))))
+</span><span style="color:#75715e"></span>  
+<span style="color:#75715e">#define hashstr(t,str)  hashpow2(t, (str)-&gt;tsv.hash)
+</span><span style="color:#75715e">#define hashboolean(t,p)        hashpow2(t, p)
+</span><span style="color:#75715e"></span>
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** for some types, it is better to avoid modulus by power of 2, as
+</span><span style="color:#75715e">** they tend to have many 2 factors.
+</span><span style="color:#75715e">*/</span>
+<span style="color:#75715e">#define hashmod(t,n)	(gnode(t, ((n) % ((sizenode(t)-1)|1))))
+</span><span style="color:#75715e"></span>
+
+<span style="color:#75715e">#define hashpointer(t,p)	hashmod(t, IntPoint(p))
+</span><span style="color:#75715e"></span>
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** number of ints inside a lua_Number
+</span><span style="color:#75715e">*/</span>
+<span style="color:#75715e">#define numints		cast_int(sizeof(lua_Number)/sizeof(int))
+</span><span style="color:#75715e"></span>
+
+
+<span style="color:#75715e">#define dummynode		(&amp;dummynode_)
+</span><span style="color:#75715e"></span>
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">const</span> Node dummynode_ <span style="color:#f92672">=</span> {
+  {{NULL}, LUA_TNIL},  <span style="color:#75715e">/* value */</span>
+  {{{NULL}, LUA_TNIL, NULL}}  <span style="color:#75715e">/* key */</span>
+};
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** hash for lua_Numbers
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">static</span> Node <span style="color:#f92672">*</span><span style="color:#a6e22e">hashnum</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, lua_Number n) {
+  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> a[numints];
+  <span style="color:#66d9ef">int</span> i;
+  <span style="color:#66d9ef">if</span> (luai_numeq(n, <span style="color:#ae81ff">0</span>))  <span style="color:#75715e">/* avoid problems with -0 */</span>
+    <span style="color:#66d9ef">return</span> gnode(t, <span style="color:#ae81ff">0</span>);
+  memcpy(a, <span style="color:#f92672">&amp;</span>n, <span style="color:#66d9ef">sizeof</span>(a));
+  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&lt;</span> numints; i<span style="color:#f92672">++</span>) a[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">+=</span> a[i];
+  <span style="color:#66d9ef">return</span> hashmod(t, a[<span style="color:#ae81ff">0</span>]);
+}
+
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** returns the `main&#39; position of an element in a table (that is, the index
+</span><span style="color:#75715e">** of its hash value)
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">static</span> Node <span style="color:#f92672">*</span><span style="color:#a6e22e">mainposition</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
+  <span style="color:#66d9ef">switch</span> (ttype(key)) {
+    <span style="color:#66d9ef">case</span> LUA_TNUMBER:
+      <span style="color:#66d9ef">return</span> hashnum(t, nvalue(key));
+    <span style="color:#66d9ef">case</span> LUA_TSTRING:
+      <span style="color:#66d9ef">return</span> hashstr(t, rawtsvalue(key));
+    <span style="color:#66d9ef">case</span> LUA_TBOOLEAN:
+      <span style="color:#66d9ef">return</span> hashboolean(t, bvalue(key));
+    <span style="color:#66d9ef">case</span> LUA_TLIGHTUSERDATA:
+      <span style="color:#66d9ef">return</span> hashpointer(t, pvalue(key));
+    <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span>
+      <span style="color:#66d9ef">return</span> hashpointer(t, gcvalue(key));
+  }
+}
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** returns the index for `key&#39; if `key&#39; is an appropriate(合适的) key to live in
+</span><span style="color:#75715e">** the array part of the table, -1 otherwise.
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">arrayindex</span> (<span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
+  <span style="color:#66d9ef">if</span> (ttisnumber(key)) {
+    lua_Number n <span style="color:#f92672">=</span> nvalue(key);
+    <span style="color:#66d9ef">int</span> k;
+    lua_number2int(k, n);
+    <span style="color:#66d9ef">if</span> (luai_numeq(cast_num(k), n))
+      <span style="color:#66d9ef">return</span> k;
+  }
+  <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;  <span style="color:#75715e">/* `key&#39; did not match some condition */</span>
+}
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** returns the index of a `key&#39; for table traversals(遍历). First goes all
+</span><span style="color:#75715e">** elements in the array part, then elements in the hash part. The
+</span><span style="color:#75715e">** beginning of a traversal is signalled by -1.
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">findindex</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, StkId key) {
+  <span style="color:#66d9ef">int</span> i;
+  <span style="color:#66d9ef">if</span> (ttisnil(key)) { <span style="color:#75715e">/* 下面i++后，开始从数组的第一个slot开始匹配 */</span>
+  	<span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;  <span style="color:#75715e">/* first iteration */</span>
+  }
+  i <span style="color:#f92672">=</span> arrayindex(key);
+  <span style="color:#66d9ef">if</span> (<span style="color:#ae81ff">0</span> <span style="color:#f92672">&lt;</span> i <span style="color:#f92672">&amp;&amp;</span> i <span style="color:#f92672">&lt;=</span> t<span style="color:#f92672">-&gt;</span>sizearray)  <span style="color:#75715e">/* is `key&#39; inside array part? */</span>
+    <span style="color:#66d9ef">return</span> i<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;  <span style="color:#75715e">/* yes; that&#39;s the index (corrected to C) */</span>
+  <span style="color:#66d9ef">else</span> {
+    Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> mainposition(t, key);
+    <span style="color:#66d9ef">do</span> {  <span style="color:#75715e">/* check whether `key&#39; is somewhere in the chain */</span>
+      <span style="color:#75715e">/* key may be dead already, but it is ok to use it in `next&#39; 
+</span><span style="color:#75715e">      **
+</span><span style="color:#75715e">      ** for k,v pair(tbl) do
+</span><span style="color:#75715e">      **      tbl[k] = nil
+</span><span style="color:#75715e">      **      可能的gc导致出现DEADKEY
+</span><span style="color:#75715e">      ** end
+</span><span style="color:#75715e">      **
+</span><span style="color:#75715e">      ** LUA_TDEADKEY的key对应的mem可能被释放了，所以这里可能gcvalue(gkey(n) == gcvalue(key)) 这个判断不准确，要使其准确的前提是mem不释放，
+</span><span style="color:#75715e">      ** 上面for循环中k保持了对其引用所以不会导致mem释放，其它环境下调用tbl.next(deadKey)因为不确定mem是否被释放所以结果是未定义的，我的妈妈咪耶，搞明白了吗
+</span><span style="color:#75715e">      ** 
+</span><span style="color:#75715e">      ** 不管是lua还是C调用,tbl[k]=nil导致deadkey，但k的存在使key对应的gc内存不被释放(k还引用着它呢)
+</span><span style="color:#75715e">      ** C中调用tbl[k]=nil导致死键后，top-=2,key也被抛弃，如果stack还有其它的slot引用key则key对应的内存
+</span><span style="color:#75715e">      ** 不会被释放，也可以再次利用key调用next,如果statck中没有其它的slot引用该key，则对应的内存可能会被释放
+</span><span style="color:#75715e">      ** 但key也不存在了，故而gcvalue(gkey(n)==gcvalue(key))中的key也不存在了，该判断就不可能成立了
+</span><span style="color:#75715e">	  */</span>
+      <span style="color:#66d9ef">if</span> (luaO_rawequalObj(key2tval(n), key) <span style="color:#f92672">||</span>
+	  		<span style="color:#75715e">/* 支持lua中的在next中tbl[k]=nil的操作后，k-&gt;k.next */</span>
+            (ttype(gkey(n)) <span style="color:#f92672">==</span> LUA_TDEADKEY <span style="color:#f92672">&amp;&amp;</span> iscollectable(key) <span style="color:#f92672">&amp;&amp;</span> gcvalue(gkey(n)) <span style="color:#f92672">==</span> gcvalue(key))) {
+        i <span style="color:#f92672">=</span> cast_int(n <span style="color:#f92672">-</span> gnode(t, <span style="color:#ae81ff">0</span>));  <span style="color:#75715e">/* key index in hash table */</span>
+        <span style="color:#75715e">/* hash elements are numbered after array ones */</span>
+        <span style="color:#66d9ef">return</span> i <span style="color:#f92672">+</span> t<span style="color:#f92672">-&gt;</span>sizearray;
+      }
+      <span style="color:#66d9ef">else</span> n <span style="color:#f92672">=</span> gnext(n);
+    } <span style="color:#66d9ef">while</span> (n);
+    luaG_runerror(L, <span style="color:#e6db74">&#34;invalid key to &#34;</span> LUA_QL(<span style="color:#e6db74">&#34;next&#34;</span>));  <span style="color:#75715e">/* key not found */</span>
+    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* to avoid warnings */</span>
+  }
+}
+
+
+<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaH_next</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, StkId key) {
+  <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> findindex(L, t, key);  <span style="color:#75715e">/* find original element */</span>
+  <span style="color:#75715e">/* 这里先来个i++,配合着上面的findindex，就形成了如果传入的是nil，则从数组第一个slot开始查找
+</span><span style="color:#75715e">  ** 如果传入的是前面找到的oldKey，则在oldKey的下一个slot开始匹配,符合next函数定义
+</span><span style="color:#75715e">  */</span>
+  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">++</span>; i <span style="color:#f92672">&lt;</span> t<span style="color:#f92672">-&gt;</span>sizearray; i<span style="color:#f92672">++</span>) {  <span style="color:#75715e">/* try first array part */</span>
+    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i])) {  <span style="color:#75715e">/* a non-nil value? */</span>
+      setnvalue(key, cast_num(i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>));	<span style="color:#75715e">/* c下表从0开始，lua从1开始，所以这里要补1 */</span>
+      setobj2s(L, key<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>, <span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i]);
+      <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+    }
+  }
+  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">-=</span> t<span style="color:#f92672">-&gt;</span>sizearray; i <span style="color:#f92672">&lt;</span> sizenode(t); i<span style="color:#f92672">++</span>) {  <span style="color:#75715e">/* then hash part */</span>
+    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(gval(gnode(t, i)))) {  <span style="color:#75715e">/* a non-nil value? */</span>
+      setobj2s(L, key, key2tval(gnode(t, i)));
+      setobj2s(L, key<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>, gval(gnode(t, i)));
+      <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+    }
+  }
+  <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* no more elements */</span>
+}
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** {=============================================================
+</span><span style="color:#75715e">** Rehash
+</span><span style="color:#75715e">** ==============================================================
+</span><span style="color:#75715e">*/</span>
+
+
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">computesizes</span> (<span style="color:#66d9ef">int</span> nums[], <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>narray) {
+  <span style="color:#66d9ef">int</span> i;
+  <span style="color:#66d9ef">int</span> twotoi;  <span style="color:#75715e">/* 2^i */</span>
+  <span style="color:#66d9ef">int</span> a <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* number of elements smaller than 2^i */</span>
+  <span style="color:#66d9ef">int</span> na <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* number of elements to go to array part */</span>
+  <span style="color:#66d9ef">int</span> n <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* optimal size for array part */</span>
+  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>, twotoi <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>; twotoi<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span> <span style="color:#f92672">&lt;</span> <span style="color:#f92672">*</span>narray; i<span style="color:#f92672">++</span>, twotoi <span style="color:#f92672">*=</span> <span style="color:#ae81ff">2</span>) {
+    <span style="color:#66d9ef">if</span> (nums[i] <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>) {
+      a <span style="color:#f92672">+=</span> nums[i];	<span style="color:#75715e">/* 加上当前区间 */</span>
+	  <span style="color:#75715e">/* 截至到当前区间.left，利用率超过了1/2，存个档 */</span>
+      <span style="color:#66d9ef">if</span> (a <span style="color:#f92672">&gt;</span> twotoi<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>) {  <span style="color:#75715e">/* more than half elements present? */</span>
+        n <span style="color:#f92672">=</span> twotoi;  <span style="color:#75715e">/* optimal size (till now) */</span>
+        na <span style="color:#f92672">=</span> a;  <span style="color:#75715e">/* all elements smaller than n will go to array part */</span>
+      }
+    }
+
+	<span style="color:#75715e">/* 所有已存在的元素都已统计完毕，无需再往后面统计了(nums[i+]及后面都是0了)，这里提前跳出 */</span>
+    <span style="color:#66d9ef">if</span> (a <span style="color:#f92672">==</span> <span style="color:#f92672">*</span>narray) 
+		<span style="color:#66d9ef">break</span>;  <span style="color:#75715e">/* all elements already counted */</span>
+  }
+  <span style="color:#f92672">*</span>narray <span style="color:#f92672">=</span> n;
+  lua_assert(<span style="color:#f92672">*</span>narray<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span> <span style="color:#f92672">&lt;=</span> na <span style="color:#f92672">&amp;&amp;</span> na <span style="color:#f92672">&lt;=</span> <span style="color:#f92672">*</span>narray);
+  <span style="color:#66d9ef">return</span> na;
+}
+
+
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">countint</span> (<span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key, <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>nums) {
+  <span style="color:#66d9ef">int</span> k <span style="color:#f92672">=</span> arrayindex(key);
+  <span style="color:#66d9ef">if</span> (<span style="color:#ae81ff">0</span> <span style="color:#f92672">&lt;</span> k <span style="color:#f92672">&amp;&amp;</span> k <span style="color:#f92672">&lt;=</span> MAXASIZE) {  <span style="color:#75715e">/* is `key&#39; an appropriate array index? */</span>
+    nums[ceillog2(k)]<span style="color:#f92672">++</span>;  <span style="color:#75715e">/* count as such */</span>
+    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+  }
+  <span style="color:#66d9ef">else</span>
+    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+}
+
+
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">numusearray</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>nums) {
+  <span style="color:#66d9ef">int</span> lg;
+  <span style="color:#66d9ef">int</span> ttlg;  <span style="color:#75715e">/* 2^lg */</span>
+  <span style="color:#66d9ef">int</span> ause <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* summation of `nums&#39; */</span>
+  <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;  <span style="color:#75715e">/* count to traverse all array keys */</span>
+  <span style="color:#66d9ef">for</span> (lg<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>, ttlg<span style="color:#f92672">=</span><span style="color:#ae81ff">1</span>; lg<span style="color:#f92672">&lt;=</span>MAXBITS; lg<span style="color:#f92672">++</span>, ttlg<span style="color:#f92672">*=</span><span style="color:#ae81ff">2</span>) {  <span style="color:#75715e">/* for each slice */</span>
+    <span style="color:#66d9ef">int</span> lc <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* counter */</span>
+    <span style="color:#66d9ef">int</span> lim <span style="color:#f92672">=</span> ttlg;
+    <span style="color:#66d9ef">if</span> (lim <span style="color:#f92672">&gt;</span> t<span style="color:#f92672">-&gt;</span>sizearray) {
+      lim <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>sizearray;  <span style="color:#75715e">/* adjust upper limit */</span>
+      <span style="color:#66d9ef">if</span> (i <span style="color:#f92672">&gt;</span> lim)	<span style="color:#75715e">/* 下面的for循环中i提前++了。所以这里要对其评估 */</span>
+        <span style="color:#66d9ef">break</span>;  <span style="color:#75715e">/* no more elements to count */</span>
+    }
+	
+    <span style="color:#75715e">/* count elements in range (2^(lg-1), 2^lg] */</span>
+    <span style="color:#66d9ef">for</span> (; i <span style="color:#f92672">&lt;=</span> lim; i<span style="color:#f92672">++</span>) {
+      <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>]))	<span style="color:#75715e">/* 这里要-1,因为C的下标从0开始 */</span>
+        lc<span style="color:#f92672">++</span>;
+    }
+	
+    nums[lg] <span style="color:#f92672">+=</span> lc;	<span style="color:#75715e">/* 更新区间内used的数量 */</span>
+    ause <span style="color:#f92672">+=</span> lc;		<span style="color:#75715e">/* 更新总的used数量 */</span>
+  }
+  <span style="color:#66d9ef">return</span> ause;	<span style="color:#75715e">/* 返回 array中used的总数 */</span>
+}
+
+<span style="color:#75715e">/* 更新node中int的key到nums和pnasize中，返回node中key的总数 */</span>
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">numusehash</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>nums, <span style="color:#66d9ef">int</span> <span style="color:#f92672">*</span>pnasize) {
+  <span style="color:#66d9ef">int</span> totaluse <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* total number of elements */</span>
+  <span style="color:#66d9ef">int</span> ause <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* summation of `nums&#39; */</span>
+  <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> sizenode(t);
+  <span style="color:#66d9ef">while</span> (i<span style="color:#f92672">--</span>) {
+    Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>node[i];
+    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(gval(n))) {	<span style="color:#75715e">/* 这里没有判断gkey而是gval!!! */</span>
+      ause <span style="color:#f92672">+=</span> countint(key2tval(n), nums);
+      totaluse<span style="color:#f92672">++</span>;
+    }
+  }
+  <span style="color:#f92672">*</span>pnasize <span style="color:#f92672">+=</span> ause;
+  <span style="color:#66d9ef">return</span> totaluse;
+}
+
+
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">setarrayvector</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> size) {
+  <span style="color:#66d9ef">int</span> i;
+  luaM_reallocvector(L, t<span style="color:#f92672">-&gt;</span>array, t<span style="color:#f92672">-&gt;</span>sizearray, size, TValue);
+  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span>t<span style="color:#f92672">-&gt;</span>sizearray; i<span style="color:#f92672">&lt;</span>size; i<span style="color:#f92672">++</span>)	<span style="color:#75715e">/* 多出来的数组部分填nil */</span>
+     setnilvalue(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i]);
+  t<span style="color:#f92672">-&gt;</span>sizearray <span style="color:#f92672">=</span> size;
+}
+
+<span style="color:#75715e">/* 按照新的node区大小size，申请新内存且将其全部set-nil */</span>
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">setnodevector</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> size) {
+  <span style="color:#66d9ef">int</span> lsize;
+  <span style="color:#66d9ef">if</span> (size <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {  <span style="color:#75715e">/* no elements to hash part? */</span>
+    t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">=</span> cast(Node <span style="color:#f92672">*</span>, dummynode);  <span style="color:#75715e">/* use common `dummynode&#39; */</span>
+    lsize <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+  }
+  <span style="color:#66d9ef">else</span> {
+    <span style="color:#66d9ef">int</span> i;
+    lsize <span style="color:#f92672">=</span> ceillog2(size);
+    <span style="color:#66d9ef">if</span> (lsize <span style="color:#f92672">&gt;</span> MAXBITS)
+      luaG_runerror(L, <span style="color:#e6db74">&#34;table overflow&#34;</span>);
+    size <span style="color:#f92672">=</span> twoto(lsize);
+    t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">=</span> luaM_newvector(L, size, Node);
+    <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>size; i<span style="color:#f92672">++</span>) {
+      Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> gnode(t, i);
+      gnext(n) <span style="color:#f92672">=</span> NULL;
+      setnilvalue(gkey(n));
+      setnilvalue(gval(n));
+    }
+  }
+  t<span style="color:#f92672">-&gt;</span>lsizenode <span style="color:#f92672">=</span> cast_byte(lsize);
+  t<span style="color:#f92672">-&gt;</span>lastfree <span style="color:#f92672">=</span> gnode(t, size);  <span style="color:#75715e">/* all positions are free */</span>
+}
+
+<span style="color:#75715e">/* nasize:调整后的数组大小
+</span><span style="color:#75715e">** nhsize:调整后node部分的元素个数 
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">resize</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> nasize, <span style="color:#66d9ef">int</span> nhsize) {
+  <span style="color:#66d9ef">int</span> i;
+  <span style="color:#66d9ef">int</span> oldasize <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>sizearray;
+  <span style="color:#66d9ef">int</span> oldhsize <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>lsizenode;
+  Node <span style="color:#f92672">*</span>nold <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>node;  <span style="color:#75715e">/* save old hash ... */</span>
+  <span style="color:#66d9ef">if</span> (nasize <span style="color:#f92672">&gt;</span> oldasize)  <span style="color:#75715e">/* array part must grow? */</span>
+    setarrayvector(L, t, nasize);
+  <span style="color:#75715e">/* create new hash part with appropriate size 
+</span><span style="color:#75715e">  ** 准备好全新的node，以便下面调整array时，接收array中溢出的slot
+</span><span style="color:#75715e">  */</span>
+  setnodevector(L, t, nhsize);  
+  <span style="color:#66d9ef">if</span> (nasize <span style="color:#f92672">&lt;</span> oldasize) {  <span style="color:#75715e">/* array part must shrink? */</span>
+    t<span style="color:#f92672">-&gt;</span>sizearray <span style="color:#f92672">=</span> nasize;
+    <span style="color:#75715e">/* re-insert elements from vanishing slice */</span>
+    <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span>nasize; i<span style="color:#f92672">&lt;</span>oldasize; i<span style="color:#f92672">++</span>) {	<span style="color:#75715e">/* new的array-size下将数组溢出的slot移动到node区域去 */</span>
+      <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i]))
+        setobjt2t(L, luaH_setnum(L, t, i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>), <span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[i]);
+    }
+    <span style="color:#75715e">/* shrink array */</span>
+    luaM_reallocvector(L, t<span style="color:#f92672">-&gt;</span>array, oldasize, nasize, TValue);
+  }
+  <span style="color:#75715e">/* re-insert elements from hash part */</span>
+  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> twoto(oldhsize) <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
+    Node <span style="color:#f92672">*</span>old <span style="color:#f92672">=</span> nold<span style="color:#f92672">+</span>i;
+    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(gval(old)))	<span style="color:#75715e">/* 这里没拿gkey判断!!       */</span>
+      setobjt2t(L, luaH_set(L, t, key2tval(old)), gval(old));
+  }
+  <span style="color:#66d9ef">if</span> (nold <span style="color:#f92672">!=</span> dummynode)
+    luaM_freearray(L, nold, twoto(oldhsize), Node);  <span style="color:#75715e">/* free old array */</span>
+}
+
+<span style="color:#75715e">/* 供lvm调用，一次到位申请对应的array区域的内存 */</span>
+<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaH_resizearray</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> nasize) {
+  <span style="color:#66d9ef">int</span> nsize <span style="color:#f92672">=</span> (t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">==</span> dummynode) <span style="color:#f92672">?</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">:</span> sizenode(t);
+  resize(L, t, nasize, nsize);
+}
+
+<span style="color:#75715e">/* 尝试插入新的key(ek时发现空间不足，从而rehash) */</span>
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">rehash</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>ek) {
+  <span style="color:#66d9ef">int</span> nasize, na;
+  <span style="color:#66d9ef">int</span> nums[MAXBITS<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>];  <span style="color:#75715e">/* nums[i] = number of keys between 2^(i-1) and 2^i */</span>
+  <span style="color:#66d9ef">int</span> i;
+  <span style="color:#66d9ef">int</span> totaluse;	<span style="color:#75715e">/* 所有元素总和 */</span>
+  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;=</span>MAXBITS; i<span style="color:#f92672">++</span>) nums[i] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* reset counts */</span>
+  nasize <span style="color:#f92672">=</span> numusearray(t, nums);  <span style="color:#75715e">/* count keys in array part */</span>
+  totaluse <span style="color:#f92672">=</span> nasize;  <span style="color:#75715e">/* all those keys are integer keys */</span>
+  totaluse <span style="color:#f92672">+=</span> numusehash(t, nums, <span style="color:#f92672">&amp;</span>nasize);  <span style="color:#75715e">/* count keys in hash part */</span>
+  <span style="color:#75715e">/* count extra key */</span>
+  nasize <span style="color:#f92672">+=</span> countint(ek, nums);
+  totaluse<span style="color:#f92672">++</span>;
+  <span style="color:#75715e">/* compute new size for array part */</span>
+  na <span style="color:#f92672">=</span> computesizes(nums, <span style="color:#f92672">&amp;</span>nasize);	<span style="color:#75715e">/* 计算下最优解下的nasize，以及即将落在array中的数量(na) */</span>
+  <span style="color:#75715e">/* resize the table to new computed sizes */</span>
+  resize(L, t, nasize, totaluse <span style="color:#f92672">-</span> na);
+}
+
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** }=============================================================
+</span><span style="color:#75715e">*/</span>
+
+
+Table <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_new</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> narray, <span style="color:#66d9ef">int</span> nhash) {
+  Table <span style="color:#f92672">*</span>t <span style="color:#f92672">=</span> luaM_new(L, Table);
+  luaC_link(L, obj2gco(t), LUA_TTABLE);
+  t<span style="color:#f92672">-&gt;</span>metatable <span style="color:#f92672">=</span> NULL;
+  t<span style="color:#f92672">-&gt;</span>flags <span style="color:#f92672">=</span> cast_byte(<span style="color:#f92672">~</span><span style="color:#ae81ff">0</span>);	<span style="color:#75715e">/* 新表，tag&#39;method都不存在 */</span>
+  <span style="color:#75715e">/* temporary values (kept only if some malloc fails) */</span>
+  t<span style="color:#f92672">-&gt;</span>array <span style="color:#f92672">=</span> NULL;
+  t<span style="color:#f92672">-&gt;</span>sizearray <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+  <span style="color:#75715e">/* n的0次幂==1，这里不能简单的t-&gt;node==NULL */</span>
+  t<span style="color:#f92672">-&gt;</span>lsizenode <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+  t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">=</span> cast(Node <span style="color:#f92672">*</span>, dummynode);
+  setarrayvector(L, t, narray);
+  setnodevector(L, t, nhash);
+  <span style="color:#66d9ef">return</span> t;
+}
+
+
+<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaH_free</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t) {
+  <span style="color:#66d9ef">if</span> (t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">!=</span> dummynode)
+    luaM_freearray(L, t<span style="color:#f92672">-&gt;</span>node, sizenode(t), Node);
+  luaM_freearray(L, t<span style="color:#f92672">-&gt;</span>array, t<span style="color:#f92672">-&gt;</span>sizearray, TValue);
+  luaM_free(L, t);
+}
+
+
+<span style="color:#66d9ef">static</span> Node <span style="color:#f92672">*</span><span style="color:#a6e22e">getfreepos</span> (Table <span style="color:#f92672">*</span>t) {
+  <span style="color:#66d9ef">while</span> (t<span style="color:#f92672">-&gt;</span>lastfree<span style="color:#f92672">--</span> <span style="color:#f92672">&gt;</span> t<span style="color:#f92672">-&gt;</span>node) {
+    <span style="color:#66d9ef">if</span> (ttisnil(gkey(t<span style="color:#f92672">-&gt;</span>lastfree)))
+      <span style="color:#66d9ef">return</span> t<span style="color:#f92672">-&gt;</span>lastfree;
+  }
+  <span style="color:#66d9ef">return</span> NULL;  <span style="color:#75715e">/* could not find a free place */</span>
+}
+
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** inserts a new key into a hash table; first, check whether key&#39;s main 
+</span><span style="color:#75715e">** position is free. If not, check whether colliding node is in its main 
+</span><span style="color:#75715e">** position or not: if it is not, move colliding node to an empty place and 
+</span><span style="color:#75715e">** put new key in its main position; otherwise (colliding node is in its main 
+</span><span style="color:#75715e">** position), new key goes to an empty position. 
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">static</span> TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">newkey</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
+  Node <span style="color:#f92672">*</span>mp <span style="color:#f92672">=</span> mainposition(t, key);
+  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisnil(gval(mp)) <span style="color:#f92672">||</span> mp <span style="color:#f92672">==</span> dummynode) {
+    Node <span style="color:#f92672">*</span>othern;
+    Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> getfreepos(t);  <span style="color:#75715e">/* get a free place */</span>
+    <span style="color:#66d9ef">if</span> (n <span style="color:#f92672">==</span> NULL) {  <span style="color:#75715e">/* cannot find a free place? */</span>
+      rehash(L, t, key);  <span style="color:#75715e">/* grow table */</span>
+      <span style="color:#66d9ef">return</span> luaH_set(L, t, key);  <span style="color:#75715e">/* re-insert key into grown table */</span>
+    }
+    lua_assert(n <span style="color:#f92672">!=</span> dummynode);	<span style="color:#75715e">/* mp==dummynode时，getfreepos必然返回NULL,不应该走到这里 */</span>
+	
+    othern <span style="color:#f92672">=</span> mainposition(t, key2tval(mp));
+    <span style="color:#66d9ef">if</span> (othern <span style="color:#f92672">!=</span> mp) {  <span style="color:#75715e">/* is colliding node out of its main position? */</span>
+      <span style="color:#75715e">/* yes; move colliding node into free position */</span>
+      <span style="color:#66d9ef">while</span> (gnext(othern) <span style="color:#f92672">!=</span> mp) othern <span style="color:#f92672">=</span> gnext(othern);  <span style="color:#75715e">/* find previous */</span>
+	  <span style="color:#75715e">/* 更新下链表 */</span>
+      gnext(othern) <span style="color:#f92672">=</span> n;  <span style="color:#75715e">/* redo the chain with `n&#39; in place of `mp&#39; */</span>
+      <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>mp;  <span style="color:#75715e">/* copy colliding node into free pos. (mp-&gt;next also goes) */</span>
+      gnext(mp) <span style="color:#f92672">=</span> NULL;  <span style="color:#75715e">/* now `mp&#39; is free */</span>
+      setnilvalue(gval(mp));	<span style="color:#75715e">/* key在下面设置 */</span>
+    }
+    <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* colliding node is in its own main position */</span>
+      <span style="color:#75715e">/* new node will go into free position */</span>
+      gnext(n) <span style="color:#f92672">=</span> gnext(mp);  <span style="color:#75715e">/* chain new position */</span>
+      gnext(mp) <span style="color:#f92672">=</span> n;
+      mp <span style="color:#f92672">=</span> n;
+    }
+  }
+  gkey(mp)<span style="color:#f92672">-&gt;</span>value <span style="color:#f92672">=</span> key<span style="color:#f92672">-&gt;</span>value; gkey(mp)<span style="color:#f92672">-&gt;</span>tt <span style="color:#f92672">=</span> key<span style="color:#f92672">-&gt;</span>tt;
+  luaC_barriert(L, t, key);
+  lua_assert(ttisnil(gval(mp)));	<span style="color:#75715e">/* new的node，其val必然是一个崭新的，必须为nil */</span>
+  <span style="color:#66d9ef">return</span> gval(mp);
+}
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** search function for integers
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_getnum</span> (Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> key) {
+  <span style="color:#75715e">/* (1 &lt;= key &amp;&amp; key &lt;= t-&gt;sizearray) */</span>
+  <span style="color:#75715e">/* 如果key为负数，按照C的int-&gt;uint规则，转换的结果将是一个巨大的数，故而下面判断为false */</span>
+  <span style="color:#66d9ef">if</span> (cast(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>, key<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#f92672">&lt;</span> cast(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>, t<span style="color:#f92672">-&gt;</span>sizearray))
+    <span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[key<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>];
+  <span style="color:#66d9ef">else</span> {
+    lua_Number nk <span style="color:#f92672">=</span> cast_num(key);
+    Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> hashnum(t, nk);
+    <span style="color:#66d9ef">do</span> {  <span style="color:#75715e">/* check whether `key&#39; is somewhere in the chain */</span>
+	  <span style="color:#75715e">/* 由于Value是union,故而可能n=nk但！！！！！ n对应的value的type和nk.对应的value不相等的情况
+</span><span style="color:#75715e">	   ** 所以这里必须要有个ttisnumber的判断 
+</span><span style="color:#75715e">	   */</span>
+      <span style="color:#66d9ef">if</span> (ttisnumber(gkey(n)) <span style="color:#f92672">&amp;&amp;</span> luai_numeq(nvalue(gkey(n)), nk))
+        <span style="color:#66d9ef">return</span> gval(n);  <span style="color:#75715e">/* that&#39;s it */</span>
+      <span style="color:#66d9ef">else</span> <span style="color:#75715e">/* 如果key已存在于tbl，则必然在mp&#39;link上，故而这里可以遍历列表来查找，下同 */</span>
+	  	n <span style="color:#f92672">=</span> gnext(n);
+    } <span style="color:#66d9ef">while</span> (n);
+    <span style="color:#66d9ef">return</span> luaO_nilobject;
+  }
+}
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** search function for strings
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_getstr</span> (Table <span style="color:#f92672">*</span>t, TString <span style="color:#f92672">*</span>key) {
+  Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> hashstr(t, key);
+  <span style="color:#66d9ef">do</span> {  <span style="color:#75715e">/* check whether `key&#39; is somewhere in the chain */</span>
+  	<span style="color:#75715e">/* 这里ttisstring(gkey(n))的判断排除掉已经被gc标记为deadkey的key,和上面的value相等但type不相等的情况
+</span><span style="color:#75715e">  	** 如果运行了tbl[key]=nil，再到调用本函数之前，gc还没来得及将其node标记为deadkey,且还没调用resize
+</span><span style="color:#75715e">  	** 则是复用该node
+</span><span style="color:#75715e">  	*/</span>
+    <span style="color:#66d9ef">if</span> (ttisstring(gkey(n)) <span style="color:#f92672">&amp;&amp;</span> rawtsvalue(gkey(n)) <span style="color:#f92672">==</span> key)
+      <span style="color:#66d9ef">return</span> gval(n);  <span style="color:#75715e">/* that&#39;s it */</span>
+    <span style="color:#66d9ef">else</span> 
+		n <span style="color:#f92672">=</span> gnext(n);	
+  } <span style="color:#66d9ef">while</span> (n);
+  <span style="color:#66d9ef">return</span> luaO_nilobject;
+}
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** main search function
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_get</span> (Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
+  <span style="color:#66d9ef">switch</span> (ttype(key)) {
+    <span style="color:#66d9ef">case</span> LUA_TNIL: <span style="color:#66d9ef">return</span> luaO_nilobject;
+    <span style="color:#66d9ef">case</span> LUA_TSTRING: <span style="color:#66d9ef">return</span> luaH_getstr(t, rawtsvalue(key));
+    <span style="color:#66d9ef">case</span> LUA_TNUMBER: {
+      <span style="color:#66d9ef">int</span> k;
+      lua_Number n <span style="color:#f92672">=</span> nvalue(key);
+      lua_number2int(k, n);
+      <span style="color:#66d9ef">if</span> (luai_numeq(cast_num(k), nvalue(key))) <span style="color:#75715e">/* index is int? */</span>
+        <span style="color:#66d9ef">return</span> luaH_getnum(t, k);  <span style="color:#75715e">/* use specialized version */</span>
+      <span style="color:#75715e">/* else go through */</span>  <span style="color:#75715e">/* 所以这里没有break,看懂了吗？ 非int的，走到default分支去了 */</span>
+    }
+    <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> {
+      Node <span style="color:#f92672">*</span>n <span style="color:#f92672">=</span> mainposition(t, key);
+      <span style="color:#66d9ef">do</span> {  <span style="color:#75715e">/* check whether `key&#39; is somewhere in the chain */</span>
+        <span style="color:#66d9ef">if</span> (luaO_rawequalObj(key2tval(n), key))		<span style="color:#75715e">/* 这里必须rawequlObj进行type==type的判断，以忽略掉deadKey的Node,以及union带来的影响 */</span>
+          <span style="color:#66d9ef">return</span> gval(n);  <span style="color:#75715e">/* that&#39;s it */</span>
+        <span style="color:#66d9ef">else</span> n <span style="color:#f92672">=</span> gnext(n);
+      } <span style="color:#66d9ef">while</span> (n);
+      <span style="color:#66d9ef">return</span> luaO_nilobject;
+    }
+  }
+}
+
+
+TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_set</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
+  <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> luaH_get(t, key);
+  t<span style="color:#f92672">-&gt;</span>flags <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;	<span style="color:#75715e">/* 如果本tbl当作meta，那么set后可能其tag有更新，这里索性假设所有的tag&#39;methods都更新了，假设所有的tag&#39;methaod都有了 */</span>
+  <span style="color:#66d9ef">if</span> (p <span style="color:#f92672">!=</span> luaO_nilobject)
+    <span style="color:#66d9ef">return</span> cast(TValue <span style="color:#f92672">*</span>, p);
+  <span style="color:#66d9ef">else</span> {
+    <span style="color:#66d9ef">if</span> (ttisnil(key)) luaG_runerror(L, <span style="color:#e6db74">&#34;table index is nil&#34;</span>);
+    <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (ttisnumber(key) <span style="color:#f92672">&amp;&amp;</span> luai_numisnan(nvalue(key)))
+      luaG_runerror(L, <span style="color:#e6db74">&#34;table index is NaN&#34;</span>);
+    <span style="color:#66d9ef">return</span> newkey(L, t, key);	<span style="color:#75715e">/* 构造新的slot */</span>
+  }
+}
+
+
+TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_setnum</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">int</span> key) {
+  <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> luaH_getnum(t, key);
+  <span style="color:#66d9ef">if</span> (p <span style="color:#f92672">!=</span> luaO_nilobject)
+    <span style="color:#66d9ef">return</span> cast(TValue <span style="color:#f92672">*</span>, p);
+  <span style="color:#66d9ef">else</span> {
+    TValue k;
+    setnvalue(<span style="color:#f92672">&amp;</span>k, cast_num(key));
+    <span style="color:#66d9ef">return</span> newkey(L, t, <span style="color:#f92672">&amp;</span>k);
+  }
+}
+
+
+TValue <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_setstr</span> (lua_State <span style="color:#f92672">*</span>L, Table <span style="color:#f92672">*</span>t, TString <span style="color:#f92672">*</span>key) {
+  <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> luaH_getstr(t, key);	<span style="color:#75715e">/* key现存，则直接返回node&#39;key */</span>
+  <span style="color:#66d9ef">if</span> (p <span style="color:#f92672">!=</span> luaO_nilobject)
+    <span style="color:#66d9ef">return</span> cast(TValue <span style="color:#f92672">*</span>, p);
+  <span style="color:#66d9ef">else</span> {
+    TValue k;
+    setsvalue(L, <span style="color:#f92672">&amp;</span>k, key);
+    <span style="color:#66d9ef">return</span> newkey(L, t, <span style="color:#f92672">&amp;</span>k);	<span style="color:#75715e">/* 没有则构造一个new&#39;node出来，其中node.key=key,并返回其node.val */</span>
+  }
+}
+
+
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">unbound_search</span> (Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> j) {
+  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> j;  <span style="color:#75715e">/* i is zero or a present index */</span>
+  j<span style="color:#f92672">++</span>;
+  <span style="color:#75715e">/* find `i&#39; and `j&#39; such that i is present and j is not */</span>
+  <span style="color:#66d9ef">while</span> (<span style="color:#f92672">!</span>ttisnil(luaH_getnum(t, j))) {
+    i <span style="color:#f92672">=</span> j;
+    j <span style="color:#f92672">*=</span> <span style="color:#ae81ff">2</span>;
+    <span style="color:#66d9ef">if</span> (j <span style="color:#f92672">&gt;</span> cast(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span>, MAX_INT)) {  <span style="color:#75715e">/* overflow? */</span>
+      <span style="color:#75715e">/* table was built with bad purposes: resort to linear search */</span>
+      i <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
+      <span style="color:#66d9ef">while</span> (<span style="color:#f92672">!</span>ttisnil(luaH_getnum(t, i))) i<span style="color:#f92672">++</span>;
+      <span style="color:#66d9ef">return</span> i <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
+    }
+  }
+  <span style="color:#75715e">/* now do a binary search between them */</span>
+  <span style="color:#66d9ef">while</span> (j <span style="color:#f92672">-</span> i <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">1</span>) {
+    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> m <span style="color:#f92672">=</span> (i<span style="color:#f92672">+</span>j)<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>;
+    <span style="color:#66d9ef">if</span> (ttisnil(luaH_getnum(t, m))) j <span style="color:#f92672">=</span> m;
+    <span style="color:#66d9ef">else</span> i <span style="color:#f92672">=</span> m;
+  }
+  <span style="color:#66d9ef">return</span> i;
+}
+
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** Try to find a boundary in table `t&#39;. A `boundary&#39; is an integer index
+</span><span style="color:#75715e">** such that t[i] is non-nil and t[i+1] is nil (and 0 if t[1] is nil).
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaH_getn</span> (Table <span style="color:#f92672">*</span>t) {
+  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> j <span style="color:#f92672">=</span> t<span style="color:#f92672">-&gt;</span>sizearray;
+  <span style="color:#66d9ef">if</span> (j <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[j <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>])) {
+    <span style="color:#75715e">/* there is a boundary in the array part: (binary) search for it */</span>
+    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+    <span style="color:#66d9ef">while</span> (j <span style="color:#f92672">-</span> i <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">1</span>) {
+      <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> m <span style="color:#f92672">=</span> (i<span style="color:#f92672">+</span>j)<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>;
+      <span style="color:#66d9ef">if</span> (ttisnil(<span style="color:#f92672">&amp;</span>t<span style="color:#f92672">-&gt;</span>array[m <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>])) j <span style="color:#f92672">=</span> m;
+      <span style="color:#66d9ef">else</span> i <span style="color:#f92672">=</span> m;
+    }
+    <span style="color:#66d9ef">return</span> i;
+  }
+  <span style="color:#75715e">/* else must find a boundary in hash part */</span>
+  <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (t<span style="color:#f92672">-&gt;</span>node <span style="color:#f92672">==</span> dummynode)  <span style="color:#75715e">/* hash part is empty? */</span>
+    <span style="color:#66d9ef">return</span> j;  <span style="color:#75715e">/* that is easy... */</span>
+  <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">return</span> unbound_search(t, j);
+}
+
+
+
+<span style="color:#75715e">#if defined(LUA_DEBUG)
+</span><span style="color:#75715e"></span>
+Node <span style="color:#f92672">*</span><span style="color:#a6e22e">luaH_mainposition</span> (<span style="color:#66d9ef">const</span> Table <span style="color:#f92672">*</span>t, <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>key) {
+  <span style="color:#66d9ef">return</span> mainposition(t, key);
+}
+
+<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaH_isdummy</span> (Node <span style="color:#f92672">*</span>n) { <span style="color:#66d9ef">return</span> n <span style="color:#f92672">==</span> dummynode; }
+
+<span style="color:#75715e">#endif
+</span><span style="color:#75715e"></span>
+</code></pre></div>
     </div>
     <footer class="post-footer">
      
@@ -861,8 +868,7 @@
         src="http://shanks.link/img/logo.jpg"
         alt="shankusu2017@gmail.com" />
     <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
-    <p class="site-description motion-element" itemprop="description"> 
-        Programmer life</p>
+    <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
@@ -927,7 +933,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

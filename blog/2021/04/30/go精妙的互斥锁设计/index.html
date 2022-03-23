@@ -65,6 +65,12 @@
         </li>
       
         <li class="menu-item ">
+          <a href="http://shanks.link/categories/lua/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />lua
+          </a>
+        </li>
+      
+        <li class="menu-item ">
           <a href="http://shanks.link/links/" rel="section">
               <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
           </a>
@@ -150,27 +156,27 @@
     <p>*<strong>Some people, when confronted with a problem, think, “I know, I’ll use threads,” and then two they hav erpoblesms.*</strong></p>
 <p><strong>1. 竞争条件</strong></p>
 <p>多线程程序在多核CPU机器上访问共享资源时，难免会遇到问题。我们可以来看一个例子</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1var Cnt int
-</span></span><span style="display:flex;"><span> 2
-</span></span><span style="display:flex;"><span> 3func Add(iter int) {
-</span></span><span style="display:flex;"><span> 4    for i := 0; i &lt; iter; i++ {
-</span></span><span style="display:flex;"><span> 5        Cnt++
-</span></span><span style="display:flex;"><span> 6    }
-</span></span><span style="display:flex;"><span> 7}
-</span></span><span style="display:flex;"><span> 8
-</span></span><span style="display:flex;"><span> 9func main() {
-</span></span><span style="display:flex;"><span>10    wg := &amp;sync.WaitGroup{}
-</span></span><span style="display:flex;"><span>11    for i := 0; i &lt; 2; i++ {
-</span></span><span style="display:flex;"><span>12        wg.Add(1)
-</span></span><span style="display:flex;"><span>13        go func() {
-</span></span><span style="display:flex;"><span>14            Add(100000)
-</span></span><span style="display:flex;"><span>15            wg.Done()
-</span></span><span style="display:flex;"><span>16        }()
-</span></span><span style="display:flex;"><span>17    }
-</span></span><span style="display:flex;"><span>18    wg.Wait()
-</span></span><span style="display:flex;"><span>19    fmt.Println(Cnt)
-</span></span><span style="display:flex;"><span>20}
-</span></span></code></pre></div><p>很明显，程序的预期结果是200000，但实际的输出却是不可确定的，可能为100910、101364或者其他数值，这就是典型的多线程访问冲突问题。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1var Cnt int
+ 2
+ 3func Add(iter int) {
+ 4    for i := 0; i &lt; iter; i++ {
+ 5        Cnt++
+ 6    }
+ 7}
+ 8
+ 9func main() {
+10    wg := &amp;sync.WaitGroup{}
+11    for i := 0; i &lt; 2; i++ {
+12        wg.Add(1)
+13        go func() {
+14            Add(100000)
+15            wg.Done()
+16        }()
+17    }
+18    wg.Wait()
+19    fmt.Println(Cnt)
+20}
+</code></pre></div><p>很明显，程序的预期结果是200000，但实际的输出却是不可确定的，可能为100910、101364或者其他数值，这就是典型的多线程访问冲突问题。</p>
 <p><img src="http://shanks.link/img/Go%E4%BA%92%E6%96%A5%E9%94%81/1.png" alt="img"></p>
 <p>利用<code>go tool trace</code>分析工具（需要在代码中加入<code>runtime/trace</code>包获取程序运行信息，此处省略），查看该程序运行期间goroutine的执行情况如上图所示。其中G20和G19就是执行<code>Add()</code>函数的两个goroutine，它们在执行期间并行地访问了共享变量<code>Cnt</code>。</p>
 <p>类似这种情况，即两个或者多个线程读写某些共享数据，而最后的结果取决于程序运行的精确时序，这就是<strong>竞争条件</strong>（race condition）。</p>
@@ -179,37 +185,37 @@
 <p>我们把对共享内存进行访问的程序片段称作<strong>临界区</strong>（critical section），例如上例中的<code>Cnt++</code>片段。从抽象的角度看，我们希望的多线程行为如下图所示。线程A在t1时刻进入临界区，执行一段时间后，在t2时刻线程B试图进入临界区，但是这是不能被允许的，因为同一时刻只能运行一个线程在临界区内，而此时已经有一个线程在临界区内。我们通过某种互斥手段，将B暂时挂起直到线程A离开临界区，即t3时刻B进入临界区。最后，B执行完临界区代码后，离开临界区。</p>
 <p><img src="http://shanks.link/img/Go%E4%BA%92%E6%96%A5%E9%94%81/2.png" alt="img"></p>
 <p>如果我们能够合理地安排，使得两个线程不可能同时处于临界区中，就能够避免竞争条件。因此，我们将代码稍作调整如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1var (
-</span></span><span style="display:flex;"><span> 2    Cnt int
-</span></span><span style="display:flex;"><span> 3    mu sync.Mutex
-</span></span><span style="display:flex;"><span> 4)
-</span></span><span style="display:flex;"><span> 5
-</span></span><span style="display:flex;"><span> 6func Add(iter int) {
-</span></span><span style="display:flex;"><span> 7    mu.Lock()
-</span></span><span style="display:flex;"><span> 8    for i := 0; i &lt; iter; i++ {
-</span></span><span style="display:flex;"><span> 9        Cnt++
-</span></span><span style="display:flex;"><span>10    }
-</span></span><span style="display:flex;"><span>11    mu.Unlock()
-</span></span><span style="display:flex;"><span>12}
-</span></span></code></pre></div><p>此时，程序执行得到了预期结果200000。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1var (
+ 2    Cnt int
+ 3    mu sync.Mutex
+ 4)
+ 5
+ 6func Add(iter int) {
+ 7    mu.Lock()
+ 8    for i := 0; i &lt; iter; i++ {
+ 9        Cnt++
+10    }
+11    mu.Unlock()
+12}
+</code></pre></div><p>此时，程序执行得到了预期结果200000。</p>
 <p><img src="http://shanks.link/img/Go%E4%BA%92%E6%96%A5%E9%94%81/3.png" alt="img"></p>
 <p>程序运行期间的执行情况如上图所示。其中G8和G7是执行<code>Add()</code>函数的两个goroutine，通过加入<code>sync.Mutex</code>互斥锁，G8和G7就不再存在竞争条件。</p>
 <p>需要明确的是，只有在多核机器上才会发生竞争条件，只有多线程对共享资源做了写操作时才有可能发生竞态问题，只要资源没有发生变化，多个线程读取相同的资源就是安全的。</p>
 <p><strong>3. Go互斥锁设计</strong></p>
 <p>互斥锁是实现互斥功能的常见实现，Go中的互斥锁即<code>sync.Mutex</code>。本文将基于Go 1.15.2版本，对互斥锁的实现深入研究。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1type Mutex struct {
-</span></span><span style="display:flex;"><span> 2    state int32
-</span></span><span style="display:flex;"><span> 3    sema  uint32
-</span></span><span style="display:flex;"><span> 4}
-</span></span><span style="display:flex;"><span> 5
-</span></span><span style="display:flex;"><span> 6const (
-</span></span><span style="display:flex;"><span> 7    mutexLocked = 1 &lt;&lt; iota
-</span></span><span style="display:flex;"><span> 8    mutexWoken
-</span></span><span style="display:flex;"><span> 9    mutexStarving
-</span></span><span style="display:flex;"><span>10    mutexWaiterShift = iota   // mutexWaiterShift值为3，通过右移3位的位运算，可计算waiter个数
-</span></span><span style="display:flex;"><span>11    starvationThresholdNs = 1e6 // 1ms，进入饥饿状态的等待时间
-</span></span><span style="display:flex;"><span>12)
-</span></span></code></pre></div><p><code>state</code>字段表示当前互斥锁的状态信息，它是<code>int32</code>类型，其低三位的二进制位均有相应的状态含义。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1type Mutex struct {
+ 2    state int32
+ 3    sema  uint32
+ 4}
+ 5
+ 6const (
+ 7    mutexLocked = 1 &lt;&lt; iota
+ 8    mutexWoken
+ 9    mutexStarving
+10    mutexWaiterShift = iota   // mutexWaiterShift值为3，通过右移3位的位运算，可计算waiter个数
+11    starvationThresholdNs = 1e6 // 1ms，进入饥饿状态的等待时间
+12)
+</code></pre></div><p><code>state</code>字段表示当前互斥锁的状态信息，它是<code>int32</code>类型，其低三位的二进制位均有相应的状态含义。</p>
 <ul>
 <li><code>mutexLocked</code>是<code>state</code>中的低1位，用二进制表示为<strong>0001</strong>（为了方便，这里只描述后4位），它代表该互斥锁是否被加锁。</li>
 <li><code>mutexWoken</code>是低2位，用二进制表示为<strong>0010</strong>，它代表互斥锁上是否有被唤醒的goroutine。</li>
@@ -231,67 +237,67 @@
 <p>饥饿模式是在 Go 1.9版本引入的，它防止了队列尾部waiter一直无法获取锁的问题。与饥饿模式相比，正常模式下的互斥锁性能更好。因为相较于将锁的所有权明确赋予给唤醒的waiter，直接竞争锁能降低整体goroutine获取锁的延时开销。</p>
 <h4 id="32-加锁">3.2 加锁</h4>
 <p>既然被称作锁，那就存在加锁和解锁的操作。<code>sync.Mutex</code>的加锁<code>Lock()</code>代码如下</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func (m *Mutex) Lock() {
-</span></span><span style="display:flex;"><span>2    if atomic.CompareAndSwapInt32(&amp;m.state, 0, mutexLocked) {
-</span></span><span style="display:flex;"><span>3        if race.Enabled {
-</span></span><span style="display:flex;"><span>4            race.Acquire(unsafe.Pointer(m))
-</span></span><span style="display:flex;"><span>5        }
-</span></span><span style="display:flex;"><span>6        return
-</span></span><span style="display:flex;"><span>7    }
-</span></span><span style="display:flex;"><span>8    m.lockSlow()
-</span></span><span style="display:flex;"><span>9}
-</span></span></code></pre></div><p>代码非常简洁，首先通过CAS判断当前锁的状态（CAS的原理和实现可以参照小菜刀写的<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484574&amp;idx=1&amp;sn=5bbe2668e64455f428c70f00c09f28a2&amp;chksm=97371030a04099263dfbf16dc24438f409166a053fd9fef802f9f9e4f8fd3c4aba9dd97df8f8&amp;scene=21#wechat_redirect">《同步原语的基石》</a>一文）。如果锁是完全空闲的，即<code>m.state</code>为0，则对其加锁，将<code>m.state</code>的值赋为1，此时加锁后的<code>state</code>如下</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func (m *Mutex) Lock() {
+2    if atomic.CompareAndSwapInt32(&amp;m.state, 0, mutexLocked) {
+3        if race.Enabled {
+4            race.Acquire(unsafe.Pointer(m))
+5        }
+6        return
+7    }
+8    m.lockSlow()
+9}
+</code></pre></div><p>代码非常简洁，首先通过CAS判断当前锁的状态（CAS的原理和实现可以参照小菜刀写的<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484574&amp;idx=1&amp;sn=5bbe2668e64455f428c70f00c09f28a2&amp;chksm=97371030a04099263dfbf16dc24438f409166a053fd9fef802f9f9e4f8fd3c4aba9dd97df8f8&amp;scene=21#wechat_redirect">《同步原语的基石》</a>一文）。如果锁是完全空闲的，即<code>m.state</code>为0，则对其加锁，将<code>m.state</code>的值赋为1，此时加锁后的<code>state</code>如下</p>
 <p><img src="http://shanks.link/img/Go%E4%BA%92%E6%96%A5%E9%94%81/5.png" alt="img"></p>
 <p>如果，当前锁已经被其他goroutine加锁，则进入<code>m.lockSlow()</code>逻辑。<code>lockSlow</code>函数比较长，这里我们分段阐述。</p>
 <p><strong>3.2.1 初始化</strong></p>
 <p>**
 **</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func (m *Mutex) lockSlow() {
-</span></span><span style="display:flex;"><span>2    var waitStartTime int64  // 用于计算waiter的等待时间
-</span></span><span style="display:flex;"><span>3    starving := false        // 饥饿模式标志
-</span></span><span style="display:flex;"><span>4    awoke := false           // 唤醒标志
-</span></span><span style="display:flex;"><span>5    iter := 0                // 统计当前goroutine的自旋次数
-</span></span><span style="display:flex;"><span>6    old := m.state           // 保存当前锁的状态
-</span></span><span style="display:flex;"><span>7    ...
-</span></span><span style="display:flex;"><span>8}    
-</span></span></code></pre></div><p>第一段程序是做一些初始化状态、标志的动作。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func (m *Mutex) lockSlow() {
+2    var waitStartTime int64  // 用于计算waiter的等待时间
+3    starving := false        // 饥饿模式标志
+4    awoke := false           // 唤醒标志
+5    iter := 0                // 统计当前goroutine的自旋次数
+6    old := m.state           // 保存当前锁的状态
+7    ...
+8}    
+</code></pre></div><p>第一段程序是做一些初始化状态、标志的动作。</p>
 <p><strong>3.2.2 自旋</strong></p>
 <p><code>lockSlow</code>函数余下的代码，就是一个大的<code>for</code>循环，首先看自旋部分。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1for { 
-</span></span><span style="display:flex;"><span> 2    // 判断是否能进入自旋
-</span></span><span style="display:flex;"><span> 3    if old&amp;(mutexLocked|mutexStarving) == mutexLocked &amp;&amp; runtime_canSpin(iter) {
-</span></span><span style="display:flex;"><span> 4        // !awoke 判断当前goroutine是不是在唤醒状态
-</span></span><span style="display:flex;"><span> 5        // old&amp;mutexWoken == 0 表示没有其他正在唤醒的goroutine
-</span></span><span style="display:flex;"><span> 6        // old&gt;&gt;mutexWaiterShift != 0 表示等待队列中有正在等待的goroutine
-</span></span><span style="display:flex;"><span> 7        if !awoke &amp;&amp; old&amp;mutexWoken == 0 &amp;&amp; old&gt;&gt;mutexWaiterShift != 0 &amp;&amp;
-</span></span><span style="display:flex;"><span> 8            // 尝试将当前锁的低2位的Woken状态位设置为1，表示已被唤醒
-</span></span><span style="display:flex;"><span> 9            // 这是为了通知在解锁Unlock()中不要再唤醒其他的waiter了
-</span></span><span style="display:flex;"><span>10            atomic.CompareAndSwapInt32(&amp;m.state, old, old|mutexWoken) {
-</span></span><span style="display:flex;"><span>11            awoke = true
-</span></span><span style="display:flex;"><span>12        }
-</span></span><span style="display:flex;"><span>13        // 自旋
-</span></span><span style="display:flex;"><span>14        runtime_doSpin()
-</span></span><span style="display:flex;"><span>15        iter++
-</span></span><span style="display:flex;"><span>16        old = m.state
-</span></span><span style="display:flex;"><span>17        continue
-</span></span><span style="display:flex;"><span>18    }
-</span></span><span style="display:flex;"><span>19    ...
-</span></span><span style="display:flex;"><span>20}
-</span></span></code></pre></div><p>关于自旋，这里需要简单阐述一下。自旋是自旋锁的行为，它通过忙等待，让线程在某段时间内一直保持执行，从而避免线程上下文的调度开销。<strong>自旋锁对于线程只会阻塞很短时间的场景是非常合适的</strong>。很显然，单核CPU是不适合使用自旋锁的，因为，在同一时间只有一个线程是处于运行状态，假设运行线程A发现无法获取锁，只能等待解锁，但因为A自身不挂起，所以那个持有锁的线程B没有办法进入运行状态，只能等到操作系统分给A的时间片用完，才能有机会被调度。这种情况下使用自旋锁的代价很高。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1for { 
+ 2    // 判断是否能进入自旋
+ 3    if old&amp;(mutexLocked|mutexStarving) == mutexLocked &amp;&amp; runtime_canSpin(iter) {
+ 4        // !awoke 判断当前goroutine是不是在唤醒状态
+ 5        // old&amp;mutexWoken == 0 表示没有其他正在唤醒的goroutine
+ 6        // old&gt;&gt;mutexWaiterShift != 0 表示等待队列中有正在等待的goroutine
+ 7        if !awoke &amp;&amp; old&amp;mutexWoken == 0 &amp;&amp; old&gt;&gt;mutexWaiterShift != 0 &amp;&amp;
+ 8            // 尝试将当前锁的低2位的Woken状态位设置为1，表示已被唤醒
+ 9            // 这是为了通知在解锁Unlock()中不要再唤醒其他的waiter了
+10            atomic.CompareAndSwapInt32(&amp;m.state, old, old|mutexWoken) {
+11            awoke = true
+12        }
+13        // 自旋
+14        runtime_doSpin()
+15        iter++
+16        old = m.state
+17        continue
+18    }
+19    ...
+20}
+</code></pre></div><p>关于自旋，这里需要简单阐述一下。自旋是自旋锁的行为，它通过忙等待，让线程在某段时间内一直保持执行，从而避免线程上下文的调度开销。<strong>自旋锁对于线程只会阻塞很短时间的场景是非常合适的</strong>。很显然，单核CPU是不适合使用自旋锁的，因为，在同一时间只有一个线程是处于运行状态，假设运行线程A发现无法获取锁，只能等待解锁，但因为A自身不挂起，所以那个持有锁的线程B没有办法进入运行状态，只能等到操作系统分给A的时间片用完，才能有机会被调度。这种情况下使用自旋锁的代价很高。</p>
 <p>在本场景中，之所以想让当前goroutine进入自旋行为的依据是，我们乐观地认为：<strong>当前正在持有锁的goroutine能在较短的时间内归还锁</strong>。</p>
 <p><code>runtime_canSpin()</code>函数的实现如下</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1//go:linkname sync_runtime_canSpin sync.runtime_canSpin
-</span></span><span style="display:flex;"><span> 2func sync_runtime_canSpin(i int) bool {
-</span></span><span style="display:flex;"><span> 3  // active_spin = 4
-</span></span><span style="display:flex;"><span> 4    if i &gt;= active_spin || ncpu &lt;= 1 || gomaxprocs &lt;= int32(sched.npidle+sched.nmspinning)+1 {
-</span></span><span style="display:flex;"><span> 5        return false
-</span></span><span style="display:flex;"><span> 6    }
-</span></span><span style="display:flex;"><span> 7    if p := getg().m.p.ptr(); !runqempty(p) {
-</span></span><span style="display:flex;"><span> 8        return false
-</span></span><span style="display:flex;"><span> 9    }
-</span></span><span style="display:flex;"><span>10    return true
-</span></span><span style="display:flex;"><span>11}
-</span></span></code></pre></div><p>由于自旋本身是空转CPU的，所以如果使用不当，反倒会降低程序运行性能。结合函数中的判断逻辑，这里总结出来goroutine能进入自旋的条件如下</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1//go:linkname sync_runtime_canSpin sync.runtime_canSpin
+ 2func sync_runtime_canSpin(i int) bool {
+ 3  // active_spin = 4
+ 4    if i &gt;= active_spin || ncpu &lt;= 1 || gomaxprocs &lt;= int32(sched.npidle+sched.nmspinning)+1 {
+ 5        return false
+ 6    }
+ 7    if p := getg().m.p.ptr(); !runqempty(p) {
+ 8        return false
+ 9    }
+10    return true
+11}
+</code></pre></div><p>由于自旋本身是空转CPU的，所以如果使用不当，反倒会降低程序运行性能。结合函数中的判断逻辑，这里总结出来goroutine能进入自旋的条件如下</p>
 <ul>
 <li>当前互斥锁处于正常模式</li>
 <li>当前运行的机器是多核CPU，且GOMAXPROCS&gt;1</li>
@@ -299,167 +305,167 @@
 <li>当前goroutine进行自旋的次数小于4</li>
 </ul>
 <p>前面说到，自旋行为就是让当前goroutine并不挂起，占用cpu资源。我们看一下<code>runtime_doSpin()</code>的实现。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1//go:linkname sync_runtime_doSpin sync.runtime_doSpin
-</span></span><span style="display:flex;"><span>2func sync_runtime_doSpin() {
-</span></span><span style="display:flex;"><span>3    procyield(active_spin_cnt)  // active_spin_cnt = 30
-</span></span><span style="display:flex;"><span>4}
-</span></span></code></pre></div><p><code>runtime_doSpin</code>调用了<code>procyield</code>，其实现如下（以amd64为例）</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1TEXT runtime·procyield(SB),NOSPLIT,$0-0
-</span></span><span style="display:flex;"><span>2    MOVL    cycles+0(FP), AX
-</span></span><span style="display:flex;"><span>3again:
-</span></span><span style="display:flex;"><span>4    PAUSE
-</span></span><span style="display:flex;"><span>5    SUBL    $1, AX
-</span></span><span style="display:flex;"><span>6    JNZ again
-</span></span><span style="display:flex;"><span>7    RET
-</span></span></code></pre></div><p>很明显，所谓的忙等待就是执行 30 次 <code>PAUSE</code> 指令，通过该指令占用 CPU 并消耗 CPU 时间。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1//go:linkname sync_runtime_doSpin sync.runtime_doSpin
+2func sync_runtime_doSpin() {
+3    procyield(active_spin_cnt)  // active_spin_cnt = 30
+4}
+</code></pre></div><p><code>runtime_doSpin</code>调用了<code>procyield</code>，其实现如下（以amd64为例）</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1TEXT runtime·procyield(SB),NOSPLIT,$0-0
+2    MOVL    cycles+0(FP), AX
+3again:
+4    PAUSE
+5    SUBL    $1, AX
+6    JNZ again
+7    RET
+</code></pre></div><p>很明显，所谓的忙等待就是执行 30 次 <code>PAUSE</code> 指令，通过该指令占用 CPU 并消耗 CPU 时间。</p>
 <p><strong>3.2.3 计算期望状态</strong></p>
 <p>前面说过，当前goroutine进入自旋是需要满足相应条件的。如果不满足自旋条件，则进入以下逻辑。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1        // old是锁当前的状态，new是期望的状态，以期于在后面的CAS操作中更改锁的状态
-</span></span><span style="display:flex;"><span> 2    new := old
-</span></span><span style="display:flex;"><span> 3        if old&amp;mutexStarving == 0 {
-</span></span><span style="display:flex;"><span> 4      // 如果当前锁不是饥饿模式，则将new的低1位的Locked状态位设置为1，表示加锁
-</span></span><span style="display:flex;"><span> 5            new |= mutexLocked
-</span></span><span style="display:flex;"><span> 6        }
-</span></span><span style="display:flex;"><span> 7        if old&amp;(mutexLocked|mutexStarving) != 0 {
-</span></span><span style="display:flex;"><span> 8      // 如果当前锁已被加锁或者处于饥饿模式，则将waiter数加1，表示当前goroutine将被作为waiter置于等待队列队尾
-</span></span><span style="display:flex;"><span> 9            new += 1 &lt;&lt; mutexWaiterShift
-</span></span><span style="display:flex;"><span>10        }
-</span></span><span style="display:flex;"><span>11        if starving &amp;&amp; old&amp;mutexLocked != 0 {
-</span></span><span style="display:flex;"><span>12      // 如果当前锁处于饥饿模式，并且已被加锁，则将低3位的Starving状态位设置为1，表示饥饿
-</span></span><span style="display:flex;"><span>13            new |= mutexStarving
-</span></span><span style="display:flex;"><span>14        }
-</span></span><span style="display:flex;"><span>15    // 当awoke为true，则表明当前goroutine在自旋逻辑中，成功修改锁的Woken状态位为1
-</span></span><span style="display:flex;"><span>16        if awoke {
-</span></span><span style="display:flex;"><span>17            if new&amp;mutexWoken == 0 {
-</span></span><span style="display:flex;"><span>18                throw(&#34;sync: inconsistent mutex state&#34;)
-</span></span><span style="display:flex;"><span>19            }
-</span></span><span style="display:flex;"><span>20      // 将唤醒标志位Woken置回为0
-</span></span><span style="display:flex;"><span>21      // 因为在后续的逻辑中，当前goroutine要么是拿到锁了，要么是被挂起。
-</span></span><span style="display:flex;"><span>22      // 如果是挂起状态，那就需要等待其他释放锁的goroutine来唤醒。
-</span></span><span style="display:flex;"><span>23      // 假如其他goroutine在unlock的时候发现Woken的位置不是0，则就不会去唤醒，那该goroutine就无法再醒来加锁。
-</span></span><span style="display:flex;"><span>24            new &amp;^= mutexWoken
-</span></span><span style="display:flex;"><span>25        }
-</span></span></code></pre></div><p>这里需要重点理解一下位操作<strong>A |= B</strong>，它的含义就是在B的二进制位为1的位，将A对应的二进制位设为1，如下图所示。因此，<code>new |= mutexLocked</code>的作用就是将<code>new</code>的最低一位设置为1。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1        // old是锁当前的状态，new是期望的状态，以期于在后面的CAS操作中更改锁的状态
+ 2    new := old
+ 3        if old&amp;mutexStarving == 0 {
+ 4      // 如果当前锁不是饥饿模式，则将new的低1位的Locked状态位设置为1，表示加锁
+ 5            new |= mutexLocked
+ 6        }
+ 7        if old&amp;(mutexLocked|mutexStarving) != 0 {
+ 8      // 如果当前锁已被加锁或者处于饥饿模式，则将waiter数加1，表示当前goroutine将被作为waiter置于等待队列队尾
+ 9            new += 1 &lt;&lt; mutexWaiterShift
+10        }
+11        if starving &amp;&amp; old&amp;mutexLocked != 0 {
+12      // 如果当前锁处于饥饿模式，并且已被加锁，则将低3位的Starving状态位设置为1，表示饥饿
+13            new |= mutexStarving
+14        }
+15    // 当awoke为true，则表明当前goroutine在自旋逻辑中，成功修改锁的Woken状态位为1
+16        if awoke {
+17            if new&amp;mutexWoken == 0 {
+18                throw(&#34;sync: inconsistent mutex state&#34;)
+19            }
+20      // 将唤醒标志位Woken置回为0
+21      // 因为在后续的逻辑中，当前goroutine要么是拿到锁了，要么是被挂起。
+22      // 如果是挂起状态，那就需要等待其他释放锁的goroutine来唤醒。
+23      // 假如其他goroutine在unlock的时候发现Woken的位置不是0，则就不会去唤醒，那该goroutine就无法再醒来加锁。
+24            new &amp;^= mutexWoken
+25        }
+</code></pre></div><p>这里需要重点理解一下位操作<strong>A |= B</strong>，它的含义就是在B的二进制位为1的位，将A对应的二进制位设为1，如下图所示。因此，<code>new |= mutexLocked</code>的作用就是将<code>new</code>的最低一位设置为1。</p>
 <p><img src="http://shanks.link/img/Go%E4%BA%92%E6%96%A5%E9%94%81/6.png" alt="img"></p>
 <p>**
 **</p>
 <p><strong>3.2.4 更新期望状态</strong></p>
 <p>在上一步，我们得到了锁的期望状态，接下来通过CAS将锁的状态进行更新。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1        // 尝试将锁的状态更新为期望状态
-</span></span><span style="display:flex;"><span> 2    if atomic.CompareAndSwapInt32(&amp;m.state, old, new) {
-</span></span><span style="display:flex;"><span> 3      // 如果锁的原状态既不是被获取状态，也不是处于饥饿模式
-</span></span><span style="display:flex;"><span> 4      // 那就直接返回，表示当前goroutine已获取到锁
-</span></span><span style="display:flex;"><span> 5            if old&amp;(mutexLocked|mutexStarving) == 0 {
-</span></span><span style="display:flex;"><span> 6                break // locked the mutex with CAS
-</span></span><span style="display:flex;"><span> 7            }
-</span></span><span style="display:flex;"><span> 8      // 如果走到这里，那就证明当前goroutine没有获取到锁
-</span></span><span style="display:flex;"><span> 9      // 这里判断waitStartTime != 0就证明当前goroutine之前已经等待过了，则需要将其放置在等待队列队头
-</span></span><span style="display:flex;"><span>10            queueLifo := waitStartTime != 0
-</span></span><span style="display:flex;"><span>11            if waitStartTime == 0 {
-</span></span><span style="display:flex;"><span>12        // 如果之前没有等待过，就以现在的时间来初始化设置
-</span></span><span style="display:flex;"><span>13                waitStartTime = runtime_nanotime()
-</span></span><span style="display:flex;"><span>14            }
-</span></span><span style="display:flex;"><span>15      // 阻塞等待
-</span></span><span style="display:flex;"><span>16            runtime_SemacquireMutex(&amp;m.sema, queueLifo, 1)
-</span></span><span style="display:flex;"><span>17      // 被信号量唤醒之后检查当前goroutine是否应该表示为饥饿
-</span></span><span style="display:flex;"><span>18      // （这里表示为饥饿之后，会在下一轮循环中尝试将锁的状态更改为饥饿模式）
-</span></span><span style="display:flex;"><span>19      // 1. 如果当前goroutine已经饥饿（在上一次循环中更改了starving为true）
-</span></span><span style="display:flex;"><span>20      // 2. 如果当前goroutine已经等待了1ms以上
-</span></span><span style="display:flex;"><span>21            starving = starving || runtime_nanotime()-waitStartTime &gt; starvationThresholdNs
-</span></span><span style="display:flex;"><span>22            // 再次获取锁状态
-</span></span><span style="display:flex;"><span>23      old = m.state
-</span></span><span style="display:flex;"><span>24      // 走到这里，如果此时锁仍然是饥饿模式
-</span></span><span style="display:flex;"><span>25      // 因为在饥饿模式下，锁是直接交给唤醒的goroutine
-</span></span><span style="display:flex;"><span>26      // 所以，即把锁交给当前goroutine
-</span></span><span style="display:flex;"><span>27            if old&amp;mutexStarving != 0 {
-</span></span><span style="display:flex;"><span>28        // 如果当前锁既不是被获取也不是被唤醒状态，或者等待队列为空
-</span></span><span style="display:flex;"><span>29        // 这代表锁状态产生了不一致的问题
-</span></span><span style="display:flex;"><span>30                if old&amp;(mutexLocked|mutexWoken) != 0 || old&gt;&gt;mutexWaiterShift == 0 {
-</span></span><span style="display:flex;"><span>31                    throw(&#34;sync: inconsistent mutex state&#34;)
-</span></span><span style="display:flex;"><span>32                }
-</span></span><span style="display:flex;"><span>33        // 因为当前goroutine已经获取了锁，delta用于将等待队列-1
-</span></span><span style="display:flex;"><span>34                delta := int32(mutexLocked - 1&lt;&lt;mutexWaiterShift)
-</span></span><span style="display:flex;"><span>35        // 如果当前goroutine中的starving标志不是饥饿
-</span></span><span style="display:flex;"><span>36        // 或者当前goroutine已经是等待队列中的最后一个了
-</span></span><span style="display:flex;"><span>37        // 就通过delta -= mutexStarving和atomic.AddInt32操作将锁的饥饿状态位设置为0，表示为正常模式
-</span></span><span style="display:flex;"><span>38                if !starving || old&gt;&gt;mutexWaiterShift == 1 {
-</span></span><span style="display:flex;"><span>39                    delta -= mutexStarving
-</span></span><span style="display:flex;"><span>40                }
-</span></span><span style="display:flex;"><span>41                atomic.AddInt32(&amp;m.state, delta)
-</span></span><span style="display:flex;"><span>42        // 拿到锁退出，业务逻辑处理完之后，需要调用Mutex.Unlock()方法释放锁
-</span></span><span style="display:flex;"><span>43                break
-</span></span><span style="display:flex;"><span>44            }
-</span></span><span style="display:flex;"><span>45      // 如果锁不是饥饿状态
-</span></span><span style="display:flex;"><span>46      // 因为当前goroutine已经被信号量唤醒了
-</span></span><span style="display:flex;"><span>47      // 那就将表示当前goroutine状态的awoke设置为true
-</span></span><span style="display:flex;"><span>48      // 并且将自旋次数的计数iter重置为0，如果能满足自旋条件，重新自旋等待
-</span></span><span style="display:flex;"><span>49            awoke = true
-</span></span><span style="display:flex;"><span>50            iter = 0
-</span></span><span style="display:flex;"><span>51        } else {
-</span></span><span style="display:flex;"><span>52      // 如果CAS未成功,更新锁状态，重新一个大循环
-</span></span><span style="display:flex;"><span>53            old = m.state
-</span></span><span style="display:flex;"><span>54        }
-</span></span></code></pre></div><p>这里需要理解一下<code>runtime_SemacquireMutex(s *uint32, lifo bool, skipframes int)</code> 函数，<strong>它是用于同步库的sleep原语</strong>，它的实现是位于<code>src/runtime/sema.go</code>中的<code>semacquire1</code>函数，与它类似的还有<code>runtime_Semacquire(s *uint32)</code> 函数。两个睡眠原语需要等到 <code>*s&gt;0</code> （本场景中 <code>m.sema&gt;0</code> ），然后原子递减 <code>*s</code>。<code>SemacquireMutex</code>用于分析竞争的互斥对象，如果<code>lifo</code>（本场景中<code>queueLifo</code>）为true，则将等待者排在等待队列的队头。<code>skipframes</code>是从<code>SemacquireMutex</code>的调用方开始计数，表示在跟踪期间要忽略的帧数。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1        // 尝试将锁的状态更新为期望状态
+ 2    if atomic.CompareAndSwapInt32(&amp;m.state, old, new) {
+ 3      // 如果锁的原状态既不是被获取状态，也不是处于饥饿模式
+ 4      // 那就直接返回，表示当前goroutine已获取到锁
+ 5            if old&amp;(mutexLocked|mutexStarving) == 0 {
+ 6                break // locked the mutex with CAS
+ 7            }
+ 8      // 如果走到这里，那就证明当前goroutine没有获取到锁
+ 9      // 这里判断waitStartTime != 0就证明当前goroutine之前已经等待过了，则需要将其放置在等待队列队头
+10            queueLifo := waitStartTime != 0
+11            if waitStartTime == 0 {
+12        // 如果之前没有等待过，就以现在的时间来初始化设置
+13                waitStartTime = runtime_nanotime()
+14            }
+15      // 阻塞等待
+16            runtime_SemacquireMutex(&amp;m.sema, queueLifo, 1)
+17      // 被信号量唤醒之后检查当前goroutine是否应该表示为饥饿
+18      // （这里表示为饥饿之后，会在下一轮循环中尝试将锁的状态更改为饥饿模式）
+19      // 1. 如果当前goroutine已经饥饿（在上一次循环中更改了starving为true）
+20      // 2. 如果当前goroutine已经等待了1ms以上
+21            starving = starving || runtime_nanotime()-waitStartTime &gt; starvationThresholdNs
+22            // 再次获取锁状态
+23      old = m.state
+24      // 走到这里，如果此时锁仍然是饥饿模式
+25      // 因为在饥饿模式下，锁是直接交给唤醒的goroutine
+26      // 所以，即把锁交给当前goroutine
+27            if old&amp;mutexStarving != 0 {
+28        // 如果当前锁既不是被获取也不是被唤醒状态，或者等待队列为空
+29        // 这代表锁状态产生了不一致的问题
+30                if old&amp;(mutexLocked|mutexWoken) != 0 || old&gt;&gt;mutexWaiterShift == 0 {
+31                    throw(&#34;sync: inconsistent mutex state&#34;)
+32                }
+33        // 因为当前goroutine已经获取了锁，delta用于将等待队列-1
+34                delta := int32(mutexLocked - 1&lt;&lt;mutexWaiterShift)
+35        // 如果当前goroutine中的starving标志不是饥饿
+36        // 或者当前goroutine已经是等待队列中的最后一个了
+37        // 就通过delta -= mutexStarving和atomic.AddInt32操作将锁的饥饿状态位设置为0，表示为正常模式
+38                if !starving || old&gt;&gt;mutexWaiterShift == 1 {
+39                    delta -= mutexStarving
+40                }
+41                atomic.AddInt32(&amp;m.state, delta)
+42        // 拿到锁退出，业务逻辑处理完之后，需要调用Mutex.Unlock()方法释放锁
+43                break
+44            }
+45      // 如果锁不是饥饿状态
+46      // 因为当前goroutine已经被信号量唤醒了
+47      // 那就将表示当前goroutine状态的awoke设置为true
+48      // 并且将自旋次数的计数iter重置为0，如果能满足自旋条件，重新自旋等待
+49            awoke = true
+50            iter = 0
+51        } else {
+52      // 如果CAS未成功,更新锁状态，重新一个大循环
+53            old = m.state
+54        }
+</code></pre></div><p>这里需要理解一下<code>runtime_SemacquireMutex(s *uint32, lifo bool, skipframes int)</code> 函数，<strong>它是用于同步库的sleep原语</strong>，它的实现是位于<code>src/runtime/sema.go</code>中的<code>semacquire1</code>函数，与它类似的还有<code>runtime_Semacquire(s *uint32)</code> 函数。两个睡眠原语需要等到 <code>*s&gt;0</code> （本场景中 <code>m.sema&gt;0</code> ），然后原子递减 <code>*s</code>。<code>SemacquireMutex</code>用于分析竞争的互斥对象，如果<code>lifo</code>（本场景中<code>queueLifo</code>）为true，则将等待者排在等待队列的队头。<code>skipframes</code>是从<code>SemacquireMutex</code>的调用方开始计数，表示在跟踪期间要忽略的帧数。</p>
 <p>所以，运行到 <code>SemacquireMutex</code> 就证明当前goroutine在前面的过程中获取锁失败了，就需要sleep原语来阻塞当前goroutine，并通过信号量来排队获取锁：如果是新来的goroutine，就需要放在队尾；如果是被唤醒的等待锁的goroutine，就放在队头。</p>
 <h4 id="33-解锁"><strong>3.3 解锁</strong></h4>
 <p>前面说过，有加锁就必然有解锁。我们来看解锁的过程：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func (m *Mutex) Unlock() {
-</span></span><span style="display:flex;"><span> 2    if race.Enabled {
-</span></span><span style="display:flex;"><span> 3        _ = m.state
-</span></span><span style="display:flex;"><span> 4        race.Release(unsafe.Pointer(m))
-</span></span><span style="display:flex;"><span> 5    }
-</span></span><span style="display:flex;"><span> 6
-</span></span><span style="display:flex;"><span> 7  // new是解锁的期望状态
-</span></span><span style="display:flex;"><span> 8    new := atomic.AddInt32(&amp;m.state, -mutexLocked)
-</span></span><span style="display:flex;"><span> 9    if new != 0 {
-</span></span><span style="display:flex;"><span>10        m.unlockSlow(new)
-</span></span><span style="display:flex;"><span>11    }
-</span></span><span style="display:flex;"><span>12}
-</span></span></code></pre></div><p>通过原子操作<code>AddInt32</code>想将锁的低1位<code>Locked</code>状态位置为0。然后判断新的<code>m.state</code>值，如果值为0，则代表当前锁已经完全空闲了，结束解锁，否则进入<code>unlockSlow()</code>逻辑。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func (m *Mutex) Unlock() {
+ 2    if race.Enabled {
+ 3        _ = m.state
+ 4        race.Release(unsafe.Pointer(m))
+ 5    }
+ 6
+ 7  // new是解锁的期望状态
+ 8    new := atomic.AddInt32(&amp;m.state, -mutexLocked)
+ 9    if new != 0 {
+10        m.unlockSlow(new)
+11    }
+12}
+</code></pre></div><p>通过原子操作<code>AddInt32</code>想将锁的低1位<code>Locked</code>状态位置为0。然后判断新的<code>m.state</code>值，如果值为0，则代表当前锁已经完全空闲了，结束解锁，否则进入<code>unlockSlow()</code>逻辑。</p>
 <p>这里需要注意的是，锁空闲有两种情况，第一种是完全空闲，它的状态就是锁的初始状态。</p>
 <p><img src="http://shanks.link/img/Go%E4%BA%92%E6%96%A5%E9%94%81/7.png" alt="img"></p>
 <p>第二种空闲，是指的当前锁没被占有，但是会有等待拿锁的goroutine，只是还未被唤醒，例如以下状态的锁也是空闲的，它有两个等待拿锁的goroutine（未唤醒状态）。</p>
 <p><img src="http://shanks.link/img/Go%E4%BA%92%E6%96%A5%E9%94%81/8.png" alt="img"></p>
 <p>以下是<code>unlockSlow</code>函数实现。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func (m *Mutex) unlockSlow(new int32) {
-</span></span><span style="display:flex;"><span> 2  // 1. 如果Unlock了一个没有上锁的锁，则会发生panic。
-</span></span><span style="display:flex;"><span> 3   if (new+mutexLocked)&amp;mutexLocked == 0 {
-</span></span><span style="display:flex;"><span> 4      throw(&#34;sync: unlock of unlocked mutex&#34;)
-</span></span><span style="display:flex;"><span> 5   }
-</span></span><span style="display:flex;"><span> 6  // 2. 正常模式
-</span></span><span style="display:flex;"><span> 7   if new&amp;mutexStarving == 0 {
-</span></span><span style="display:flex;"><span> 8      old := new
-</span></span><span style="display:flex;"><span> 9      for {
-</span></span><span style="display:flex;"><span>10        // 如果锁没有waiter,或者锁有其他以下已发生的情况之一，则后面的工作就不用做了，直接返回
-</span></span><span style="display:flex;"><span>11        // 1. 锁处于锁定状态，表示锁已经被其他goroutine获取了
-</span></span><span style="display:flex;"><span>12        // 2. 锁处于被唤醒状态，这表明有等待goroutine被唤醒，不用再尝试唤醒其他goroutine
-</span></span><span style="display:flex;"><span>13        // 3. 锁处于饥饿模式，那么锁之后会被直接交给等待队列队头goroutine
-</span></span><span style="display:flex;"><span>14         if old&gt;&gt;mutexWaiterShift == 0 || old&amp;(mutexLocked|mutexWoken|mutexStarving) != 0 {
-</span></span><span style="display:flex;"><span>15            return
-</span></span><span style="display:flex;"><span>16         }
-</span></span><span style="display:flex;"><span>17        // 如果能走到这，那就是上面的if判断没通过
-</span></span><span style="display:flex;"><span>18        // 说明当前锁是空闲状态，但是等待队列中有waiter，且没有goroutine被唤醒
-</span></span><span style="display:flex;"><span>19        // 所以，这里我们想要把锁的状态设置为被唤醒，等待队列waiter数-1
-</span></span><span style="display:flex;"><span>20         new = (old - 1&lt;&lt;mutexWaiterShift) | mutexWoken
-</span></span><span style="display:flex;"><span>21        // 通过CAS操作尝试更改锁状态
-</span></span><span style="display:flex;"><span>22         if atomic.CompareAndSwapInt32(&amp;m.state, old, new) {
-</span></span><span style="display:flex;"><span>23           // 通过信号量唤醒goroutine，然后退出
-</span></span><span style="display:flex;"><span>24            runtime_Semrelease(&amp;m.sema, false, 1)
-</span></span><span style="display:flex;"><span>25            return
-</span></span><span style="display:flex;"><span>26         }
-</span></span><span style="display:flex;"><span>27        // 这里是CAS失败的逻辑
-</span></span><span style="display:flex;"><span>28        // 因为在for循环中，锁的状态有可能已经被改变了，所以这里需要及时更新一下状态信息
-</span></span><span style="display:flex;"><span>29        // 以便下个循环里作判断处理
-</span></span><span style="display:flex;"><span>30         old = m.state
-</span></span><span style="display:flex;"><span>31      }
-</span></span><span style="display:flex;"><span>32   // 3. 饥饿模式
-</span></span><span style="display:flex;"><span>33   } else {
-</span></span><span style="display:flex;"><span>34     // 因为是饥饿模式，所以非常简单
-</span></span><span style="display:flex;"><span>35     // 直接唤醒等待队列队头goroutine即可
-</span></span><span style="display:flex;"><span>36      runtime_Semrelease(&amp;m.sema, true, 1)
-</span></span><span style="display:flex;"><span>37   }
-</span></span><span style="display:flex;"><span>38}
-</span></span></code></pre></div><p>在这里，需要理解一下<code>runtime_Semrelease(s *uint32, handoff bool, skipframes int)</code>函数。<strong>它是用于同步库的wakeup原语</strong>，<code>Semrelease</code>原子增加<code>*s</code>值（本场景中<code>m.sema</code>），并通知阻塞在<code>Semacquire</code>中正在等待的goroutine。如果<code>handoff</code>为真，则将计数直接传递给队头waiter。<code>skipframes</code>是从<code>Semrelease</code>的调用方开始计数，表示在跟踪期间要忽略的帧数。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func (m *Mutex) unlockSlow(new int32) {
+ 2  // 1. 如果Unlock了一个没有上锁的锁，则会发生panic。
+ 3   if (new+mutexLocked)&amp;mutexLocked == 0 {
+ 4      throw(&#34;sync: unlock of unlocked mutex&#34;)
+ 5   }
+ 6  // 2. 正常模式
+ 7   if new&amp;mutexStarving == 0 {
+ 8      old := new
+ 9      for {
+10        // 如果锁没有waiter,或者锁有其他以下已发生的情况之一，则后面的工作就不用做了，直接返回
+11        // 1. 锁处于锁定状态，表示锁已经被其他goroutine获取了
+12        // 2. 锁处于被唤醒状态，这表明有等待goroutine被唤醒，不用再尝试唤醒其他goroutine
+13        // 3. 锁处于饥饿模式，那么锁之后会被直接交给等待队列队头goroutine
+14         if old&gt;&gt;mutexWaiterShift == 0 || old&amp;(mutexLocked|mutexWoken|mutexStarving) != 0 {
+15            return
+16         }
+17        // 如果能走到这，那就是上面的if判断没通过
+18        // 说明当前锁是空闲状态，但是等待队列中有waiter，且没有goroutine被唤醒
+19        // 所以，这里我们想要把锁的状态设置为被唤醒，等待队列waiter数-1
+20         new = (old - 1&lt;&lt;mutexWaiterShift) | mutexWoken
+21        // 通过CAS操作尝试更改锁状态
+22         if atomic.CompareAndSwapInt32(&amp;m.state, old, new) {
+23           // 通过信号量唤醒goroutine，然后退出
+24            runtime_Semrelease(&amp;m.sema, false, 1)
+25            return
+26         }
+27        // 这里是CAS失败的逻辑
+28        // 因为在for循环中，锁的状态有可能已经被改变了，所以这里需要及时更新一下状态信息
+29        // 以便下个循环里作判断处理
+30         old = m.state
+31      }
+32   // 3. 饥饿模式
+33   } else {
+34     // 因为是饥饿模式，所以非常简单
+35     // 直接唤醒等待队列队头goroutine即可
+36      runtime_Semrelease(&amp;m.sema, true, 1)
+37   }
+38}
+</code></pre></div><p>在这里，需要理解一下<code>runtime_Semrelease(s *uint32, handoff bool, skipframes int)</code>函数。<strong>它是用于同步库的wakeup原语</strong>，<code>Semrelease</code>原子增加<code>*s</code>值（本场景中<code>m.sema</code>），并通知阻塞在<code>Semacquire</code>中正在等待的goroutine。如果<code>handoff</code>为真，则将计数直接传递给队头waiter。<code>skipframes</code>是从<code>Semrelease</code>的调用方开始计数，表示在跟踪期间要忽略的帧数。</p>
 <p><img src="http://shanks.link/img/Go%E4%BA%92%E6%96%A5%E9%94%81/data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==" alt="img"></p>
 <p><strong>总结</strong></p>
 <p>从代码量而言，go中互斥锁的代码非常轻量简洁，通过巧妙的位运算，仅仅采用state一个字段就实现了四个字段的效果，非常之精彩。</p>
@@ -485,9 +491,9 @@
 <li>如果锁处于饥饿模式，会直接将锁的所有权交给等待队列队头waiter，唤醒的waiter会负责设置<code>Locked</code>标志位。</li>
 </ol>
 <p>另外，从Go的互斥锁带有自旋的设计而言，如果我们通过<code>sync.Mutex</code>只锁定执行耗时很低的关键代码，例如锁定某个变量的赋值，性能是非常不错的（因为等待锁的goroutine不用被挂起，持有锁的goroutine会很快释放锁）。<strong>所以，我们在使用互斥锁时，应该只锁定真正的临界区</strong>。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1mu.Lock()
-</span></span><span style="display:flex;"><span>2defer mu.Unlock()
-</span></span></code></pre></div><p>写如上的代码，是很爽。但是，你有想过这会带来没必要的性能损耗吗？</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1mu.Lock()
+2defer mu.Unlock()
+</code></pre></div><p>写如上的代码，是很爽。但是，你有想过这会带来没必要的性能损耗吗？</p>
 <p><a href="https://mp.weixin.qq.com/s/YYvoeDfPMm8Y2kFu9uesGw">以上内容转载自机器铃砍菜刀</a></p>
 
     </div>
@@ -559,8 +565,7 @@
         src="http://shanks.link/img/logo.jpg"
         alt="shankusu2017@gmail.com" />
     <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
-    <p class="site-description motion-element" itemprop="description"> 
-        Programmer life</p>
+    <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
@@ -625,7 +630,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

@@ -65,6 +65,12 @@
         </li>
       
         <li class="menu-item ">
+          <a href="http://shanks.link/categories/lua/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />lua
+          </a>
+        </li>
+      
+        <li class="menu-item ">
           <a href="http://shanks.link/links/" rel="section">
               <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
           </a>
@@ -154,19 +160,19 @@
 <p>​    本章，我们将进入到metatable的探索之中。由于这块本身比较简单，而且我也不打算罗列代码细节，因此本章的篇幅不会很大。只是对一些我认为比较关键的部分，进行说明。首先，本章的主要任务，首先是简要介绍metatable是做什么的，然后简要说明一下，它如何被设置，接着介绍metatable的访问域，双目运算操作域、单目运算操作域等。最后会告诉读者，本章的实现逻辑位于dummylua工程的哪些部位。</p>
 <h1 id="什么是metatable">什么是metatable？</h1>
 <p>​    metatable是什么？它的中文译名是元表。简单的来说，它是一种改变table行为的机制。如果没有这种机制，我们无法对两个table进行加减乘除运算，无法对table进行比较运算。而metatable机制的存在，则为这种提供了可行性。此外，metatable为不同的table，提供了公共域，这个是lua实现面向对象机制的基础。我们为一个table设置metatable的方式也非常简单，如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local tbl = setmetatable({}, { __index = function(t, k) print(&#34;hello world&#34;) end })
-</span></span></code></pre></div><p>上面的例子中，table的metatable，则是setmetatable的第二个参数。而如何获取一个metatable呢？如下例子得以展示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local mt = getmetable(tbl)
-</span></span></code></pre></div><p>在lua53的中文文档中[1]，是这么来解释metatable和tag method的：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local tbl = setmetatable({}, { __index = function(t, k) print(&#34;hello world&#34;) end })
+</code></pre></div><p>上面的例子中，table的metatable，则是setmetatable的第二个参数。而如何获取一个metatable呢？如下例子得以展示：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local mt = getmetable(tbl)
+</code></pre></div><p>在lua53的中文文档中[1]，是这么来解释metatable和tag method的：</p>
 <blockquote>
 <p>Lua 中的每个值都可以有一个 元表。 这个 元表 就是一个普通的 Lua 表， 它用于定义原始值在特定操作下的行为。 如果你想改变一个值在特定操作下的行为，你可以在它的元表中设置对应域。 例如，当你对非数字值做加操作时， Lua 会检查该值的元表中的 “__ add” 域下的函数。 如果能找到，Lua 则调用这个函数来完成加这个操作。 在元表中事件的键值是一个双下划线（__ ）加事件名的字符串； 键关联的那些值被称为 元方法。 在上一个例子中，__add 就是键值， 对应的元方法是执行加操作的函数。</p>
 </blockquote>
 <p>你可以使用 setmetatable 来替换一张表的元表。在 Lua 中，你不可以改变表以外其它类型的值的元表 （除非你使用调试库）； 若想改变这些非表类型的值的元表，请使用 C API。</p>
 <h1 id="metable的__-index和__-newindex域">metable的__ index和__ newindex域</h1>
 <p>​    metatable中有两个重要的域，它们分别是以__ index和__ newindex作为key的域。我们通过一些例子，来理解这两个机制。首先我们来看看__ index的情况：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local tbl = setmetatable({}, { __index = function(t, k) print(&#34;hello world&#34;) end })
-</span></span><span style="display:flex;"><span>print(tbl.hello)
-</span></span></code></pre></div><p>例1
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local tbl = setmetatable({}, { __index = function(t, k) print(&#34;hello world&#34;) end })
+print(tbl.hello)
+</code></pre></div><p>例1
 这是一个会使用到metatable的__ index域的例子，在开始正式讨论之前，我们首先要对例子本身作一些说明。</p>
 <ul>
 <li>我们的local变量tbl，实质就是setmetatable函数的第一个参数</li>
@@ -184,56 +190,56 @@
 <li>调用结束</li>
 </ol>
 <p>在例1中，print(tbl.hello)的结果为nil，并且输出了“hello world”，其结果如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>hello world
-</span></span><span style="display:flex;"><span>nil
-</span></span></code></pre></div><p>例1展示了一个简单的例子，我们现在来看一下例2：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local mt = setmetatable({}, { __index = function(t, k) print(&#34;1111&#34;) end })
-</span></span><span style="display:flex;"><span>mt.__index = function(t, k) print(&#34;2222&#34;) end
-</span></span><span style="display:flex;"><span>local tbl = setmetatable({}, mt)
-</span></span><span style="display:flex;"><span>print(tbl.hello)
-</span></span></code></pre></div><p>例2
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">hello world
+nil
+</code></pre></div><p>例1展示了一个简单的例子，我们现在来看一下例2：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local mt = setmetatable({}, { __index = function(t, k) print(&#34;1111&#34;) end })
+mt.__index = function(t, k) print(&#34;2222&#34;) end
+local tbl = setmetatable({}, mt)
+print(tbl.hello)
+</code></pre></div><p>例2
 上面这个例子，输出的结果为：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>2222
-</span></span><span style="display:flex;"><span>nil
-</span></span></code></pre></div><p>因为tbl的metatable是mt，且mt的__ index域是个函数，且hello在tbl中并不存在，所以直接调用了mt.__ index函数。在访问一个table的缺省域的时候，如果该table有metatable，并且__ index域是个函数，那么直接调用它。这里不管tbl的metatable的metatable是否存在，存在的话__ index域是什么，它都只调用tbl的metatable的__ index函数。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">2222
+nil
+</code></pre></div><p>因为tbl的metatable是mt，且mt的__ index域是个函数，且hello在tbl中并不存在，所以直接调用了mt.__ index函数。在访问一个table的缺省域的时候，如果该table有metatable，并且__ index域是个函数，那么直接调用它。这里不管tbl的metatable的metatable是否存在，存在的话__ index域是什么，它都只调用tbl的metatable的__ index函数。
 我们通过两个例子，讨论了metatable的__ index域是函数的情况，现在我们来看看metatable的__ index域是table的情况。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local mt0 = { hello = &#34;hello world&#34; }
-</span></span><span style="display:flex;"><span>local mt1 = setmetatable({}, {__index = mt0})
-</span></span><span style="display:flex;"><span>mt1.key2 = &#34;key2&#34;
-</span></span><span style="display:flex;"><span>local tbl = setmetatable({}, {__index = mt1})
-</span></span><span style="display:flex;"><span>print(tbl.hello)
-</span></span><span style="display:flex;"><span>print(tbl.key)
-</span></span><span style="display:flex;"><span>print(tbl.key2)
-</span></span></code></pre></div><p>例3
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local mt0 = { hello = &#34;hello world&#34; }
+local mt1 = setmetatable({}, {__index = mt0})
+mt1.key2 = &#34;key2&#34;
+local tbl = setmetatable({}, {__index = mt1})
+print(tbl.hello)
+print(tbl.key)
+print(tbl.key2)
+</code></pre></div><p>例3
 例3的输出结果为：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>hello world
-</span></span><span style="display:flex;"><span>nil
-</span></span><span style="display:flex;"><span>key2
-</span></span></code></pre></div><p>hello是tbl的缺省域，因为tbl中找不到hello，所以要到tbl的metatable中查找__ index域，这里的__ index域指向一个table mt1，因此会到mt1中查找mt1.hello，又因为mt1中不存在key为hello的域，因此要到mt1的metatable中查找，而mt1的metatable的__ index域指向了mt0，因此将mt0.hello返回。同样的，tbl.key的访问逻辑，也执行类似的操作，只是因为mt0没有设置metatable，所以最终tbl.key的值为nil。而对于tbl.key2，操作逻辑也是类似的，只是因为mt1中存在key2这个域，因此直接返回该值，而不继续到metatable中查找。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">hello world
+nil
+key2
+</code></pre></div><p>hello是tbl的缺省域，因为tbl中找不到hello，所以要到tbl的metatable中查找__ index域，这里的__ index域指向一个table mt1，因此会到mt1中查找mt1.hello，又因为mt1中不存在key为hello的域，因此要到mt1的metatable中查找，而mt1的metatable的__ index域指向了mt0，因此将mt0.hello返回。同样的，tbl.key的访问逻辑，也执行类似的操作，只是因为mt0没有设置metatable，所以最终tbl.key的值为nil。而对于tbl.key2，操作逻辑也是类似的，只是因为mt1中存在key2这个域，因此直接返回该值，而不继续到metatable中查找。</p>
 <p>​    在完成了__ index域的论述以后，我们接下来看看__ newindex域。我们还是要通过几个例子，对它进行说明，首先来看看例4：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local tbl = setmetatable({}, { __newindex = function(t, k, v) print(t, k, v) end })
-</span></span><span style="display:flex;"><span>tbl.key = &#34;key&#34;
-</span></span><span style="display:flex;"><span>print(tbl.key)
-</span></span></code></pre></div><p>例4
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local tbl = setmetatable({}, { __newindex = function(t, k, v) print(t, k, v) end })
+tbl.key = &#34;key&#34;
+print(tbl.key)
+</code></pre></div><p>例4
 例4中，key原本不存在于tbl中，由于tbl设置了一个metatable，并且__ newindex域有设置一个函数，因此例4中的赋值操作，会触发元方法__ newindex，但是赋值操作并不会生效（也就是调用了__ newindex函数以后，tbl.key仍然是nil值）。而我们的__ newindex函数有3个参数，分别是t、k和v，他们分别代表tbl，key和“key”。如果我们的tbl原本就有tbl.key这个域的时候，对tbl.key重新赋值，并不会触发元方法。例4的输出结果如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>table: 0x12b88c0	key	key
-</span></span><span style="display:flex;"><span>nil
-</span></span></code></pre></div><p>当需要触发__ newindex的元方法的时候，不论metatable是否还有metatable，只要其有__ newindex，并且是个函数，那么就会执行它，并终止流程。接下来来看一下__ newindex是table的情况，我们来看看例5：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local mt0 = {}
-</span></span><span style="display:flex;"><span>local mt1 = setmetatable({}, { __newindex = mt0 })
-</span></span><span style="display:flex;"><span>local mt2 = setmetatable({ key1 = &#34;111&#34;}, { __newindex = mt1 })
-</span></span><span style="display:flex;"><span>local tbl = setmetatable({}, { __newindex = mt2 })
-</span></span><span style="display:flex;"><span>tbl.key = &#34;key&#34;
-</span></span><span style="display:flex;"><span>tbl.key1 = &#34;222&#34;
-</span></span><span style="display:flex;"><span>print(tbl.key)
-</span></span><span style="display:flex;"><span>print(mt0.key)
-</span></span><span style="display:flex;"><span>print(mt2.key1)
-</span></span></code></pre></div><p>例5
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">table: 0x12b88c0	key	key
+nil
+</code></pre></div><p>当需要触发__ newindex的元方法的时候，不论metatable是否还有metatable，只要其有__ newindex，并且是个函数，那么就会执行它，并终止流程。接下来来看一下__ newindex是table的情况，我们来看看例5：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local mt0 = {}
+local mt1 = setmetatable({}, { __newindex = mt0 })
+local mt2 = setmetatable({ key1 = &#34;111&#34;}, { __newindex = mt1 })
+local tbl = setmetatable({}, { __newindex = mt2 })
+tbl.key = &#34;key&#34;
+tbl.key1 = &#34;222&#34;
+print(tbl.key)
+print(mt0.key)
+print(mt2.key1)
+</code></pre></div><p>例5
 上面例子输出的结果为：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>nil
-</span></span><span style="display:flex;"><span>key
-</span></span><span style="display:flex;"><span>222
-</span></span></code></pre></div><p>这个例子说明了几个内容：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">nil
+key
+222
+</code></pre></div><p>这个例子说明了几个内容：</p>
 <ul>
 <li>为表tbl从来不存在的key域赋值，tbl.key = “key”这个操作会触发元方法</li>
 <li>tbl会到其元表中的__ newindex域mt2，查找是否存在key，因为没找到，因此需要去mt1中查找</li>
@@ -243,14 +249,14 @@
 <p>从上面的论述可以看出，当一个table有设置metatable，并且__ newindex方法有被设置，因此当给这个table添加新域的时候，会触发元方法__ newindex，如果__ newindex是个表，则会尝试从中去查找新设置操作的key值，如果找到则直接设置新值，如果找不到则需要继续触发metatable的元方法__ newindex。如果没找到元表，则直接将结果设置到该table中。读者可以观察一下tbl.key1 = “222”以及例子打印结果的情况。</p>
 <h1 id="双目运算事件">双目运算事件</h1>
 <p>​    上面一节中，我对__ index和__ newindex进行了简要的说明，大概介绍清楚了这两个元访问事件的运作机制，现在要对双目运算事件进行简要的说明。lua层的setmetatable，只支持对table赋值metatable的操作，而如果要对其他类型进行metatable的设置操作，需要借助C的API。我们的双目运算，如四则运算，如字符串拼接运算，是有默认的支持类型的，比如四则运算，只支持数值类型的数据运算，而字符串拼接，默认类型则是字符串类型。我们的metatable机制，可以用来实现面向对象的设计方法，限于篇幅，本章不对这些内容进行详细的讨论。使用元表来实现面向对象的机制时，table不可避免地要作为对象存在。那么对象之间如果有双目运算，那怎么处理呢？以加法为例，+操作符，默认只支持数值类型的运算，table是不支持的，除非你为__ add域设置了元方法，如例6所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local tbl1 = setmetatable({ value = 1 }, {__add = function(lhs, rhs) return lhs.value + rhs.value })
-</span></span><span style="display:flex;"><span>local tbl2 = { value = 2 }
-</span></span><span style="display:flex;"><span>local ret = tbl1 + tbl2
-</span></span><span style="display:flex;"><span>print(ret)
-</span></span></code></pre></div><p>例6
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local tbl1 = setmetatable({ value = 1 }, {__add = function(lhs, rhs) return lhs.value + rhs.value })
+local tbl2 = { value = 2 }
+local ret = tbl1 + tbl2
+print(ret)
+</code></pre></div><p>例6
 其输出结果为：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>3
-</span></span></code></pre></div><p>因为tbl1设置了__ add域的元方法，因此虚拟机在进行加法运算的时候，当操作数不都是数值类型时，就触发tbl1的__ add域元方法。现在假设另一种情况，如果tbl1没有设置__ add域的元方法，而是把这个元方法在tbl2设置了，那么结果仍然是一致的。因为虚拟机首先会找左操作数是否有对应的元方法，如果没有则会去右操作数去查找，如果都没有则抛错。其他情况留给读者去推导。lua除了双目元方法，还有单目的，这里就不一一列举了，引用lua53中文文档的一些内容，供读者查阅：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">3
+</code></pre></div><p>因为tbl1设置了__ add域的元方法，因此虚拟机在进行加法运算的时候，当操作数不都是数值类型时，就触发tbl1的__ add域元方法。现在假设另一种情况，如果tbl1没有设置__ add域的元方法，而是把这个元方法在tbl2设置了，那么结果仍然是一致的。因为虚拟机首先会找左操作数是否有对应的元方法，如果没有则会去右操作数去查找，如果都没有则抛错。其他情况留给读者去推导。lua除了双目元方法，还有单目的，这里就不一一列举了，引用lua53中文文档的一些内容，供读者查阅：</p>
 <blockquote>
 <p>__ add: + 操作。 如果任何不是数字的值（包括不能转换为数字的字符串）做加法， Lua 就会尝试调用元方法。 首先、Lua 检查第一个操作数（即使它是合法的）， 如果这个操作数没有为 “__add” 事件定义元方法， Lua 就会接着检查第二个操作数。 一旦 Lua 找到了元方法， 它将把两个操作数作为参数传入元方法， 元方法的结果（调整为单个值）作为这个操作的结果。 如果找不到元方法，将抛出一个错误。
 __sub: - 操作。 行为和 “add” 操作类似。
@@ -353,8 +359,7 @@ __call: 函数调用操作 func(args)。 当 Lua 尝试调用一个非函数的�
         src="http://shanks.link/img/logo.jpg"
         alt="shankusu2017@gmail.com" />
     <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
-    <p class="site-description motion-element" itemprop="description"> 
-        Programmer life</p>
+    <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
@@ -419,7 +424,7 @@ __call: 函数调用操作 func(args)。 当 Lua 尝试调用一个非函数的�
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

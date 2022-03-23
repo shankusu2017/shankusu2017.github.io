@@ -65,6 +65,12 @@
         </li>
       
         <li class="menu-item ">
+          <a href="http://shanks.link/categories/lua/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />lua
+          </a>
+        </li>
+      
+        <li class="menu-item ">
           <a href="http://shanks.link/links/" rel="section">
               <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
           </a>
@@ -161,14 +167,14 @@
 <p>那Go语言的读写锁，对于饥饿问题，它是如何处理的呢？</p>
 <p><strong>Go读写锁设计</strong></p>
 <p>本文代码版本为Go 1.15.2。如下所示，<code>sync.RWMutex</code>结构体包含5个字段。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1type RWMutex struct {
-</span></span><span style="display:flex;"><span>2    w           Mutex  
-</span></span><span style="display:flex;"><span>3    writerSem   uint32 
-</span></span><span style="display:flex;"><span>4    readerSem   uint32 
-</span></span><span style="display:flex;"><span>5    readerCount int32  
-</span></span><span style="display:flex;"><span>6    readerWait  int32  
-</span></span><span style="display:flex;"><span>7}
-</span></span></code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1type RWMutex struct {
+2    w           Mutex  
+3    writerSem   uint32 
+4    readerSem   uint32 
+5    readerCount int32  
+6    readerWait  int32  
+7}
+</code></pre></div><ul>
 <li><code>w</code> 互斥锁<code>sync.Mutex</code>，用于互斥写操作。</li>
 <li><code>writerSem</code> 写操作goroutine阻塞等待信号量。最后一个阻塞写操作的读操作goroutine释放读锁时，会通知阻塞的写锁goroutine。</li>
 <li><code>readerSem</code> 读操作goroutine阻塞等待信号量。写锁goroutine释放写锁后，会通知阻塞的读锁goroutine。</li>
@@ -185,59 +191,59 @@
 <p>下面，我们来依次分析。</p>
 <h4 id="1-加读锁"><strong>1. 加读锁</strong></h4>
 <p>这里，需要说明一下的是，为了更好理解代码逻辑，本文所有的代码块均去除了竞态检测的逻辑部分，即<code>if race.Enabled {}</code>方法块。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func (rw *RWMutex) RLock() {
-</span></span><span style="display:flex;"><span>2    if atomic.AddInt32(&amp;rw.readerCount, 1) &lt; 0 {
-</span></span><span style="display:flex;"><span>3        runtime_SemacquireMutex(&amp;rw.readerSem, false, 0)
-</span></span><span style="display:flex;"><span>4    }
-</span></span><span style="display:flex;"><span>5}
-</span></span></code></pre></div><p><code>atomic.AddInt32</code>是一个原子性操作，其底层通过硬件指令<code>LOCK</code>实现封装（详情可见文章<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484574&amp;idx=1&amp;sn=5bbe2668e64455f428c70f00c09f28a2&amp;chksm=97371030a04099263dfbf16dc24438f409166a053fd9fef802f9f9e4f8fd3c4aba9dd97df8f8&amp;scene=21#wechat_redirect">《同步原语的基石》</a>）。<code>rw.readerCount</code>代表读操作goroutine数量，如果将其+1，还小于0，则通过用于同步库的sleep原语<code>runtime_SemacquireMutex</code>阻塞等待写锁释放。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func (rw *RWMutex) RLock() {
+2    if atomic.AddInt32(&amp;rw.readerCount, 1) &lt; 0 {
+3        runtime_SemacquireMutex(&amp;rw.readerSem, false, 0)
+4    }
+5}
+</code></pre></div><p><code>atomic.AddInt32</code>是一个原子性操作，其底层通过硬件指令<code>LOCK</code>实现封装（详情可见文章<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484574&amp;idx=1&amp;sn=5bbe2668e64455f428c70f00c09f28a2&amp;chksm=97371030a04099263dfbf16dc24438f409166a053fd9fef802f9f9e4f8fd3c4aba9dd97df8f8&amp;scene=21#wechat_redirect">《同步原语的基石》</a>）。<code>rw.readerCount</code>代表读操作goroutine数量，如果将其+1，还小于0，则通过用于同步库的sleep原语<code>runtime_SemacquireMutex</code>阻塞等待写锁释放。</p>
 <p>简单地说，如果当前有写操作goroutine已经进来了，则新来的读操作goroutine会被排队阻塞等待。但是，读者肯定会觉得判断条件很奇怪，为什么<code>rw.readerCount</code>会是负值？不要急，下文会有答案。</p>
 <p>当然，如果此时没有写锁，则仅仅将<code>rw.readerCount</code>数目加1，然后直接退出，代表加读锁成功。</p>
 <h4 id="2-解读锁"><strong>2. 解读锁</strong></h4>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func (rw *RWMutex) RUnlock() {
-</span></span><span style="display:flex;"><span>2    if r := atomic.AddInt32(&amp;rw.readerCount, -1); r &lt; 0 {
-</span></span><span style="display:flex;"><span>3        rw.rUnlockSlow(r)
-</span></span><span style="display:flex;"><span>4    }
-</span></span><span style="display:flex;"><span>5}
-</span></span></code></pre></div><p>将读操作goroutine数目-1，如果其数目<code>r</code>大于等于0，则直接退出，代表解读锁成功。否则，带着当前处于负值的数目<code>r</code>进入以下<code>rUnlockSlow</code>逻辑：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func (rw *RWMutex) rUnlockSlow(r int32) {
-</span></span><span style="display:flex;"><span>2    if r+1 == 0 || r+1 == -rwmutexMaxReaders {
-</span></span><span style="display:flex;"><span>3        race.Enable()
-</span></span><span style="display:flex;"><span>4        throw(&#34;sync: RUnlock of unlocked RWMutex&#34;)
-</span></span><span style="display:flex;"><span>5    }
-</span></span><span style="display:flex;"><span>6    if atomic.AddInt32(&amp;rw.readerWait, -1) == 0 {
-</span></span><span style="display:flex;"><span>7        runtime_Semrelease(&amp;rw.writerSem, false, 1)
-</span></span><span style="display:flex;"><span>8    }
-</span></span><span style="display:flex;"><span>9}
-</span></span></code></pre></div><p>如果<code>r+1==0</code>，则证明在解读锁时，其实并没有读goroutine加读锁；<code>rwmutexMaxReaders = 1 &lt;&lt; 30</code>，这代表读写锁所能接收的最大读操作goroutine数量。至于这里为什么<code>r+1 == -rwmutexMaxReaders</code>也代表并没有goroutine加读锁，同样留在下文解答。在没有加读锁的锁上解读锁，会抛出异常并panic。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func (rw *RWMutex) RUnlock() {
+2    if r := atomic.AddInt32(&amp;rw.readerCount, -1); r &lt; 0 {
+3        rw.rUnlockSlow(r)
+4    }
+5}
+</code></pre></div><p>将读操作goroutine数目-1，如果其数目<code>r</code>大于等于0，则直接退出，代表解读锁成功。否则，带着当前处于负值的数目<code>r</code>进入以下<code>rUnlockSlow</code>逻辑：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func (rw *RWMutex) rUnlockSlow(r int32) {
+2    if r+1 == 0 || r+1 == -rwmutexMaxReaders {
+3        race.Enable()
+4        throw(&#34;sync: RUnlock of unlocked RWMutex&#34;)
+5    }
+6    if atomic.AddInt32(&amp;rw.readerWait, -1) == 0 {
+7        runtime_Semrelease(&amp;rw.writerSem, false, 1)
+8    }
+9}
+</code></pre></div><p>如果<code>r+1==0</code>，则证明在解读锁时，其实并没有读goroutine加读锁；<code>rwmutexMaxReaders = 1 &lt;&lt; 30</code>，这代表读写锁所能接收的最大读操作goroutine数量。至于这里为什么<code>r+1 == -rwmutexMaxReaders</code>也代表并没有goroutine加读锁，同样留在下文解答。在没有加读锁的锁上解读锁，会抛出异常并panic。</p>
 <p><code>rw.readerWait</code>代表写操作被阻塞时，读操作goroutine数量。如果该值为1，代表当前是最后一个阻塞写操作的goroutine，则通过用于同步库的wakeup原语<code>runtime_Semrelease</code>唤醒阻塞的写操作goroutine。</p>
 <p>读者此时只看了加解读锁的代码，理解上会有困难，不要急，我们接着看加解写锁的逻辑。</p>
 <h4 id="3-加写锁"><strong>3. 加写锁</strong></h4>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func (rw *RWMutex) Lock() {
-</span></span><span style="display:flex;"><span>2    rw.w.Lock()
-</span></span><span style="display:flex;"><span>3    r := atomic.AddInt32(&amp;rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders
-</span></span><span style="display:flex;"><span>4    if r != 0 &amp;&amp; atomic.AddInt32(&amp;rw.readerWait, r) != 0 {
-</span></span><span style="display:flex;"><span>5        runtime_SemacquireMutex(&amp;rw.writerSem, false, 0)
-</span></span><span style="display:flex;"><span>6    }
-</span></span><span style="display:flex;"><span>7}
-</span></span></code></pre></div><p>在加写锁时，首先会通过互斥锁加锁，这保证只会有一个写锁加锁成功。当互斥锁加锁成功之后，我们就能看到<strong>写操作是如何阻止读操作，读操作是如何感知到写操作的。</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func (rw *RWMutex) Lock() {
+2    rw.w.Lock()
+3    r := atomic.AddInt32(&amp;rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders
+4    if r != 0 &amp;&amp; atomic.AddInt32(&amp;rw.readerWait, r) != 0 {
+5        runtime_SemacquireMutex(&amp;rw.writerSem, false, 0)
+6    }
+7}
+</code></pre></div><p>在加写锁时，首先会通过互斥锁加锁，这保证只会有一个写锁加锁成功。当互斥锁加锁成功之后，我们就能看到<strong>写操作是如何阻止读操作，读操作是如何感知到写操作的。</strong></p>
 <p>我们已经知道<code>rw.readerCount</code>是代表读操作goroutine数量，如果在不存在写操作的情况下，每次加读锁，该值就会+1，每次解读锁该值就会-1，那么我们可以合理地认为<code>rw.readerCount</code>的取值范围是[0,rwmutexMaxReaders],即最大支持2^30个并发读，最小是0个。</p>
 <p>然而，在当前写操作goroutine加互斥锁成功后，会通过原子操作<code>atomic.AddInt32</code>将<code>readerCount</code>减去2^30，此时<code>readerCount</code>会变成负值，那么如果之后再有读操作goroutine加读锁时，能通过该负值知道当前已经有写锁了，从而阻塞等待。这里也解释了加读锁和解读锁两小节中留下的问题。最后，为了持有真实的读操作goroutine数目，再加回2^30即可。</p>
 <p>这里需要格外注意的是：互斥锁加锁成功并不意味着加写锁成功。我们需要知道<strong>读操作是如何阻止写操作，写操作是如何感知到读操作的。</strong></p>
 <p><code>r != 0</code> 即代表当前读操作goroutine不为0，这意味着写操作要等待排在前面的读操作结束后才算是加上写锁。写操作获得互斥锁后，通过<code>atomic.AddInt32</code>把<code>rw.readerCount</code>值拷贝到<code>rw.readerWait</code>中，用于标记排在写操作goroutine前面的读操作goroutine个数。通过用于同步库的sleep原语<code>runtime_SemacquireMutex</code>阻塞等待这些读操作结束。在解读锁小结中我们知道，读操作结束时，除了会递减<code>rw.readerCount</code>，同时需要递减<code>rw.readerWait</code>值，当<code>rw.readerWait</code>值变为0时就会唤醒阻塞的写操作goroutine。</p>
 <h4 id="4-解写锁"><strong>4. 解写锁</strong></h4>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func (rw *RWMutex) Unlock() {
-</span></span><span style="display:flex;"><span> 2    r := atomic.AddInt32(&amp;rw.readerCount, rwmutexMaxReaders)
-</span></span><span style="display:flex;"><span> 3    if r &gt;= rwmutexMaxReaders {
-</span></span><span style="display:flex;"><span> 4        race.Enable()
-</span></span><span style="display:flex;"><span> 5        throw(&#34;sync: Unlock of unlocked RWMutex&#34;)
-</span></span><span style="display:flex;"><span> 6    }
-</span></span><span style="display:flex;"><span> 7    for i := 0; i &lt; int(r); i++ {
-</span></span><span style="display:flex;"><span> 8        runtime_Semrelease(&amp;rw.readerSem, false, 0)
-</span></span><span style="display:flex;"><span> 9    }
-</span></span><span style="display:flex;"><span>10    rw.w.Unlock()
-</span></span><span style="display:flex;"><span>11}
-</span></span></code></pre></div><p>在解写锁时，将负值的rw.readerCount变更为正值，解除对读锁的互斥，并唤醒r个因为写锁而阻塞的读操作goroutine。最后，通过调用互斥锁的Unlock方法，解除对写锁的互斥。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func (rw *RWMutex) Unlock() {
+ 2    r := atomic.AddInt32(&amp;rw.readerCount, rwmutexMaxReaders)
+ 3    if r &gt;= rwmutexMaxReaders {
+ 4        race.Enable()
+ 5        throw(&#34;sync: Unlock of unlocked RWMutex&#34;)
+ 6    }
+ 7    for i := 0; i &lt; int(r); i++ {
+ 8        runtime_Semrelease(&amp;rw.readerSem, false, 0)
+ 9    }
+10    rw.w.Unlock()
+11}
+</code></pre></div><p>在解写锁时，将负值的rw.readerCount变更为正值，解除对读锁的互斥，并唤醒r个因为写锁而阻塞的读操作goroutine。最后，通过调用互斥锁的Unlock方法，解除对写锁的互斥。</p>
 <p>到这里，我们可以图解一下<strong>Go是如何解决饥饿问题的</strong>。</p>
 <p><img src="http://shanks.link/img/Go%E8%AF%BB%E5%86%99%E9%94%81/2.png" alt="img"></p>
 <p>假设G1、G2、G3是正在共享读的goroutine，<code>rw.readerCount</code>值为3。此时写操作G4进来，把<code>rw.readerCount</code>值变为了负值，同时它发现<code>rw.readerCount</code>不为0，因此阻塞等待。但是在G4的等待期间又有新的读操作G5、G6和写操作G7进来。由于此时的<code>rw.readerCount</code>值为负，所以G5和G6是不能加读锁成功的，会陷入阻塞等待。G7由于G4加了互斥锁也会陷入等待。当排在写操作G4前面的最后一个读操作G3结束，G3会唤醒G4。当G4结束时，它将G5、G6和G7均唤醒。但是G7需要等待G5和G6退出（因为它在试图加写锁时，会发现<code>rw.readerCount</code>不为0，会再次陷入阻塞等待）才能加写锁成功。以此反复，保证了读写锁的相对公平，避免一方挨饿。</p>
@@ -322,8 +328,7 @@
         src="http://shanks.link/img/logo.jpg"
         alt="shankusu2017@gmail.com" />
     <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
-    <p class="site-description motion-element" itemprop="description"> 
-        Programmer life</p>
+    <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
@@ -388,7 +393,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

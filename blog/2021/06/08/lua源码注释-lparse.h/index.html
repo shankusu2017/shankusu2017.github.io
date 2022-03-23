@@ -65,6 +65,12 @@
         </li>
       
         <li class="menu-item ">
+          <a href="http://shanks.link/categories/lua/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />lua
+          </a>
+        </li>
+      
+        <li class="menu-item ">
           <a href="http://shanks.link/links/" rel="section">
               <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
           </a>
@@ -147,295 +153,296 @@
       </div>
     </header>
     <div class="post-body" itemprop="articleBody">
-    <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** $Id: lparser.h,v 1.57.1.1 2007/12/27 13:02:25 roberto Exp $
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Lua Parser
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** See Copyright Notice in lua.h
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#ifndef lparser_h
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define lparser_h
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;llimits.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lobject.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lzio.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/**************************** 官方的BNF **********************************
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">chunk ::= {stat [`;´]} [laststat [`;´]]
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">block ::= chunk
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">stat ::=  varlist `=´ explist | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 functioncall | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 do block end | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 while exp do block end | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 repeat block until exp | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 if exp then block {elseif exp then block} [else block] end | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 for Name `=´ exp `,´ exp [`,´ exp] do block end | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 for namelist in explist do block end | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 function funcname funcbody | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 local function Name funcbody | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 local namelist [`=´ explist] 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">laststat ::= return [explist] | break
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">funcname ::= Name {`.´ Name} [`:´ Name]
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">varlist ::= var {`,´ var}
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">var ::=  Name | prefixexp `[´ exp `]´ | prefixexp `.´ Name 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">namelist ::= Name {`,´ Name}
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">explist ::= {exp `,´} exp
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">exp ::=  nil | false | true | Number | String | `...´ | function | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 prefixexp | tableconstructor | exp binop exp | unop exp 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">prefixexp ::= var | functioncall | `(´ exp `)´
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">functioncall ::=  prefixexp args | prefixexp `:´ Name args 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">args ::=  `(´ [explist] `)´ | tableconstructor | String 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">function ::= function funcbody
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">funcbody ::= `(´ [parlist] `)´ block end
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">parlist ::= namelist [`,´ `...´] | `...´
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">tableconstructor ::= `{´ [fieldlist] `}´
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">fieldlist ::= field {fieldsep field} [fieldsep]
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">field ::= `[´ exp `]´ `=´ exp | Name `=´ exp | exp
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">fieldsep ::= `,´ | `;´
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">binop ::= `+´ | `-´ | `*´ | `/´ | `^´ | `%´ | `..´ | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 `&lt;´ | `&lt;=´ | `&gt;´ | `&gt;=´ | `==´ | `~=´ | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 and | or
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">unop ::= `-´ | not | `#´
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">**************************************************************************/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/**************************** 自己总结的BNF **********************************
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">chunk ::= {stat [`;´]}
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">block ::= chunk
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">stat ::=  
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 ifstat | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 whilestat | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 DO block END | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 forstat | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 repeat | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 funcstat | 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 localstat |
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 retstat |
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 breaksat |
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	 exprstat
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">localstat  	::= local fun | localstat‘
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">localstat&#39; 	::= LOCAL NAME {`,´ NAME } [`=´ explist1]
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">explist1   	::= expr { `,&#39; expr }
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">expr 		::= subexpr
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">subexpr 	::= (simpleexp | unop subexpr) { binop subexpr }
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">simpleexp 	::= NUMBER | STRING | NIL | true | false | ... |
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">                  constructor | FUNCTION body | primaryexp
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">primaryexp 	::= prefixexp { `.&#39; NAME | `[&#39; expr `]&#39; | `:&#39; NAME funcargs | funcargs }
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">prefixexp 	::= NAME | &#39;(&#39; expr &#39;)&#39;
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">funcargs 	::= `(&#39; [ explist1 ] `)&#39; | constructor | STRING
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">exprstat    := func | assignment
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">assignment 	::= `,&#39; primaryexp assignment |  `=&#39; explist1 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">ifstat 		::= IF cond THEN block {ELSEIF cond THEN block} [ELSE block] END
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">cond 		::= expr
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">test_then_block :: [IF | ELSEIF] cond THEN block
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">whilestat 	::= WHILE cond DO block END
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">repeatstat 	:: REPEAT block UNTIL cond
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">forstat 	::= FOR (fornum | forlist) END
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">fornum 		::= NAME = exp1,exp1[,exp1] forbody
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">forlist 	::= NAME {,NAME} IN explist1 forbody
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">forbody 	::= DO block
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">funcstat 	::= FUNCTION funcname body
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">funcname 	::= NAME {field} [`:&#39; NAME]
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">field 		::= [&#39;.&#39; | &#39;:&#39;] NAME 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">body 		::=  `(&#39; parlist `)&#39; chunk END
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">parlist 	:: [ param { `,&#39; param } ] 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">param 		::= NAME | ...
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">constructor ::= {recfield|listfield}
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">recfield 	::= (NAME | `[&#39;exp1`]&#39;) = exp1
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">listfield   ::= exp1
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">exp1        ::= (exp)   ?
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">retstat ::= RETURN explist
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">**************************************************************************/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Expression descriptor
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 表达式的&#34;类型&#34;
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** VNONRELOC, VRELOCABLE表示表达式的reg信息(已被安排到指定的reg或可以重定位到任一reg)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 其它的类型：表达式的类型 相关函数 luaK_dischargevars
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">enum</span> {
-</span></span><span style="display:flex;"><span>  VVOID,		<span style="color:#75715e">/* no value:表示表达式尚未进行评估，也可能表达式就是空 */</span>
-</span></span><span style="display:flex;"><span>  	
-</span></span><span style="display:flex;"><span>  VNIL,
-</span></span><span style="display:flex;"><span>  VTRUE,		<span style="color:#75715e">/* true */</span>
-</span></span><span style="display:flex;"><span>  VFALSE,		<span style="color:#75715e">/* fales */</span>
-</span></span><span style="display:flex;"><span>  VK,			<span style="color:#75715e">/* info = index of constant in `k&#39; 常量表达式 */</span>
-</span></span><span style="display:flex;"><span>  VKNUM,		<span style="color:#75715e">/* nval = numerical value */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  VLOCAL,		<span style="color:#75715e">/* info = local register */</span>
-</span></span><span style="display:flex;"><span>  VUPVAL,   	<span style="color:#75715e">/* info = index of upvalue in `upvalues&#39; */</span>
-</span></span><span style="display:flex;"><span>  VGLOBAL,		<span style="color:#75715e">/* info = index of table; aux = index of global name in `k&#39; */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 索引表达式 eg: tbl(info).aux(aux) */</span>
-</span></span><span style="display:flex;"><span>  VINDEXED,		<span style="color:#75715e">/* info = table register; aux = index register (or `k&#39;) */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 跳转表达式，常用于关系表达式 */</span>
-</span></span><span style="display:flex;"><span>  VJMP,			<span style="color:#75715e">/* info = instruction pc */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 表达式尚未加载到reg（目标reg尚未确定，可以放在栈的任意位置，只要能访问到）
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** info:本指令在指令数组中的索引，方便后面回填本指令的目标地址寄存器(R(A))
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
-</span></span><span style="display:flex;"><span>  VRELOCABLE,	<span style="color:#75715e">/* info = instruction pc */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 表达式的值已被加载到reg中了，info:对应寄存器的idx */</span>
-</span></span><span style="display:flex;"><span>  VNONRELOC,	<span style="color:#75715e">/* info = result register */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  VCALL,		<span style="color:#75715e">/* info = instruction pc: info表示exp对应的指令在指令f的指令数组中的下标，下同 */</span>
-</span></span><span style="display:flex;"><span>  VVARARG		<span style="color:#75715e">/* info = instruction pc   ... 变参操作符 */</span>
-</span></span><span style="display:flex;"><span>} expkind;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> expdesc {
-</span></span><span style="display:flex;"><span>  expkind k;	<span style="color:#75715e">/* 表达式类型，后面会更新为表达式占用寄存器的类型 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">union</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> { <span style="color:#66d9ef">int</span> info, aux; } s;	<span style="color:#75715e">/* 随着k不同,info,aux表示的意义随之变化,具体看expkind的注释 */</span>
-</span></span><span style="display:flex;"><span>    lua_Number nval;				<span style="color:#75715e">/* 数值表达式的数值 */</span>
-</span></span><span style="display:flex;"><span>  } u;
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> t;  <span style="color:#75715e">/* patch list of `exit when true&#39; */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> f;  <span style="color:#75715e">/* patch list of `exit when false&#39; */</span>
-</span></span><span style="display:flex;"><span>} expdesc;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> upvaldesc {
-</span></span><span style="display:flex;"><span>  lu_byte k;
-</span></span><span style="display:flex;"><span>  lu_byte info;
-</span></span><span style="display:flex;"><span>} upvaldesc;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> BlockCnt;  <span style="color:#75715e">/* defined in lparser.c */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* state needed to generate code for a given function 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 编译阶段的func状态机，成品则是Proto
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> FuncState {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> lua_State <span style="color:#f92672">*</span>L;  <span style="color:#75715e">/* copy of the Lua state */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> FuncState <span style="color:#f92672">*</span>prev;  <span style="color:#75715e">/* enclosing function,先编译完子函数，才能编译父函数 */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> LexState <span style="color:#f92672">*</span>ls;  <span style="color:#75715e">/* lexical state */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  Proto <span style="color:#f92672">*</span>f;  			<span style="color:#75715e">/* current function header */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> BlockCnt <span style="color:#f92672">*</span>bl;  <span style="color:#75715e">/* chain of current blocks */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> pc;  				<span style="color:#75715e">/* 指向:下一个待生成的指令 next position to code (equivalent to `ncode&#39;) */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> lasttarget;   	<span style="color:#75715e">/* `pc&#39; of last `jump target&#39; */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> jpc;  			<span style="color:#75715e">/* list of pending jumps to `pc&#39;：指向下一个待生成的指令的待回填的跳转链表 */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 存储常量kvar在对应的 Proto.k 常量数组中的下标的映射表 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  **
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** local var= &#34;hello&#34; , 常量 &#34;hello&#34; 存在Proto.k常量数组中的第0个位置处
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** h[&#34;hello&#34;] = 0
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 查找常量过程如下 k=&#34;hello&#34;, 进入h表查找,找到v(0), 再用v到Proto.k中取值
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 参考函数 lcode.c addk
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
-</span></span><span style="display:flex;"><span>  Table <span style="color:#f92672">*</span>h;  			<span style="color:#75715e">/* table to find (and reuse) elements in `k&#39; */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> nk;  				<span style="color:#75715e">/* number of elements in `k&#39; */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> np;  				<span style="color:#75715e">/* number of elements in `p&#39; */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 第一个可用的reg的索引，随着locvar的申请和释放，这个值不断变化
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 随着编译过程中临时占用寄存器的申请和释放，这个值也在不断变化
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  **  local a = b + c 计算完b+c的结果要存放到一个临时寄存器中，赋值给a后，这个寄存器要释放
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 由于locvar的存在需要&#34;始终&#34;占用一个reg，所以freereg&gt;=nactvar
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> freereg;  		<span style="color:#75715e">/* first free register */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 当前函数已使用的本地变量总和(下面的总和为6)，整个数组大小的定义在 Proto 的sizelocvars域中 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  **
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** do
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  **   	local v1, v2, v3
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** end
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** do
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  **	local v1, v2, v3
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** end
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** nlocvars:从1-&gt;6, 这样每一个locvar都有一个唯一的 Proto.locvars中对应的信息，
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  **    至于运行到某一行时，v1到底指代哪一个v1,可以从startpc,endpc中推断出来（调试库也是靠pc推断的哦？）
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">short</span> nlocvars;  		<span style="color:#75715e">/* number of elements in `locvars&#39; */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** declared-variable stack
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 当前激活的var的idx到f.locvars的映射 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">short</span> actvar[LUAI_MAXVARS];
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* number of active local variables：当前激活中的locvar数量
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 对于上面的nlocvars第二次声明local时，nactvar:从1-&gt;3,因为离开第一个块后，块所属的locvar被释放了（变量的声明周期也结束了）
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
-</span></span><span style="display:flex;"><span>  lu_byte nactvar;  					
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  upvaldesc upvalues[LUAI_MAXUPVALUES];  <span style="color:#75715e">/* upvalues */</span>
-</span></span><span style="display:flex;"><span>} FuncState;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>LUAI_FUNC Proto <span style="color:#f92672">*</span><span style="color:#a6e22e">luaY_parser</span> (lua_State <span style="color:#f92672">*</span>L, ZIO <span style="color:#f92672">*</span>z, Mbuffer <span style="color:#f92672">*</span>buff,
-</span></span><span style="display:flex;"><span>                                            <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>name);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
-</span></span></span></code></pre></div>
+    <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#75715e">/*
+</span><span style="color:#75715e">** $Id: lparser.h,v 1.57.1.1 2007/12/27 13:02:25 roberto Exp $
+</span><span style="color:#75715e">** Lua Parser
+</span><span style="color:#75715e">** See Copyright Notice in lua.h
+</span><span style="color:#75715e">*/</span>
+
+<span style="color:#75715e">#ifndef lparser_h
+</span><span style="color:#75715e">#define lparser_h
+</span><span style="color:#75715e"></span>
+<span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;llimits.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lobject.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lzio.h&#34;</span><span style="color:#75715e">
+</span><span style="color:#75715e"></span>
+
+<span style="color:#75715e">/**************************** 官方的BNF **********************************
+</span><span style="color:#75715e">chunk ::= {stat [`;´]} [laststat [`;´]]
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">block ::= chunk
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">stat ::=  varlist `=´ explist | 
+</span><span style="color:#75715e">	 functioncall | 
+</span><span style="color:#75715e">	 do block end | 
+</span><span style="color:#75715e">	 while exp do block end | 
+</span><span style="color:#75715e">	 repeat block until exp | 
+</span><span style="color:#75715e">	 if exp then block {elseif exp then block} [else block] end | 
+</span><span style="color:#75715e">	 for Name `=´ exp `,´ exp [`,´ exp] do block end | 
+</span><span style="color:#75715e">	 for namelist in explist do block end | 
+</span><span style="color:#75715e">	 function funcname funcbody | 
+</span><span style="color:#75715e">	 local function Name funcbody | 
+</span><span style="color:#75715e">	 local namelist [`=´ explist] 
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">laststat ::= return [explist] | break
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">funcname ::= Name {`.´ Name} [`:´ Name]
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">varlist ::= var {`,´ var}
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">var ::=  Name | prefixexp `[´ exp `]´ | prefixexp `.´ Name 
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">namelist ::= Name {`,´ Name}
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">explist ::= {exp `,´} exp
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">exp ::=  nil | false | true | Number | String | `...´ | function | 
+</span><span style="color:#75715e">	 prefixexp | tableconstructor | exp binop exp | unop exp 
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">prefixexp ::= var | functioncall | `(´ exp `)´
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">functioncall ::=  prefixexp args | prefixexp `:´ Name args 
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">args ::=  `(´ [explist] `)´ | tableconstructor | String 
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">function ::= function funcbody
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">funcbody ::= `(´ [parlist] `)´ block end
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">parlist ::= namelist [`,´ `...´] | `...´
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">tableconstructor ::= `{´ [fieldlist] `}´
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">fieldlist ::= field {fieldsep field} [fieldsep]
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">field ::= `[´ exp `]´ `=´ exp | Name `=´ exp | exp
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">fieldsep ::= `,´ | `;´
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">binop ::= `+´ | `-´ | `*´ | `/´ | `^´ | `%´ | `..´ | 
+</span><span style="color:#75715e">	 `&lt;´ | `&lt;=´ | `&gt;´ | `&gt;=´ | `==´ | `~=´ | 
+</span><span style="color:#75715e">	 and | or
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">unop ::= `-´ | not | `#´
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">**************************************************************************/</span>
+
+
+
+<span style="color:#75715e">/**************************** 自己总结的BNF **********************************
+</span><span style="color:#75715e">chunk ::= {stat [`;´]}
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">block ::= chunk
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">stat ::=  
+</span><span style="color:#75715e">	 ifstat | 
+</span><span style="color:#75715e">	 whilestat | 
+</span><span style="color:#75715e">	 DO block END | 
+</span><span style="color:#75715e">	 forstat | 
+</span><span style="color:#75715e">	 repeat | 
+</span><span style="color:#75715e">	 funcstat | 
+</span><span style="color:#75715e">	 localstat |
+</span><span style="color:#75715e">	 retstat |
+</span><span style="color:#75715e">	 breaksat |
+</span><span style="color:#75715e">	 exprstat
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">localstat  	::= local fun | localstat‘
+</span><span style="color:#75715e">localstat&#39; 	::= LOCAL NAME {`,´ NAME } [`=´ explist1]
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">explist1   	::= expr { `,&#39; expr }
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">expr 		::= subexpr
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">subexpr 	::= (simpleexp | unop subexpr) { binop subexpr }
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">simpleexp 	::= NUMBER | STRING | NIL | true | false | ... |
+</span><span style="color:#75715e">                  constructor | FUNCTION body | primaryexp
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">primaryexp 	::= prefixexp { `.&#39; NAME | `[&#39; expr `]&#39; | `:&#39; NAME funcargs | funcargs }
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">prefixexp 	::= NAME | &#39;(&#39; expr &#39;)&#39;
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">funcargs 	::= `(&#39; [ explist1 ] `)&#39; | constructor | STRING
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">exprstat    := func | assignment
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">assignment 	::= `,&#39; primaryexp assignment |  `=&#39; explist1 
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">ifstat 		::= IF cond THEN block {ELSEIF cond THEN block} [ELSE block] END
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">cond 		::= expr
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">test_then_block :: [IF | ELSEIF] cond THEN block
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">whilestat 	::= WHILE cond DO block END
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">repeatstat 	:: REPEAT block UNTIL cond
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">forstat 	::= FOR (fornum | forlist) END
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">fornum 		::= NAME = exp1,exp1[,exp1] forbody
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">forlist 	::= NAME {,NAME} IN explist1 forbody
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">forbody 	::= DO block
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">funcstat 	::= FUNCTION funcname body
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">funcname 	::= NAME {field} [`:&#39; NAME]
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">field 		::= [&#39;.&#39; | &#39;:&#39;] NAME 
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">body 		::=  `(&#39; parlist `)&#39; chunk END
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">parlist 	:: [ param { `,&#39; param } ] 
+</span><span style="color:#75715e">param 		::= NAME | ...
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">constructor ::= {recfield|listfield}
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">recfield 	::= (NAME | `[&#39;exp1`]&#39;) = exp1
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">listfield   ::= exp1
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">exp1        ::= (exp)   ?
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">retstat ::= RETURN explist
+</span><span style="color:#75715e">
+</span><span style="color:#75715e">**************************************************************************/</span>
+
+<span style="color:#75715e">/*
+</span><span style="color:#75715e">** Expression descriptor
+</span><span style="color:#75715e">** 表达式的&#34;类型&#34;
+</span><span style="color:#75715e">** VNONRELOC, VRELOCABLE表示表达式的reg信息(已被安排到指定的reg或可以重定位到任一reg)
+</span><span style="color:#75715e">** 其它的类型：表达式的类型 相关函数 luaK_dischargevars
+</span><span style="color:#75715e">*/</span>
+
+<span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">enum</span> {
+  VVOID,		<span style="color:#75715e">/* no value:表示表达式尚未进行评估，也可能表达式就是空 */</span>
+  	
+  VNIL,
+  VTRUE,		<span style="color:#75715e">/* true */</span>
+  VFALSE,		<span style="color:#75715e">/* fales */</span>
+  VK,			<span style="color:#75715e">/* info = index of constant in `k&#39; 常量表达式 */</span>
+  VKNUM,		<span style="color:#75715e">/* nval = numerical value */</span>
+
+  
+  VLOCAL,		<span style="color:#75715e">/* info = local register */</span>
+  VUPVAL,   	<span style="color:#75715e">/* info = index of upvalue in `upvalues&#39; */</span>
+  VGLOBAL,		<span style="color:#75715e">/* info = index of table; aux = index of global name in `k&#39; */</span>
+
+  <span style="color:#75715e">/* 索引表达式 eg: tbl(info).aux(aux) */</span>
+  VINDEXED,		<span style="color:#75715e">/* info = table register; aux = index register (or `k&#39;) */</span>
+
+  <span style="color:#75715e">/* 跳转表达式，常用于关系表达式 */</span>
+  VJMP,			<span style="color:#75715e">/* info = instruction pc */</span>
+
+  <span style="color:#75715e">/* 表达式尚未加载到reg（目标reg尚未确定，可以放在栈的任意位置，只要能访问到）
+</span><span style="color:#75715e">  ** info:本指令在指令数组中的索引，方便后面回填本指令的目标地址寄存器(R(A))
+</span><span style="color:#75715e">  */</span>
+  VRELOCABLE,	<span style="color:#75715e">/* info = instruction pc */</span>
+
+  <span style="color:#75715e">/* 表达式的值已被加载到reg中了，info:对应寄存器的idx */</span>
+  VNONRELOC,	<span style="color:#75715e">/* info = result register */</span>
+  
+  VCALL,		<span style="color:#75715e">/* info = instruction pc: info表示exp对应的指令在指令f的指令数组中的下标，下同 */</span>
+  VVARARG		<span style="color:#75715e">/* info = instruction pc   ... 变参操作符 */</span>
+} expkind;
+
+<span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> expdesc {
+  expkind k;	<span style="color:#75715e">/* 表达式类型，后面会更新为表达式占用寄存器的类型 */</span>
+  <span style="color:#66d9ef">union</span> {
+    <span style="color:#66d9ef">struct</span> { <span style="color:#66d9ef">int</span> info, aux; } s;	<span style="color:#75715e">/* 随着k不同,info,aux表示的意义随之变化,具体看expkind的注释 */</span>
+    lua_Number nval;				<span style="color:#75715e">/* 数值表达式的数值 */</span>
+  } u;
+  <span style="color:#66d9ef">int</span> t;  <span style="color:#75715e">/* patch list of `exit when true&#39; */</span>
+  <span style="color:#66d9ef">int</span> f;  <span style="color:#75715e">/* patch list of `exit when false&#39; */</span>
+} expdesc;
+
+
+<span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> upvaldesc {
+  lu_byte k;
+  lu_byte info;
+} upvaldesc;
+
+
+<span style="color:#66d9ef">struct</span> BlockCnt;  <span style="color:#75715e">/* defined in lparser.c */</span>
+
+
+<span style="color:#75715e">/* state needed to generate code for a given function 
+</span><span style="color:#75715e">** 编译阶段的func状态机，成品则是Proto
+</span><span style="color:#75715e">*/</span>
+<span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> FuncState {
+  <span style="color:#66d9ef">struct</span> lua_State <span style="color:#f92672">*</span>L;  <span style="color:#75715e">/* copy of the Lua state */</span>
+  
+  <span style="color:#66d9ef">struct</span> FuncState <span style="color:#f92672">*</span>prev;  <span style="color:#75715e">/* enclosing function,先编译完子函数，才能编译父函数 */</span>
+
+  <span style="color:#66d9ef">struct</span> LexState <span style="color:#f92672">*</span>ls;  <span style="color:#75715e">/* lexical state */</span>
+
+  Proto <span style="color:#f92672">*</span>f;  			<span style="color:#75715e">/* current function header */</span>
+  
+  <span style="color:#66d9ef">struct</span> BlockCnt <span style="color:#f92672">*</span>bl;  <span style="color:#75715e">/* chain of current blocks */</span>
+  <span style="color:#66d9ef">int</span> pc;  				<span style="color:#75715e">/* 指向:下一个待生成的指令 next position to code (equivalent to `ncode&#39;) */</span>
+  <span style="color:#66d9ef">int</span> lasttarget;   	<span style="color:#75715e">/* `pc&#39; of last `jump target&#39; */</span>
+  <span style="color:#66d9ef">int</span> jpc;  			<span style="color:#75715e">/* list of pending jumps to `pc&#39;：指向下一个待生成的指令的待回填的跳转链表 */</span>
+
+
+  <span style="color:#75715e">/* 存储常量kvar在对应的 Proto.k 常量数组中的下标的映射表 
+</span><span style="color:#75715e">  **
+</span><span style="color:#75715e">  ** local var= &#34;hello&#34; , 常量 &#34;hello&#34; 存在Proto.k常量数组中的第0个位置处
+</span><span style="color:#75715e">  ** h[&#34;hello&#34;] = 0
+</span><span style="color:#75715e">  ** 查找常量过程如下 k=&#34;hello&#34;, 进入h表查找,找到v(0), 再用v到Proto.k中取值
+</span><span style="color:#75715e">  ** 参考函数 lcode.c addk
+</span><span style="color:#75715e">  */</span>
+  Table <span style="color:#f92672">*</span>h;  			<span style="color:#75715e">/* table to find (and reuse) elements in `k&#39; */</span>
+  <span style="color:#66d9ef">int</span> nk;  				<span style="color:#75715e">/* number of elements in `k&#39; */</span>
+  
+  <span style="color:#66d9ef">int</span> np;  				<span style="color:#75715e">/* number of elements in `p&#39; */</span>
+
+
+  <span style="color:#75715e">/* 第一个可用的reg的索引，随着locvar的申请和释放，这个值不断变化
+</span><span style="color:#75715e">  ** 随着编译过程中临时占用寄存器的申请和释放，这个值也在不断变化
+</span><span style="color:#75715e">  **  local a = b + c 计算完b+c的结果要存放到一个临时寄存器中，赋值给a后，这个寄存器要释放
+</span><span style="color:#75715e">  ** 由于locvar的存在需要&#34;始终&#34;占用一个reg，所以freereg&gt;=nactvar
+</span><span style="color:#75715e">  */</span>
+  <span style="color:#66d9ef">int</span> freereg;  		<span style="color:#75715e">/* first free register */</span>
+
+  <span style="color:#75715e">/* 
+</span><span style="color:#75715e">  ** 当前函数已使用的本地变量总和(下面的总和为6)，整个数组大小的定义在 Proto 的sizelocvars域中 
+</span><span style="color:#75715e">  **
+</span><span style="color:#75715e">  ** do
+</span><span style="color:#75715e">  **   	local v1, v2, v3
+</span><span style="color:#75715e">  ** end
+</span><span style="color:#75715e">  ** do
+</span><span style="color:#75715e">  **	local v1, v2, v3
+</span><span style="color:#75715e">  ** end
+</span><span style="color:#75715e">  ** nlocvars:从1-&gt;6, 这样每一个locvar都有一个唯一的 Proto.locvars中对应的信息，
+</span><span style="color:#75715e">  **    至于运行到某一行时，v1到底指代哪一个v1,可以从startpc,endpc中推断出来（调试库也是靠pc推断的哦？）
+</span><span style="color:#75715e">  */</span>
+  <span style="color:#66d9ef">short</span> nlocvars;  		<span style="color:#75715e">/* number of elements in `locvars&#39; */</span>
+
+  <span style="color:#75715e">/*
+</span><span style="color:#75715e">  ** declared-variable stack
+</span><span style="color:#75715e">  ** 当前激活的var的idx到f.locvars的映射 
+</span><span style="color:#75715e">  */</span>
+  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">short</span> actvar[LUAI_MAXVARS];
+  
+  <span style="color:#75715e">/* number of active local variables：当前激活中的locvar数量
+</span><span style="color:#75715e">  ** 对于上面的nlocvars第二次声明local时，nactvar:从1-&gt;3,因为离开第一个块后，块所属的locvar被释放了（变量的声明周期也结束了）
+</span><span style="color:#75715e">  */</span>
+  lu_byte nactvar;  					
+
+  upvaldesc upvalues[LUAI_MAXUPVALUES];  <span style="color:#75715e">/* upvalues */</span>
+} FuncState;
+
+
+LUAI_FUNC Proto <span style="color:#f92672">*</span><span style="color:#a6e22e">luaY_parser</span> (lua_State <span style="color:#f92672">*</span>L, ZIO <span style="color:#f92672">*</span>z, Mbuffer <span style="color:#f92672">*</span>buff,
+                                            <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>name);
+
+
+<span style="color:#75715e">#endif
+</span><span style="color:#75715e"></span>
+</code></pre></div>
     </div>
     <footer class="post-footer">
      
@@ -505,8 +512,7 @@
         src="http://shanks.link/img/logo.jpg"
         alt="shankusu2017@gmail.com" />
     <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
-    <p class="site-description motion-element" itemprop="description"> 
-        Programmer life</p>
+    <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
@@ -571,7 +577,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

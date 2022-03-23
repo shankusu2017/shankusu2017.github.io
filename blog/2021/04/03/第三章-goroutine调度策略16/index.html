@@ -65,6 +65,12 @@
         </li>
       
         <li class="menu-item ">
+          <a href="http://shanks.link/categories/lua/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />lua
+          </a>
+        </li>
+      
+        <li class="menu-item ">
           <a href="http://shanks.link/links/" rel="section">
               <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
           </a>
@@ -157,129 +163,129 @@
 <p>第二章我们已经详细的分析了调度器的初始化以及goroutine的切换机制，本章将重点讨论调度器如何挑选下一个goroutine出来运行的策略问题，而剩下的与调度时机相关的内容我们将在第4～6章进行全面的分析。</p>
 <p>再探schedule函数</p>
 <p>在讨论main goroutine的调度时我们已经见过schedule函数，因为当时我们的主要关注点在于main goroutine是如何被调度到CPU上运行的，所以并未对schedule函数如何挑选下一个goroutine出来运行做深入的分析，现在是重新回到schedule函数详细分析其调度策略的时候了。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2467</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// One round of scheduler: find a runnable goroutine and execute it.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Never returns.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">schedule</span>() {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()   <span style="color:#75715e">//_g_ = m.g0
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
-</span></span><span style="display:flex;"><span>   
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Check the global runnable queue once in a while to ensure fairness.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// Otherwise two goroutines can completely occupy the local runqueue
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// by constantly respawning each other.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>       <span style="color:#75715e">//为了保证调度的公平性，每个工作线程每进行61次调度就需要优先从全局运行队列中获取goroutine出来运行，
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>       <span style="color:#75715e">//因为如果只调度本地运行队列中的goroutine，则全局运行队列中的goroutine有可能得不到运行
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>().<span style="color:#a6e22e">schedtick</span><span style="color:#f92672">%</span><span style="color:#ae81ff">61</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> &gt; <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>) <span style="color:#75715e">//所有工作线程都能访问全局运行队列，所以需要加锁
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">gp</span> = <span style="color:#a6e22e">globrunqget</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>(), <span style="color:#ae81ff">1</span>) <span style="color:#75715e">//从全局运行队列中获取1个goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//从与m关联的p的本地运行队列中获取goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> = <span style="color:#a6e22e">runqget</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>())
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;schedule: spinning with local work&#34;</span>)
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//如果从本地运行队列和全局运行队列都没有找到需要运行的goroutine，
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//则调用findrunnable函数从其它工作线程的运行队列中偷取，如果偷取不到，则当前工作线程进入睡眠，
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//直到获取到需要运行的goroutine之后findrunnable函数才会返回。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> = <span style="color:#a6e22e">findrunnable</span>() <span style="color:#75715e">// blocks until work is available
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//当前运行的是runtime的代码，函数调用栈使用的是g0的栈空间
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//调用execte切换到gp的代码和栈空间去运行
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">execute</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span>)  
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>schedule函数分三步分别从各运行队列中寻找可运行的goroutine：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2467</span>
+
+<span style="color:#75715e">// One round of scheduler: find a runnable goroutine and execute it.
+</span><span style="color:#75715e">// Never returns.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">schedule</span>() {
+    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()   <span style="color:#75715e">//_g_ = m.g0
+</span><span style="color:#75715e"></span> 
+    <span style="color:#f92672">......</span>
+ 
+    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>
+ 
+    <span style="color:#f92672">......</span>
+   
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+    <span style="color:#75715e">// Check the global runnable queue once in a while to ensure fairness.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">// Otherwise two goroutines can completely occupy the local runqueue
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">// by constantly respawning each other.
+</span><span style="color:#75715e"></span>       <span style="color:#75715e">//为了保证调度的公平性，每个工作线程每进行61次调度就需要优先从全局运行队列中获取goroutine出来运行，
+</span><span style="color:#75715e"></span>       <span style="color:#75715e">//因为如果只调度本地运行队列中的goroutine，则全局运行队列中的goroutine有可能得不到运行
+</span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>().<span style="color:#a6e22e">schedtick</span><span style="color:#f92672">%</span><span style="color:#ae81ff">61</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> &gt; <span style="color:#ae81ff">0</span> {
+            <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>) <span style="color:#75715e">//所有工作线程都能访问全局运行队列，所以需要加锁
+</span><span style="color:#75715e"></span>            <span style="color:#a6e22e">gp</span> = <span style="color:#a6e22e">globrunqget</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>(), <span style="color:#ae81ff">1</span>) <span style="color:#75715e">//从全局运行队列中获取1个goroutine
+</span><span style="color:#75715e"></span>            <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
+        }
+    }
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+        <span style="color:#75715e">//从与m关联的p的本地运行队列中获取goroutine
+</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> = <span style="color:#a6e22e">runqget</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>())
+        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> {
+            <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;schedule: spinning with local work&#34;</span>)
+        }
+    }
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+        <span style="color:#75715e">//如果从本地运行队列和全局运行队列都没有找到需要运行的goroutine，
+</span><span style="color:#75715e"></span>        <span style="color:#75715e">//则调用findrunnable函数从其它工作线程的运行队列中偷取，如果偷取不到，则当前工作线程进入睡眠，
+</span><span style="color:#75715e"></span>        <span style="color:#75715e">//直到获取到需要运行的goroutine之后findrunnable函数才会返回。
+</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> = <span style="color:#a6e22e">findrunnable</span>() <span style="color:#75715e">// blocks until work is available
+</span><span style="color:#75715e"></span>    }
+ 
+    <span style="color:#f92672">......</span>
+ 
+    <span style="color:#75715e">//当前运行的是runtime的代码，函数调用栈使用的是g0的栈空间
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//调用execte切换到gp的代码和栈空间去运行
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">execute</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span>)  
+}
+</code></pre></div><p>schedule函数分三步分别从各运行队列中寻找可运行的goroutine：</p>
 <p>第一步，从全局运行队列中寻找goroutine。为了保证调度的公平性，每个工作线程每经过61次调度就需要优先尝试从全局运行队列中找出一个goroutine来运行，这样才能保证位于全局运行队列中的goroutine得到调度的机会。全局运行队列是所有工作线程都可以访问的，所以在访问它之前需要加锁。</p>
 <p>第二步，从工作线程本地运行队列中寻找goroutine。如果不需要或不能从全局运行队列中获取到goroutine则从本地运行队列中获取。</p>
 <p>第三步，从其它工作线程的运行队列中偷取goroutine。如果上一步也没有找到需要运行的goroutine，则调用findrunnable从其他工作线程的运行队列中偷取goroutine，findrunnable函数在偷取之前会再次尝试从全局运行队列和当前线程的本地运行队列中查找需要运行的goroutine。</p>
 <p>下面我们先来看如何从全局运行队列中获取goroutine。</p>
 <p>从全局运行队列中获取goroutine</p>
 <p>从全局运行队列中获取可运行的goroutine是通过globrunqget函数来完成的，该函数的第一个参数是与当前工作线程绑定的p，第二个参数max表示最多可以从全局队列中拿多少个g到当前工作线程的本地运行队列中来。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">4663</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Try get a batch of G&#39;s from the global runnable queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Sched must be locked.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">globrunqget</span>(<span style="color:#a6e22e">_p_</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">p</span>, <span style="color:#a6e22e">max</span> <span style="color:#66d9ef">int32</span>) <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {  <span style="color:#75715e">//全局运行队列为空
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//根据p的数量平分全局运行队列中的goroutines
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">n</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> <span style="color:#f92672">/</span> <span style="color:#a6e22e">gomaxprocs</span> <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">n</span> &gt; <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> { <span style="color:#75715e">//上面计算n的方法可能导致n大于全局运行队列中的goroutine数量
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">n</span> = <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">max</span> &gt; <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">n</span> &gt; <span style="color:#a6e22e">max</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">n</span> = <span style="color:#a6e22e">max</span>   <span style="color:#75715e">//最多取max个goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">n</span> &gt; int32(len(<span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>)) <span style="color:#f92672">/</span> <span style="color:#ae81ff">2</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">n</span> = int32(len(<span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>)) <span style="color:#f92672">/</span> <span style="color:#ae81ff">2</span>  <span style="color:#75715e">//最多只能取本地队列容量的一半
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> <span style="color:#f92672">-=</span> <span style="color:#a6e22e">n</span>
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//直接通过函数返回gp，其它的goroutines通过runqput放入本地运行队列
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runq</span>.<span style="color:#a6e22e">pop</span>()  <span style="color:#75715e">//pop从全局运行队列的队列头取
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">n</span><span style="color:#f92672">--</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> ; <span style="color:#a6e22e">n</span> &gt; <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">n</span><span style="color:#f92672">--</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gp1</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runq</span>.<span style="color:#a6e22e">pop</span>()  <span style="color:#75715e">//从全局运行队列中取出一个goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">runqput</span>(<span style="color:#a6e22e">_p_</span>, <span style="color:#a6e22e">gp1</span>, <span style="color:#66d9ef">false</span>)  <span style="color:#75715e">//放入本地运行队列
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>globrunqget函数首先会根据全局运行队列中goroutine的数量，函数参数max以及_p_的本地队列的容量计算出到底应该拿多少个goroutine，然后把第一个g结构体对象通过返回值的方式返回给调用函数，其它的则通过runqput函数放入当前工作线程的本地运行队列。这段代码值得一提的是，计算应该从全局运行队列中拿走多少个goroutine时根据p的数量（gomaxprocs）做了负载均衡。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">4663</span>
+
+<span style="color:#75715e">// Try get a batch of G&#39;s from the global runnable queue.
+</span><span style="color:#75715e">// Sched must be locked.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">globrunqget</span>(<span style="color:#a6e22e">_p_</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">p</span>, <span style="color:#a6e22e">max</span> <span style="color:#66d9ef">int32</span>) <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span> {
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {  <span style="color:#75715e">//全局运行队列为空
+</span><span style="color:#75715e"></span>        <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+    }
+ 
+    <span style="color:#75715e">//根据p的数量平分全局运行队列中的goroutines
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">n</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> <span style="color:#f92672">/</span> <span style="color:#a6e22e">gomaxprocs</span> <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">n</span> &gt; <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> { <span style="color:#75715e">//上面计算n的方法可能导致n大于全局运行队列中的goroutine数量
+</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">n</span> = <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span>
+    }
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">max</span> &gt; <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">n</span> &gt; <span style="color:#a6e22e">max</span> {
+        <span style="color:#a6e22e">n</span> = <span style="color:#a6e22e">max</span>   <span style="color:#75715e">//最多取max个goroutine
+</span><span style="color:#75715e"></span>    }
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">n</span> &gt; int32(len(<span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>)) <span style="color:#f92672">/</span> <span style="color:#ae81ff">2</span> {
+        <span style="color:#a6e22e">n</span> = int32(len(<span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>)) <span style="color:#f92672">/</span> <span style="color:#ae81ff">2</span>  <span style="color:#75715e">//最多只能取本地队列容量的一半
+</span><span style="color:#75715e"></span>    }
+ 
+    <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> <span style="color:#f92672">-=</span> <span style="color:#a6e22e">n</span>
+ 
+    <span style="color:#75715e">//直接通过函数返回gp，其它的goroutines通过runqput放入本地运行队列
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runq</span>.<span style="color:#a6e22e">pop</span>()  <span style="color:#75715e">//pop从全局运行队列的队列头取
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">n</span><span style="color:#f92672">--</span>
+    <span style="color:#66d9ef">for</span> ; <span style="color:#a6e22e">n</span> &gt; <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">n</span><span style="color:#f92672">--</span> {
+        <span style="color:#a6e22e">gp1</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runq</span>.<span style="color:#a6e22e">pop</span>()  <span style="color:#75715e">//从全局运行队列中取出一个goroutine
+</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">runqput</span>(<span style="color:#a6e22e">_p_</span>, <span style="color:#a6e22e">gp1</span>, <span style="color:#66d9ef">false</span>)  <span style="color:#75715e">//放入本地运行队列
+</span><span style="color:#75715e"></span>    }
+    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>
+}
+</code></pre></div><p>globrunqget函数首先会根据全局运行队列中goroutine的数量，函数参数max以及_p_的本地队列的容量计算出到底应该拿多少个goroutine，然后把第一个g结构体对象通过返回值的方式返回给调用函数，其它的则通过runqput函数放入当前工作线程的本地运行队列。这段代码值得一提的是，计算应该从全局运行队列中拿走多少个goroutine时根据p的数量（gomaxprocs）做了负载均衡。</p>
 <p>如果没有从全局运行队列中获取到goroutine，那么接下来就在工作线程的本地运行队列中寻找需要运行的goroutine。</p>
 <p>从工作线程本地运行队列中获取goroutine</p>
 <p>从代码上来看，工作线程的本地运行队列其实分为两个部分，一部分是由p的runq、runqhead和runqtail这三个成员组成的一个无锁循环队列，该队列最多可包含256个goroutine；另一部分是p的runnext成员，它是一个指向g结构体对象的指针，它最多只包含一个goroutine。</p>
 <p>从本地运行队列中寻找goroutine是通过runqget函数完成的，寻找时，代码首先查看runnext成员是否为空，如果不为空则返回runnext所指的goroutine，并把runnext成员清零，如果runnext为空，则继续从循环队列中查找goroutine。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">4825</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Get g from local runnable queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// If inheritTime is true, gp should inherit the remaining time in the
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// current time slice. Otherwise, it should start a new time slice.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Executed only by the owner P.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">runqget</span>(<span style="color:#a6e22e">_p_</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">p</span>) (<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>, <span style="color:#a6e22e">inheritTime</span> <span style="color:#66d9ef">bool</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// If there&#39;s a runnext, it&#39;s the next G to run.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//从runnext成员中获取goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//查看runnext成员是否为空，不为空则返回该goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">next</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runnext</span>   
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">next</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">break</span>
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runnext</span>.<span style="color:#a6e22e">cas</span>(<span style="color:#a6e22e">next</span>, <span style="color:#ae81ff">0</span>) {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">next</span>.<span style="color:#a6e22e">ptr</span>(), <span style="color:#66d9ef">true</span>
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//从循环队列中获取goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">h</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">LoadAcq</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runqhead</span>) <span style="color:#75715e">// load-acquire, synchronize with other consumers
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">t</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runqtail</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">t</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">h</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#66d9ef">false</span>
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>[<span style="color:#a6e22e">h</span><span style="color:#f92672">%</span>uint32(len(<span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>))].<span style="color:#a6e22e">ptr</span>()
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">CasRel</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runqhead</span>, <span style="color:#a6e22e">h</span>, <span style="color:#a6e22e">h</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>) { <span style="color:#75715e">// cas-release, commits consume
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>, <span style="color:#66d9ef">false</span>
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>这里首先需要注意的是不管是从runnext还是从循环队列中拿取goroutine都使用了cas操作，这里的cas操作是必需的，因为可能有其他工作线程此时此刻也正在访问这两个成员，从这里偷取可运行的goroutine。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">4825</span>
+
+<span style="color:#75715e">// Get g from local runnable queue.
+</span><span style="color:#75715e">// If inheritTime is true, gp should inherit the remaining time in the
+</span><span style="color:#75715e">// current time slice. Otherwise, it should start a new time slice.
+</span><span style="color:#75715e">// Executed only by the owner P.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">runqget</span>(<span style="color:#a6e22e">_p_</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">p</span>) (<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>, <span style="color:#a6e22e">inheritTime</span> <span style="color:#66d9ef">bool</span>) {
+    <span style="color:#75715e">// If there&#39;s a runnext, it&#39;s the next G to run.
+</span><span style="color:#75715e"></span>    <span style="color:#75715e">//从runnext成员中获取goroutine
+</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> {
+        <span style="color:#75715e">//查看runnext成员是否为空，不为空则返回该goroutine
+</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">next</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runnext</span>   
+        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">next</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+            <span style="color:#66d9ef">break</span>
+        }
+        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runnext</span>.<span style="color:#a6e22e">cas</span>(<span style="color:#a6e22e">next</span>, <span style="color:#ae81ff">0</span>) {
+            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">next</span>.<span style="color:#a6e22e">ptr</span>(), <span style="color:#66d9ef">true</span>
+        }
+    }
+ 
+    <span style="color:#75715e">//从循环队列中获取goroutine
+</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> {
+        <span style="color:#a6e22e">h</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">LoadAcq</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runqhead</span>) <span style="color:#75715e">// load-acquire, synchronize with other consumers
+</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">t</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runqtail</span>
+        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">t</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">h</span> {
+            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>, <span style="color:#66d9ef">false</span>
+        }
+        <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>[<span style="color:#a6e22e">h</span><span style="color:#f92672">%</span>uint32(len(<span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>))].<span style="color:#a6e22e">ptr</span>()
+        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">CasRel</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runqhead</span>, <span style="color:#a6e22e">h</span>, <span style="color:#a6e22e">h</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>) { <span style="color:#75715e">// cas-release, commits consume
+</span><span style="color:#75715e"></span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>, <span style="color:#66d9ef">false</span>
+        }
+    }
+}
+</code></pre></div><p>这里首先需要注意的是不管是从runnext还是从循环队列中拿取goroutine都使用了cas操作，这里的cas操作是必需的，因为可能有其他工作线程此时此刻也正在访问这两个成员，从这里偷取可运行的goroutine。</p>
 <p>其次，代码中对runqhead的操作使用了atomic.LoadAcq和atomic.CasRel，它们分别提供了load-acquire和cas-release语义。</p>
 <p>对于atomic.LoadAcq来说，其语义主要包含如下几条：</p>
 <p>原子读取，也就是说不管代码运行在哪种平台，保证在读取过程中不会有其它线程对该变量进行写入；</p>
@@ -369,8 +375,7 @@
         src="http://shanks.link/img/logo.jpg"
         alt="shankusu2017@gmail.com" />
     <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
-    <p class="site-description motion-element" itemprop="description"> 
-        Programmer life</p>
+    <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
@@ -435,7 +440,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.95.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
