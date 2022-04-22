@@ -276,7 +276,7 @@ $(document).ready(function () {
           integrator.next();
         };
 
-        $post.velocity('transition.slideDownIn', postMotionOptions);
+        // $post.velocity('transition.slideDownIn', postMotionOptions);
       }
     },
 
