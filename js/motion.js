@@ -251,15 +251,15 @@ $(document).ready(function () {
       }
     },
 
-    menu: function (integrator) {
-      $('.menu-item').velocity('transition.slideDownIn', {
-        display: null,
-        duration: 200,
-        complete: function () {
-          integrator.next();
-        }
-      });
-    },
+    // menu: function (integrator) {
+    //   $('.menu-item').velocity('transition.slideDownIn', {
+    //     display: null,
+    //     duration: 200,
+    //     complete: function () {
+    //       integrator.next();
+    //     }
+    //   });
+    // },
 
     postList: function (integrator) {
       var $post = $('.post');
@@ -280,12 +280,12 @@ $(document).ready(function () {
       }
     },
 
-    sidebar: function (integrator) {
-      if (CONFIG.sidebar.display === 'always') {
-        NexT.utils.displaySidebar();
-      }
-      integrator.next();
-    }
+    // sidebar: function (integrator) {
+    //   if (CONFIG.sidebar.display === 'always') {
+    //     NexT.utils.displaySidebar();
+    //   }
+    //   integrator.next();
+    // }
   };
 
 });
