@@ -316,22 +316,22 @@
 <p>由于对 channel 的读写先后顺序不同，处理也会有所不同，所以，还得再进一步区分：</p>
 <h5 id="channel-先写再读">channel 先写再读</h5>
 <p>在这里，我们暂时认为有 2 个 goroutine 在使用 channel 通信，按先写再读的顺序，则具体流程如下：</p>
-<p><img src="https://oss-emcsprod-public.modb.pro/wechatSpider/modb_20220209_02eb46dc-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
+<p><img src="http://shanks.link/img/go/modb_20220209_02eb46dc-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
 <p>可以看到，由于 channel 是无缓冲的，所以 G1 暂时被挂在 sendq 队列里，然后 G1 调用了 gopark 休眠了起来。</p>
 <p>接着，又有 goroutine 来 channel 读取数据了：</p>
-<p><img src="https://oss-emcsprod-public.modb.pro/wechatSpider/modb_20220209_031eec76-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
+<p><img src="http://shanks.link/img/go/modb_20220209_031eec76-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
 <p>此时 G2 发现 sendq 等待队列里有 goroutine 存在，于是直接从 G1 copy 数据过来，并且会对 G1 设置 goready 函数，这样下次调度发生时， G1 就可以继续运行，并且会从等待队列里移除掉。</p>
 <h5 id="channel-先读再写">channel 先读再写</h5>
 <p>先读再写的流程跟上面一样。</p>
-<p><img src="https://oss-emcsprod-public.modb.pro/wechatSpider/modb_20220209_03435854-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
+<p><img src="http://shanks.link/img/go/modb_20220209_03435854-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
 <p>G1 暂时被挂在了 recvq 队列，然后休眠起来。</p>
 <p>G2 在写数据时，发现 recvq 队列有 goroutine 存在，于是直接将数据发送给 G1。同时设置 G1 goready 函数，等待下次调度运行。</p>
-<p><img src="https://oss-emcsprod-public.modb.pro/wechatSpider/modb_20220209_036450a4-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
+<p><img src="http://shanks.link/img/go/modb_20220209_036450a4-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
 <h4 id="有缓冲-channel">有缓冲 channel</h4>
 <p>在分析完了无缓冲 channel 的读写后，我们继续看看<strong>有缓冲 channel 的读写</strong>。同样的，我们分为 2 种情况：</p>
 <h5 id="channel-先写再读-1">channel 先写再读</h5>
 <p>这一次会优先判断缓冲数据区域是否已满，如果未满，则将数据保存在缓冲数据区域，即环形队列里。如果已满，则和之前的流程是一样的。</p>
-<p><img src="https://oss-emcsprod-public.modb.pro/wechatSpider/modb_20220209_037fa9bc-899a-11ec-974d-fa163eb4f6be.png" alt="img">当 G2 要读取数据时，会优先从缓冲数据区域去读取，并且在读取完后，会检查 sendq 队列，如果 goroutine 有等待队列，则会将它上面的 data 补充到缓冲数据区域，并且也对其设置 goready 函数。</p>
+<p><img src="http://shanks.link/img/go/modb_20220209_037fa9bc-899a-11ec-974d-fa163eb4f6be.png" alt="img">当 G2 要读取数据时，会优先从缓冲数据区域去读取，并且在读取完后，会检查 sendq 队列，如果 goroutine 有等待队列，则会将它上面的 data 补充到缓冲数据区域，并且也对其设置 goready 函数。</p>
 <p><img src="https://oss-emcsprod-public.modb.pro/wechatSpider/modb_20220209_03a7f912-899a-11ec-974d-fa163eb4f6be.png" alt="img">channel 用法和底层原理</p>
 <h5 id="channel-先读再写-1">channel 先读再写</h5>
 <p>此种情况和无缓冲的先读再写是一样流程，此处不再重复说明。</p>
