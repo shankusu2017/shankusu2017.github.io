@@ -206,139 +206,139 @@
 <p>在前面的5篇文章里，我们详细讨论了<a href="https%3A%2F%2Fwebassembly.org%2F">WebAssembly</a>（简称Wasm）<a href="https%3A%2F%2Fwebassembly.github.io%2Fspec%2Fcore%2Fbinary%2Findex.html">二进制格式</a>和除<code>call_indirect</code>之外的所有指令。这篇文章将详细介绍Wasm间接函数调用机制和<code>call_indirect</code>指令。</p>
 <h2 id="call_indirect指令">call_indirect指令</h2>
 <p>为了更好的理解<code>call_indirect</code>指令，我们首先来回顾一下<code>call</code>指令的工作方式。根据之前文章的介绍 可知，<code>call</code>指令带有一个立即数参数，指定被调用函数的索引。在Wasm实现执行<code>call</code>指令之前，必须保证要传递给被调用函数的参数已经在栈顶，且参数的顺序和类型必须完全匹配被调函数的签名。<code>call</code>指令执行完毕之后，参数已经从栈顶弹出，函数的返回值（如果有的话）会出现在栈顶。我们假设被调用函数接收两个参数，类型分别是<code>f32</code>和<code>f64</code>，返回值类型是<code>i64</code>，下面是<code>call</code>指令的示意图：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">bytecode:
-...][ call ][ func_idx ][...
-
-stack:
-|           |          |           | 
-|           |          |           | 
-|   d(f64)  |➚         |           |
-|   c(f32)  |➚        ➘|   r(i64)  | # funcs[func_idx](c,d) 
-|     b     |          |     b     |  
-|     a     |          |     a     | 
-└───────────┘          └───────────┘
-复制代码
-</code></pre></div><p><code>call_indirect</code>指令主要是用来实现C/C++、Rust等语言中的函数指针的。顾名思义，<code>call_indirect</code>指令给函数调用引入了间接层。<code>call_indirect</code>指令在格式上和<code>call</code>指令一致，但是调用语义有很大不同。第一，被调用函数并不是通过存储在立即数里的函数索引直接定位，而是从表间接定位。表索引和参数一起放在操作数栈顶，位于所有参数之上。第二，由于具体要调用的是哪个函数在编译期并不知道，只要在运行时才能知道，所以没办法像<code>call</code>指令那样通过函数索引拿到函数签名。但是被调用函数的签名在编译期就已经是知道的了，所以可以把函数签名的索引放在立即数里。假设被调用函的签名和上图一样，下面是<code>call_indirect</code>指令的示意图：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">bytecode:
-...][ call_indirect ][ type_idx ][...
-
-stack:
-|           |          |           | 
-|   i(i32)  |➚         |           | 
-|   d(f64)  |➚         |           |
-|   c(f32)  |➚        ➘|   r(i64)  | # table[i](c,d)
-|     b     |          |     b     |  
-|     a     |          |     a     | 
-└───────────┘          └───────────┘
-</code></pre></div><p>根据之前文章的介绍可知，Wasm模块可以定义或导入表，表的初始数据放在元素段里。Wasm1.0规范对于表有诸多限制。第一、每个Wasm模块最多可以导入或定义一个表。第二、表只支持一种元素，也就是函数引用（funcref）。在未来的版本中，可能会放开这些限制。由上图可知，<code>call_indirect</code>指令首先要根据栈顶操作数得到元素索引，然后通过元素索引拿到函数引用（或者函数地址），最后通过函数引用调用函数。在定位到具体函数之后，Wasm实现会校验实际函数的签名，确保它和指令立即数指定的签名一致。介绍了这么多，可能还是不太好理解，下面通过一个具体的例子进行说明。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>bytecode:
+</span></span><span style="display:flex;"><span>...][ call ][ func_idx ][...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>stack:
+</span></span><span style="display:flex;"><span>|           |          |           | 
+</span></span><span style="display:flex;"><span>|           |          |           | 
+</span></span><span style="display:flex;"><span>|   d(f64)  |➚         |           |
+</span></span><span style="display:flex;"><span>|   c(f32)  |➚        ➘|   r(i64)  | # funcs[func_idx](c,d) 
+</span></span><span style="display:flex;"><span>|     b     |          |     b     |  
+</span></span><span style="display:flex;"><span>|     a     |          |     a     | 
+</span></span><span style="display:flex;"><span>└───────────┘          └───────────┘
+</span></span><span style="display:flex;"><span>复制代码
+</span></span></code></pre></div><p><code>call_indirect</code>指令主要是用来实现C/C++、Rust等语言中的函数指针的。顾名思义，<code>call_indirect</code>指令给函数调用引入了间接层。<code>call_indirect</code>指令在格式上和<code>call</code>指令一致，但是调用语义有很大不同。第一，被调用函数并不是通过存储在立即数里的函数索引直接定位，而是从表间接定位。表索引和参数一起放在操作数栈顶，位于所有参数之上。第二，由于具体要调用的是哪个函数在编译期并不知道，只要在运行时才能知道，所以没办法像<code>call</code>指令那样通过函数索引拿到函数签名。但是被调用函数的签名在编译期就已经是知道的了，所以可以把函数签名的索引放在立即数里。假设被调用函的签名和上图一样，下面是<code>call_indirect</code>指令的示意图：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>bytecode:
+</span></span><span style="display:flex;"><span>...][ call_indirect ][ type_idx ][...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>stack:
+</span></span><span style="display:flex;"><span>|           |          |           | 
+</span></span><span style="display:flex;"><span>|   i(i32)  |➚         |           | 
+</span></span><span style="display:flex;"><span>|   d(f64)  |➚         |           |
+</span></span><span style="display:flex;"><span>|   c(f32)  |➚        ➘|   r(i64)  | # table[i](c,d)
+</span></span><span style="display:flex;"><span>|     b     |          |     b     |  
+</span></span><span style="display:flex;"><span>|     a     |          |     a     | 
+</span></span><span style="display:flex;"><span>└───────────┘          └───────────┘
+</span></span></code></pre></div><p>根据之前文章的介绍可知，Wasm模块可以定义或导入表，表的初始数据放在元素段里。Wasm1.0规范对于表有诸多限制。第一、每个Wasm模块最多可以导入或定义一个表。第二、表只支持一种元素，也就是函数引用（funcref）。在未来的版本中，可能会放开这些限制。由上图可知，<code>call_indirect</code>指令首先要根据栈顶操作数得到元素索引，然后通过元素索引拿到函数引用（或者函数地址），最后通过函数引用调用函数。在定位到具体函数之后，Wasm实现会校验实际函数的签名，确保它和指令立即数指定的签名一致。介绍了这么多，可能还是不太好理解，下面通过一个具体的例子进行说明。</p>
 <h2 id="实例分析">实例分析</h2>
 <p>我们写一个简单的Rust例子来说明<code>call_indirect</code>指令。请读者创建一个<a href="https%3A%2F%2Fcrates.io%2F">Cargo</a>项目，把下面的Rust代码复制到src/main.rs文件里：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">#![no_std]
-#![no_main]
-
-#[panic_handler]
-fn panic(_: &amp;core::panic::PanicInfo) -&gt; ! {
-    loop {}
-}
-
-type Binop = fn(f32, f32) -&gt; f32;
-fn add(a: f32, b: f32) -&gt; f32 { a + b }
-fn sub(a: f32, b: f32) -&gt; f32 { a - b }
-fn mul(a: f32, b: f32) -&gt; f32 { a * b }
-fn div(a: f32, b: f32) -&gt; f32 { a / b }
-
-#[no_mangle]
-pub extern &#34;C&#34; fn main(op: usize, a: f32, b: f32) -&gt; f32 {
-    let ops: [Binop; 4] = [add, sub, mul, div];
-    if op &lt; 4 {
-        ops[op](a, b)
-    } else {
-        0.0
-    }
-}
-</code></pre></div><p>上面的例子非常简单，定义了<code>add()</code>、<code>sub()</code>、<code>mul()</code>、<code>div()</code>四个函数，然后在<code>main()</code>函数里通过函数指针调用其中一个。可以执行<code>cargo build</code>命令把项目编译成Wasm二进制格式，然后可以通过<a href="https://link.juejin.cn/?target=https%3A%2F%2Fgithub.com%2FWebAssembly%2Fwabt">WABT</a>提供的<code>wasm2wat</code>命令把Wasm二进制格式转成文本格式（预告，Wasm<a href="https%3A%2F%2Fwebassembly.github.io%2Fspec%2Fcore%2Ftext%2Findex.html">文本格式</a>将在下一篇文章中详细介绍）以便于观察。下面是需要用到的全部命令：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">$ # install rustup &amp; wabt
-$ rustup target add wasm32-unknown-unknown
-$ cargo new table_demo
-$ cd table_demo/
-$ # edit src/main.rs
-$ cargo build --target wasm32-unknown-unknown --release
-$ wasm2wat target/wasm32-unknown-unknown/release/table_demo.wasm
-</code></pre></div><p>让我们来看看编译后的Wasm模块：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">(module
-  (type (;0;) (func (param f32 f32) (result f32)))
-  (type (;1;) (func (param i32 f32 f32) (result f32)))
-  (func $add (type 0) (f32.add (local.get 0) (local.get 1)))
-  (func $sub (type 0) (f32.sub (local.get 0) (local.get 1)))
-  (func $mul (type 0) (f32.mul (local.get 0) (local.get 1)))
-  (func $div (type 0) (f32.div (local.get 0) (local.get 1)))
-  (func $main (type 1) (param i32 f32 f32) (result f32)
-    ...
-  )
-  (table (;0;) 5 5 funcref)
-  (elem (;0;) (i32.const 1) funcref $div $mul $sub $add)
-  (memory (;0;) 16)
-  (global (;0;) (mut i32) (i32.const 1048576))
-  (global (;1;) i32 (i32.const 1048576))
-  (global (;2;) i32 (i32.const 1048576))
-  (export &#34;memory&#34; (memory 0))
-  (export &#34;__data_end&#34; (global 1))
-  (export &#34;__heap_base&#34; (global 2))
-  (export &#34;main&#34; (func $main))
-)
-</code></pre></div><p><code>main()</code>函数稍微有点长，稍后给出。可以看到，Rust编译器的确生成了表和元素段，而且看起来也的确是把<code>div()</code>、<code>mul()</code>、<code>sub()</code>、<code>add()</code>这四个函数（注意顺序）填入了表里，索引分别是1、2、3、4：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  (table (;0;) 5 5 funcref)
-  (elem (;0;) (i32.const 1) funcref $div $mul $sub $add)
-</code></pre></div><p>下面来看一下<code>main()</code>函数（格式进行了适当调整，并且添加了注释）：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  (func $main (type 1)
-    (param $op i32) (param $a f32) (param $b f32) (result f32)
-    (local $l3 i32) (local $l4 f32)
-
-    (i32.sub (global.get 0) (i32.const 16))           ;; $tmp0 = $g0 - 16
-    (local.tee 3)                                     ;; $l3 = $tmp0
-    (global.set 0)                                    ;; $g0 = $tmp0
-    (i32.store offset=12 (local.get 3) (i32.const 1)) ;; $mem[$g0 -  4] = 1
-    (i32.store offset=8  (local.get 3) (i32.const 2)) ;; $mem[$g0 -  8] = 2
-    (i32.store offset=4  (local.get 3) (i32.const 3)) ;; $mem[$g0 - 12] = 3
-    (i32.store           (local.get 3) (i32.const 4)) ;; $mem[$g0 - 16] = 4
-    (local.set 4 (f32.const 0x0p+0))                  ;; $l4 = 0.0
-    (block
-      (br_if 0 (i32.gt_u (local.get 0) (i32.const 3))) ;; $op &gt; 3 ? br
-      (local.get 1) (local.get 2) ;; $tmp0 = $a, $tmp1 = $b
-      (local.get 3) (local.get 0) ;; $tmp2 = $l3, $tmp3 = $op
-      (i32.const 2)               ;; $tmp4 = 2
-      (i32.shl)                   ;; $tmp3 = $op * 4
-      (i32.add)                   ;; $tmp2 = $l3 + $op*4
-      (i32.load)                  ;; $tmp2 = $mem[$g0 - 16 + $op*4]
-      (call_indirect (type 0) )   ;; $tmp0 = call_indirect($tmp0, $tmp1, $tmp2)
-      (local.set 4)               ;; $l4 = $tmp0
-    )
-    (i32.add (local.get 3) (i32.const 16)) ;; $tmp0 = $l3 + 16
-    (global.set 0) ;; $g0 = $tmp0
-    (local.get 4)  ;; return $l4
-  )
-</code></pre></div><p>由于Rust编译器用了全局变量和内存来操作表索引，所以<code>main()</code>函数看起来比想象中要复杂一些。如果把这些多余的因素去掉，那么模块看起来应该是下面这样：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">(module
-  (type (;0;) (func (param f32 f32) (result f32)))
-  (type (;1;) (func (param i32 f32 f32) (result f32)))
-  (func $add (type 0) (f32.add (local.get 0) (local.get 1)))
-  (func $sub (type 0) (f32.sub (local.get 0) (local.get 1)))
-  (func $mul (type 0) (f32.mul (local.get 0) (local.get 1)))
-  (func $div (type 0) (f32.div (local.get 0) (local.get 1)))
-  (func $main (type 1) (param i32 f32 f32) (result f32)
-    (block (result f32)
-      (f32.const 0x0p+0)
-      (br_if 0 (i32.gt_u (local.get 0) (i32.const 3)))
-      (drop)
-      (local.get 1) (local.get 2) (local.get 0)
-      (call_indirect (type 0) )
-    )
-  )
-  (table (;0;) 5 5 funcref)
-  (elem (;0;) (i32.const 1) func $add $sub $mul $div)
-  (export &#34;main&#34; (func $main))
-)
-</code></pre></div><p>*本文由CoinEx Chain开发团队成员Chase撰写。CoinEx Chain是全球首条基于Tendermint共识协议和Cosmos SDK开发的DEX专用公链，借助IBC来实现DEX公链、智能合约链、隐私链三条链合一的方式去解决可扩展性（Scalability）、去中心化（Decentralization）、安全性（security）区块链不可能三角的问题，能够高性能的支持数字资产的交易以及基于智能合约的Defi应用。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>#![no_std]
+</span></span><span style="display:flex;"><span>#![no_main]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>#[panic_handler]
+</span></span><span style="display:flex;"><span>fn panic(_: &amp;core::panic::PanicInfo) -&gt; ! {
+</span></span><span style="display:flex;"><span>    loop {}
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>type Binop = fn(f32, f32) -&gt; f32;
+</span></span><span style="display:flex;"><span>fn add(a: f32, b: f32) -&gt; f32 { a + b }
+</span></span><span style="display:flex;"><span>fn sub(a: f32, b: f32) -&gt; f32 { a - b }
+</span></span><span style="display:flex;"><span>fn mul(a: f32, b: f32) -&gt; f32 { a * b }
+</span></span><span style="display:flex;"><span>fn div(a: f32, b: f32) -&gt; f32 { a / b }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>#[no_mangle]
+</span></span><span style="display:flex;"><span>pub extern &#34;C&#34; fn main(op: usize, a: f32, b: f32) -&gt; f32 {
+</span></span><span style="display:flex;"><span>    let ops: [Binop; 4] = [add, sub, mul, div];
+</span></span><span style="display:flex;"><span>    if op &lt; 4 {
+</span></span><span style="display:flex;"><span>        ops[op](a, b)
+</span></span><span style="display:flex;"><span>    } else {
+</span></span><span style="display:flex;"><span>        0.0
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>上面的例子非常简单，定义了<code>add()</code>、<code>sub()</code>、<code>mul()</code>、<code>div()</code>四个函数，然后在<code>main()</code>函数里通过函数指针调用其中一个。可以执行<code>cargo build</code>命令把项目编译成Wasm二进制格式，然后可以通过<a href="https://link.juejin.cn/?target=https%3A%2F%2Fgithub.com%2FWebAssembly%2Fwabt">WABT</a>提供的<code>wasm2wat</code>命令把Wasm二进制格式转成文本格式（预告，Wasm<a href="https%3A%2F%2Fwebassembly.github.io%2Fspec%2Fcore%2Ftext%2Findex.html">文本格式</a>将在下一篇文章中详细介绍）以便于观察。下面是需要用到的全部命令：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ # install rustup &amp; wabt
+</span></span><span style="display:flex;"><span>$ rustup target add wasm32-unknown-unknown
+</span></span><span style="display:flex;"><span>$ cargo new table_demo
+</span></span><span style="display:flex;"><span>$ cd table_demo/
+</span></span><span style="display:flex;"><span>$ # edit src/main.rs
+</span></span><span style="display:flex;"><span>$ cargo build --target wasm32-unknown-unknown --release
+</span></span><span style="display:flex;"><span>$ wasm2wat target/wasm32-unknown-unknown/release/table_demo.wasm
+</span></span></code></pre></div><p>让我们来看看编译后的Wasm模块：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>(module
+</span></span><span style="display:flex;"><span>  (type (;0;) (func (param f32 f32) (result f32)))
+</span></span><span style="display:flex;"><span>  (type (;1;) (func (param i32 f32 f32) (result f32)))
+</span></span><span style="display:flex;"><span>  (func $add (type 0) (f32.add (local.get 0) (local.get 1)))
+</span></span><span style="display:flex;"><span>  (func $sub (type 0) (f32.sub (local.get 0) (local.get 1)))
+</span></span><span style="display:flex;"><span>  (func $mul (type 0) (f32.mul (local.get 0) (local.get 1)))
+</span></span><span style="display:flex;"><span>  (func $div (type 0) (f32.div (local.get 0) (local.get 1)))
+</span></span><span style="display:flex;"><span>  (func $main (type 1) (param i32 f32 f32) (result f32)
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>  )
+</span></span><span style="display:flex;"><span>  (table (;0;) 5 5 funcref)
+</span></span><span style="display:flex;"><span>  (elem (;0;) (i32.const 1) funcref $div $mul $sub $add)
+</span></span><span style="display:flex;"><span>  (memory (;0;) 16)
+</span></span><span style="display:flex;"><span>  (global (;0;) (mut i32) (i32.const 1048576))
+</span></span><span style="display:flex;"><span>  (global (;1;) i32 (i32.const 1048576))
+</span></span><span style="display:flex;"><span>  (global (;2;) i32 (i32.const 1048576))
+</span></span><span style="display:flex;"><span>  (export &#34;memory&#34; (memory 0))
+</span></span><span style="display:flex;"><span>  (export &#34;__data_end&#34; (global 1))
+</span></span><span style="display:flex;"><span>  (export &#34;__heap_base&#34; (global 2))
+</span></span><span style="display:flex;"><span>  (export &#34;main&#34; (func $main))
+</span></span><span style="display:flex;"><span>)
+</span></span></code></pre></div><p><code>main()</code>函数稍微有点长，稍后给出。可以看到，Rust编译器的确生成了表和元素段，而且看起来也的确是把<code>div()</code>、<code>mul()</code>、<code>sub()</code>、<code>add()</code>这四个函数（注意顺序）填入了表里，索引分别是1、2、3、4：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  (table (;0;) 5 5 funcref)
+</span></span><span style="display:flex;"><span>  (elem (;0;) (i32.const 1) funcref $div $mul $sub $add)
+</span></span></code></pre></div><p>下面来看一下<code>main()</code>函数（格式进行了适当调整，并且添加了注释）：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  (func $main (type 1)
+</span></span><span style="display:flex;"><span>    (param $op i32) (param $a f32) (param $b f32) (result f32)
+</span></span><span style="display:flex;"><span>    (local $l3 i32) (local $l4 f32)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    (i32.sub (global.get 0) (i32.const 16))           ;; $tmp0 = $g0 - 16
+</span></span><span style="display:flex;"><span>    (local.tee 3)                                     ;; $l3 = $tmp0
+</span></span><span style="display:flex;"><span>    (global.set 0)                                    ;; $g0 = $tmp0
+</span></span><span style="display:flex;"><span>    (i32.store offset=12 (local.get 3) (i32.const 1)) ;; $mem[$g0 -  4] = 1
+</span></span><span style="display:flex;"><span>    (i32.store offset=8  (local.get 3) (i32.const 2)) ;; $mem[$g0 -  8] = 2
+</span></span><span style="display:flex;"><span>    (i32.store offset=4  (local.get 3) (i32.const 3)) ;; $mem[$g0 - 12] = 3
+</span></span><span style="display:flex;"><span>    (i32.store           (local.get 3) (i32.const 4)) ;; $mem[$g0 - 16] = 4
+</span></span><span style="display:flex;"><span>    (local.set 4 (f32.const 0x0p+0))                  ;; $l4 = 0.0
+</span></span><span style="display:flex;"><span>    (block
+</span></span><span style="display:flex;"><span>      (br_if 0 (i32.gt_u (local.get 0) (i32.const 3))) ;; $op &gt; 3 ? br
+</span></span><span style="display:flex;"><span>      (local.get 1) (local.get 2) ;; $tmp0 = $a, $tmp1 = $b
+</span></span><span style="display:flex;"><span>      (local.get 3) (local.get 0) ;; $tmp2 = $l3, $tmp3 = $op
+</span></span><span style="display:flex;"><span>      (i32.const 2)               ;; $tmp4 = 2
+</span></span><span style="display:flex;"><span>      (i32.shl)                   ;; $tmp3 = $op * 4
+</span></span><span style="display:flex;"><span>      (i32.add)                   ;; $tmp2 = $l3 + $op*4
+</span></span><span style="display:flex;"><span>      (i32.load)                  ;; $tmp2 = $mem[$g0 - 16 + $op*4]
+</span></span><span style="display:flex;"><span>      (call_indirect (type 0) )   ;; $tmp0 = call_indirect($tmp0, $tmp1, $tmp2)
+</span></span><span style="display:flex;"><span>      (local.set 4)               ;; $l4 = $tmp0
+</span></span><span style="display:flex;"><span>    )
+</span></span><span style="display:flex;"><span>    (i32.add (local.get 3) (i32.const 16)) ;; $tmp0 = $l3 + 16
+</span></span><span style="display:flex;"><span>    (global.set 0) ;; $g0 = $tmp0
+</span></span><span style="display:flex;"><span>    (local.get 4)  ;; return $l4
+</span></span><span style="display:flex;"><span>  )
+</span></span></code></pre></div><p>由于Rust编译器用了全局变量和内存来操作表索引，所以<code>main()</code>函数看起来比想象中要复杂一些。如果把这些多余的因素去掉，那么模块看起来应该是下面这样：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>(module
+</span></span><span style="display:flex;"><span>  (type (;0;) (func (param f32 f32) (result f32)))
+</span></span><span style="display:flex;"><span>  (type (;1;) (func (param i32 f32 f32) (result f32)))
+</span></span><span style="display:flex;"><span>  (func $add (type 0) (f32.add (local.get 0) (local.get 1)))
+</span></span><span style="display:flex;"><span>  (func $sub (type 0) (f32.sub (local.get 0) (local.get 1)))
+</span></span><span style="display:flex;"><span>  (func $mul (type 0) (f32.mul (local.get 0) (local.get 1)))
+</span></span><span style="display:flex;"><span>  (func $div (type 0) (f32.div (local.get 0) (local.get 1)))
+</span></span><span style="display:flex;"><span>  (func $main (type 1) (param i32 f32 f32) (result f32)
+</span></span><span style="display:flex;"><span>    (block (result f32)
+</span></span><span style="display:flex;"><span>      (f32.const 0x0p+0)
+</span></span><span style="display:flex;"><span>      (br_if 0 (i32.gt_u (local.get 0) (i32.const 3)))
+</span></span><span style="display:flex;"><span>      (drop)
+</span></span><span style="display:flex;"><span>      (local.get 1) (local.get 2) (local.get 0)
+</span></span><span style="display:flex;"><span>      (call_indirect (type 0) )
+</span></span><span style="display:flex;"><span>    )
+</span></span><span style="display:flex;"><span>  )
+</span></span><span style="display:flex;"><span>  (table (;0;) 5 5 funcref)
+</span></span><span style="display:flex;"><span>  (elem (;0;) (i32.const 1) func $add $sub $mul $div)
+</span></span><span style="display:flex;"><span>  (export &#34;main&#34; (func $main))
+</span></span><span style="display:flex;"><span>)
+</span></span></code></pre></div><p>*本文由CoinEx Chain开发团队成员Chase撰写。CoinEx Chain是全球首条基于Tendermint共识协议和Cosmos SDK开发的DEX专用公链，借助IBC来实现DEX公链、智能合约链、隐私链三条链合一的方式去解决可扩展性（Scalability）、去中心化（Decentralization）、安全性（security）区块链不可能三角的问题，能够高性能的支持数字资产的交易以及基于智能合约的Defi应用。</p>
 
     </div>
     <footer class="post-footer">
@@ -414,7 +414,7 @@ $ wasm2wat target/wasm32-unknown-unknown/release/table_demo.wasm
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -474,7 +474,7 @@ $ wasm2wat target/wasm32-unknown-unknown/release/table_demo.wasm
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

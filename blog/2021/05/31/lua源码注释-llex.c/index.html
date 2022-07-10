@@ -196,503 +196,503 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">2461 字 ~5分钟</span>
+<span class="leancloud-visitors-count">2470 字 ~5分钟</span>
 </span>
       </div>
     </header>
     <div class="post-body" itemprop="articleBody">
-    <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#75715e">/*
-</span><span style="color:#75715e">** $Id: llex.c,v 2.20.1.2 2009/11/23 14:58:22 roberto Exp $
-</span><span style="color:#75715e">** Lexical Analyzer
-</span><span style="color:#75715e">** See Copyright Notice in lua.h
-</span><span style="color:#75715e">*/</span>
-
-<span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;ctype.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;locale.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">#define llex_c
-</span><span style="color:#75715e">#define LUA_CORE
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lua.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldo.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;llex.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lobject.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lparser.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstate.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstring.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ltable.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lzio.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e"></span>
-
-
-<span style="color:#75715e">#define next(ls) (ls-&gt;current = zgetc(ls-&gt;z))
-</span><span style="color:#75715e"></span>
-
-
-
-<span style="color:#75715e">#define currIsNewline(ls)	(ls-&gt;current == &#39;\n&#39; || ls-&gt;current == &#39;\r&#39;)
-</span><span style="color:#75715e"></span>
-
-<span style="color:#75715e">/* ORDER RESERVED */</span>
-<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span><span style="color:#66d9ef">const</span> luaX_tokens [] <span style="color:#f92672">=</span> {
-    <span style="color:#e6db74">&#34;and&#34;</span>, <span style="color:#e6db74">&#34;break&#34;</span>, <span style="color:#e6db74">&#34;do&#34;</span>, <span style="color:#e6db74">&#34;else&#34;</span>, <span style="color:#e6db74">&#34;elseif&#34;</span>,
-    <span style="color:#e6db74">&#34;end&#34;</span>, <span style="color:#e6db74">&#34;false&#34;</span>, <span style="color:#e6db74">&#34;for&#34;</span>, <span style="color:#e6db74">&#34;function&#34;</span>, <span style="color:#e6db74">&#34;if&#34;</span>,
-    <span style="color:#e6db74">&#34;in&#34;</span>, <span style="color:#e6db74">&#34;local&#34;</span>, <span style="color:#e6db74">&#34;nil&#34;</span>, <span style="color:#e6db74">&#34;not&#34;</span>, <span style="color:#e6db74">&#34;or&#34;</span>, <span style="color:#e6db74">&#34;repeat&#34;</span>,
-    <span style="color:#e6db74">&#34;return&#34;</span>, <span style="color:#e6db74">&#34;then&#34;</span>, <span style="color:#e6db74">&#34;true&#34;</span>, <span style="color:#e6db74">&#34;until&#34;</span>, <span style="color:#e6db74">&#34;while&#34;</span>,
-    <span style="color:#e6db74">&#34;..&#34;</span>, <span style="color:#e6db74">&#34;...&#34;</span>, <span style="color:#e6db74">&#34;==&#34;</span>, <span style="color:#e6db74">&#34;&gt;=&#34;</span>, <span style="color:#e6db74">&#34;&lt;=&#34;</span>, <span style="color:#e6db74">&#34;~=&#34;</span>,
-    <span style="color:#e6db74">&#34;&lt;number&gt;&#34;</span>, <span style="color:#e6db74">&#34;&lt;name&gt;&#34;</span>, <span style="color:#e6db74">&#34;&lt;string&gt;&#34;</span>, <span style="color:#e6db74">&#34;&lt;eof&gt;&#34;</span>,
-    NULL
-};
-
-
-<span style="color:#75715e">#define save_and_next(ls) (save(ls, ls-&gt;current), next(ls))
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">/* 将c存到ls-&gt;buff中 */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">save</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">int</span> c) {
-  Mbuffer <span style="color:#f92672">*</span>b <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>buff;
-  <span style="color:#66d9ef">if</span> (b<span style="color:#f92672">-&gt;</span>n <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">&gt;</span> b<span style="color:#f92672">-&gt;</span>buffsize) {
-    size_t newsize;
-    <span style="color:#66d9ef">if</span> (b<span style="color:#f92672">-&gt;</span>buffsize <span style="color:#f92672">&gt;=</span> MAX_SIZET<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>)
-      luaX_lexerror(ls, <span style="color:#e6db74">&#34;lexical element too long&#34;</span>, <span style="color:#ae81ff">0</span>);
-    newsize <span style="color:#f92672">=</span> b<span style="color:#f92672">-&gt;</span>buffsize <span style="color:#f92672">*</span> <span style="color:#ae81ff">2</span>;
-    luaZ_resizebuffer(ls<span style="color:#f92672">-&gt;</span>L, b, newsize);
-  }
-  b<span style="color:#f92672">-&gt;</span>buffer[b<span style="color:#f92672">-&gt;</span>n<span style="color:#f92672">++</span>] <span style="color:#f92672">=</span> cast(<span style="color:#66d9ef">char</span>, c);
-}
-
-<span style="color:#75715e">/* 构建出关键字 */</span>
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_init</span> (lua_State <span style="color:#f92672">*</span>L) {
-  <span style="color:#66d9ef">int</span> i;
-  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>NUM_RESERVED; i<span style="color:#f92672">++</span>) {
-    TString <span style="color:#f92672">*</span>ts <span style="color:#f92672">=</span> luaS_new(L, luaX_tokens[i]);
-    luaS_fix(ts);  <span style="color:#75715e">/* reserved words are never collected */</span>
-    lua_assert(strlen(luaX_tokens[i])<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span> <span style="color:#f92672">&lt;=</span> TOKEN_LEN);
-    ts<span style="color:#f92672">-&gt;</span>tsv.reserved <span style="color:#f92672">=</span> cast_byte(i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* reserved word */</span>
-  }
-}
-
-
-<span style="color:#75715e">#define MAXSRC          80
-</span><span style="color:#75715e"></span>
-
-<span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">luaX_token2str</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">int</span> token) {
-  <span style="color:#66d9ef">if</span> (token <span style="color:#f92672">&lt;</span> FIRST_RESERVED) {
-    lua_assert(token <span style="color:#f92672">==</span> cast(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span>, token));
-    <span style="color:#66d9ef">return</span> (iscntrl(token)) <span style="color:#f92672">?</span> luaO_pushfstring(ls<span style="color:#f92672">-&gt;</span>L, <span style="color:#e6db74">&#34;char(%d)&#34;</span>, token) <span style="color:#f92672">:</span>
-                              luaO_pushfstring(ls<span style="color:#f92672">-&gt;</span>L, <span style="color:#e6db74">&#34;%c&#34;</span>, token);
-  }
-  <span style="color:#66d9ef">else</span>
-    <span style="color:#66d9ef">return</span> luaX_tokens[token<span style="color:#f92672">-</span>FIRST_RESERVED];
-}
-
-
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">txtToken</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">int</span> token) {
-  <span style="color:#66d9ef">switch</span> (token) {
-    <span style="color:#66d9ef">case</span> TK_NAME:
-    <span style="color:#66d9ef">case</span> TK_STRING:
-    <span style="color:#66d9ef">case</span> TK_NUMBER:
-      save(ls, <span style="color:#e6db74">&#39;\0&#39;</span>);
-      <span style="color:#66d9ef">return</span> luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff);
-    <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span>
-      <span style="color:#66d9ef">return</span> luaX_token2str(ls, token);
-  }
-}
-
-
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_lexerror</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>msg, <span style="color:#66d9ef">int</span> token) {
-  <span style="color:#66d9ef">char</span> buff[MAXSRC];
-  luaO_chunkid(buff, getstr(ls<span style="color:#f92672">-&gt;</span>source), MAXSRC);
-  msg <span style="color:#f92672">=</span> luaO_pushfstring(ls<span style="color:#f92672">-&gt;</span>L, <span style="color:#e6db74">&#34;%s:%d: %s&#34;</span>, buff, ls<span style="color:#f92672">-&gt;</span>linenumber, msg);
-  <span style="color:#66d9ef">if</span> (token)
-    luaO_pushfstring(ls<span style="color:#f92672">-&gt;</span>L, <span style="color:#e6db74">&#34;%s near &#34;</span> LUA_QS, msg, txtToken(ls, token));
-  luaD_throw(ls<span style="color:#f92672">-&gt;</span>L, LUA_ERRSYNTAX);
-}
-
-
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_syntaxerror</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>msg) {
-  luaX_lexerror(ls, msg, ls<span style="color:#f92672">-&gt;</span>t.token);
-}
-
-
-TString <span style="color:#f92672">*</span><span style="color:#a6e22e">luaX_newstring</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>str, size_t l) {
-  lua_State <span style="color:#f92672">*</span>L <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>L;
-  TString <span style="color:#f92672">*</span>ts <span style="color:#f92672">=</span> luaS_newlstr(L, str, l);
-  TValue <span style="color:#f92672">*</span>o <span style="color:#f92672">=</span> luaH_setstr(L, ls<span style="color:#f92672">-&gt;</span>fs<span style="color:#f92672">-&gt;</span>h, ts);  <span style="color:#75715e">/* entry for `str&#39; */</span>
-  <span style="color:#66d9ef">if</span> (ttisnil(o)) {
-    setbvalue(o, <span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* make sure `str&#39; will not be collected */</span>
-    luaC_checkGC(L);
-  }
-  <span style="color:#66d9ef">return</span> ts;
-}
-
-<span style="color:#75715e">/* 读到单个换行符\n，\r，再多读一个字符，看是否是双字符的换行\n\r,\r\n */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">inclinenumber</span> (LexState <span style="color:#f92672">*</span>ls) {
-  <span style="color:#66d9ef">int</span> old <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>current;
-  lua_assert(currIsNewline(ls));	<span style="color:#75715e">/* 当前是换行符 */</span>
-
-  <span style="color:#75715e">/* 往后再读一个字符，看看不是不是\n\r和\r\n这种双字符的换行符（仅算一次换行） */</span>
-  next(ls);  <span style="color:#75715e">/* skip `\n&#39; or `\r&#39; */</span>
-  <span style="color:#66d9ef">if</span> (currIsNewline(ls) <span style="color:#f92672">&amp;&amp;</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> old)
-    next(ls);  <span style="color:#75715e">/* skip `\n\r&#39; or `\r\n&#39; */</span>
-  
-  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">++</span>ls<span style="color:#f92672">-&gt;</span>linenumber <span style="color:#f92672">&gt;=</span> MAX_INT)
-    luaX_syntaxerror(ls, <span style="color:#e6db74">&#34;chunk has too many lines&#34;</span>);
-}
-
-<span style="color:#75715e">/* 初始化LexState，初始化ls-&gt;buf,从ZIO读取第一个字符 */</span>
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_setinput</span> (lua_State <span style="color:#f92672">*</span>L, LexState <span style="color:#f92672">*</span>ls, ZIO <span style="color:#f92672">*</span>z, TString <span style="color:#f92672">*</span>source) {
-  ls<span style="color:#f92672">-&gt;</span>decpoint <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;.&#39;</span>;
-  ls<span style="color:#f92672">-&gt;</span>L <span style="color:#f92672">=</span> L;
-  ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">=</span> TK_EOS;  <span style="color:#75715e">/* no look-ahead token */</span>
-  ls<span style="color:#f92672">-&gt;</span>z <span style="color:#f92672">=</span> z;
-  ls<span style="color:#f92672">-&gt;</span>fs <span style="color:#f92672">=</span> NULL;	<span style="color:#75715e">/* 尚未开始编译函数，这里置NULL */</span>
-  ls<span style="color:#f92672">-&gt;</span>linenumber <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* 当前在第一行，亲 */</span>
-  ls<span style="color:#f92672">-&gt;</span>lastline <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
-  ls<span style="color:#f92672">-&gt;</span>source <span style="color:#f92672">=</span> source;
-  <span style="color:#75715e">/* 申请属于ls-&gt;buff的私有buff */</span>
-  luaZ_resizebuffer(ls<span style="color:#f92672">-&gt;</span>L, ls<span style="color:#f92672">-&gt;</span>buff, LUA_MINBUFFER);  <span style="color:#75715e">/* initialize buffer */</span>
-  
-  next(ls);  <span style="color:#75715e">/* read first char */</span>
-}
-
-
-
-<span style="color:#75715e">/*
-</span><span style="color:#75715e">** =======================================================
-</span><span style="color:#75715e">** LEXICAL ANALYZER
-</span><span style="color:#75715e">** =======================================================
-</span><span style="color:#75715e">*/</span>
-
-
-<span style="color:#75715e">/* ls-&gt;current和set字符集中的某个字符匹配吗 */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">check_next</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>set) {
-  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>strchr(set, ls<span style="color:#f92672">-&gt;</span>current))	
-    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
-  save_and_next(ls);
-  <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
-}
-
-<span style="color:#75715e">/* 将ls-&gt;buff中的from字符替换层to字符 */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">buffreplace</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">char</span> from, <span style="color:#66d9ef">char</span> to) {
-  size_t n <span style="color:#f92672">=</span> luaZ_bufflen(ls<span style="color:#f92672">-&gt;</span>buff);
-  <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff);
-  <span style="color:#66d9ef">while</span> (n<span style="color:#f92672">--</span>)
-    <span style="color:#66d9ef">if</span> (p[n] <span style="color:#f92672">==</span> from) p[n] <span style="color:#f92672">=</span> to;
-}
-
-<span style="color:#75715e">/* 数字字符串转换为数字时失败，尝试更换成本地区的数字字符小数点后再次尝试转换 */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">trydecpoint</span> (LexState <span style="color:#f92672">*</span>ls, SemInfo <span style="color:#f92672">*</span>seminfo) {
-  <span style="color:#75715e">/* format error: try to update decimal point separator */</span>
-  <span style="color:#66d9ef">struct</span> lconv <span style="color:#f92672">*</span>cv <span style="color:#f92672">=</span> localeconv();
-  <span style="color:#66d9ef">char</span> old <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>decpoint;
-  ls<span style="color:#f92672">-&gt;</span>decpoint <span style="color:#f92672">=</span> (cv <span style="color:#f92672">?</span> cv<span style="color:#f92672">-&gt;</span>decimal_point[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">:</span> <span style="color:#e6db74">&#39;.&#39;</span>);
-  buffreplace(ls, old, ls<span style="color:#f92672">-&gt;</span>decpoint);  <span style="color:#75715e">/* try updated decimal separator */</span>
-  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>luaO_str2d(luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff), <span style="color:#f92672">&amp;</span>seminfo<span style="color:#f92672">-&gt;</span>r)) {
-    <span style="color:#75715e">/* format error with correct decimal point: no more options */</span>
-    buffreplace(ls, ls<span style="color:#f92672">-&gt;</span>decpoint, <span style="color:#e6db74">&#39;.&#39;</span>);  <span style="color:#75715e">/* undo change (for error message) */</span>
-    luaX_lexerror(ls, <span style="color:#e6db74">&#34;malformed number&#34;</span>, TK_NUMBER);
-  }
-}
-
-
-<span style="color:#75715e">/* LUA_NUMBER 
-</span><span style="color:#75715e">** .123这种  123或者科学计数法形式(1.99714E+13)的数字
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">read_numeral</span> (LexState <span style="color:#f92672">*</span>ls, SemInfo <span style="color:#f92672">*</span>seminfo) {
-  lua_assert(isdigit(ls<span style="color:#f92672">-&gt;</span>current));	<span style="color:#75715e">/* 属于 [0,9] 集合？*/</span>
-  <span style="color:#75715e">/* 读取第一部分 1.99714 */</span>
-  <span style="color:#66d9ef">do</span> {
-    save_and_next(ls);
-  } <span style="color:#66d9ef">while</span> (isdigit(ls<span style="color:#f92672">-&gt;</span>current) <span style="color:#f92672">||</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;.&#39;</span>);
-
-  <span style="color:#75715e">/* 读取第二部分 E+ */</span>
-  <span style="color:#66d9ef">if</span> (check_next(ls, <span style="color:#e6db74">&#34;Ee&#34;</span>))  <span style="color:#75715e">/* `E&#39;? */</span>
-    check_next(ls, <span style="color:#e6db74">&#34;+-&#34;</span>);  <span style="color:#75715e">/* optional exponent sign */</span>
-  <span style="color:#75715e">/* 读取第三部分 13 */</span>
-  <span style="color:#66d9ef">while</span> (isalnum(ls<span style="color:#f92672">-&gt;</span>current) <span style="color:#f92672">||</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;_&#39;</span>)	<span style="color:#75715e">/* 这里的_不太明白其含义 */</span>
-    save_and_next(ls);
-  <span style="color:#75715e">/* 主动补\0,关闭字符串 */</span>
-  save(ls, <span style="color:#e6db74">&#39;\0&#39;</span>);
-  <span style="color:#75715e">/* 不同国家不同的小数点 */</span>
-  buffreplace(ls, <span style="color:#e6db74">&#39;.&#39;</span>, ls<span style="color:#f92672">-&gt;</span>decpoint);  <span style="color:#75715e">/* follow locale for decimal point */</span>
-  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>luaO_str2d(luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff), <span style="color:#f92672">&amp;</span>seminfo<span style="color:#f92672">-&gt;</span>r))  <span style="color:#75715e">/* format error? */</span>
-    trydecpoint(ls, seminfo); <span style="color:#75715e">/* try to update decimal point separator */</span>
-}
-
-<span style="color:#75715e">/* 尝试读取多行字符串的开头或结尾 --[{=}[ 或者 ]{=}] */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">skip_sep</span> (LexState <span style="color:#f92672">*</span>ls) {
-  <span style="color:#66d9ef">int</span> count <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-  <span style="color:#66d9ef">int</span> s <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>current;
-  lua_assert(s <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;[&#39;</span> <span style="color:#f92672">||</span> s <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;]&#39;</span>);
-  save_and_next(ls);
-  <span style="color:#66d9ef">while</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;=&#39;</span>) {
-    save_and_next(ls);
-    count<span style="color:#f92672">++</span>;
-  }
-  <span style="color:#66d9ef">return</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> s) <span style="color:#f92672">?</span> count : (<span style="color:#f92672">-</span>count) <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
-}
-
-<span style="color:#75715e">/* 读取一个长字符串和&#34;结尾控制符&#34;(长注释或String的token)(同时更新linenumber) */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">read_long_string</span> (LexState <span style="color:#f92672">*</span>ls, SemInfo <span style="color:#f92672">*</span>seminfo, <span style="color:#66d9ef">int</span> sep) {
-  <span style="color:#66d9ef">int</span> cont <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-  (<span style="color:#66d9ef">void</span>)(cont);  <span style="color:#75715e">/* avoid warnings when `cont&#39; is not used */</span>
-  save_and_next(ls);  		<span style="color:#75715e">/* skip 2nd `[&#39; */</span>
-  
-  <span style="color:#66d9ef">if</span> (currIsNewline(ls))  	<span style="color:#75715e">/* string starts with a newline? */</span>
-    inclinenumber(ls);  <span style="color:#75715e">/* skip it */</span>
-  
-  <span style="color:#66d9ef">for</span> (;;) {
-    <span style="color:#66d9ef">switch</span> (ls<span style="color:#f92672">-&gt;</span>current) {
-      <span style="color:#66d9ef">case</span> EOZ:
-        luaX_lexerror(ls, (seminfo) <span style="color:#f92672">?</span> <span style="color:#e6db74">&#34;unfinished long string&#34;</span> <span style="color:#f92672">:</span>
-                                   <span style="color:#e6db74">&#34;unfinished long comment&#34;</span>, TK_EOS);
-        <span style="color:#66d9ef">break</span>;  <span style="color:#75715e">/* to avoid warnings */</span>
-<span style="color:#75715e">#if defined(LUA_COMPAT_LSTR)
-</span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;[&#39;</span><span style="color:#f92672">:</span> {
-        <span style="color:#66d9ef">if</span> (skip_sep(ls) <span style="color:#f92672">==</span> sep) {
-          save_and_next(ls);  <span style="color:#75715e">/* skip 2nd `[&#39; */</span>
-          cont<span style="color:#f92672">++</span>;
-<span style="color:#75715e">#if LUA_COMPAT_LSTR == 1
-</span><span style="color:#75715e"></span>          <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>)
-            luaX_lexerror(ls, <span style="color:#e6db74">&#34;nesting of [[...]] is deprecated&#34;</span>, <span style="color:#e6db74">&#39;[&#39;</span>);
-<span style="color:#75715e">#endif
-</span><span style="color:#75715e"></span>        }
-        <span style="color:#66d9ef">break</span>;
-      }
-<span style="color:#75715e">#endif
-</span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;]&#39;</span><span style="color:#f92672">:</span> {
-        <span style="color:#66d9ef">if</span> (skip_sep(ls) <span style="color:#f92672">==</span> sep) {
-          save_and_next(ls);  <span style="color:#75715e">/* skip 2nd `]&#39; */</span>
-<span style="color:#75715e">#if defined(LUA_COMPAT_LSTR) &amp;&amp; LUA_COMPAT_LSTR == 2
-</span><span style="color:#75715e"></span>          cont<span style="color:#f92672">--</span>;
-          <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> cont <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">break</span>;
-<span style="color:#75715e">#endif
-</span><span style="color:#75715e"></span>          <span style="color:#66d9ef">goto</span> endloop;
-        }
-        <span style="color:#66d9ef">break</span>;
-      }
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\n&#39;</span><span style="color:#f92672">:</span>
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\r&#39;</span><span style="color:#f92672">:</span> {
-        save(ls, <span style="color:#e6db74">&#39;\n&#39;</span>);	
-        inclinenumber(ls);	<span style="color:#75715e">/* 注释的业务中也不能忘了linenumber */</span>
-        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>seminfo) luaZ_resetbuffer(ls<span style="color:#f92672">-&gt;</span>buff);  <span style="color:#75715e">/* avoid wasting space */</span>
-        <span style="color:#66d9ef">break</span>;
-      }
-      <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> {
-        <span style="color:#66d9ef">if</span> (seminfo) save_and_next(ls);
-        <span style="color:#66d9ef">else</span> next(ls);
-      }
-    }
-  } endloop:
-
-  <span style="color:#75715e">/* seminfo为null是注释逻辑，注释不用管里面的具体String，否则是一个正常的String的token，需将String保存 */</span>
-  <span style="color:#66d9ef">if</span> (seminfo) {
-  	<span style="color:#75715e">/* 2+sep:[{=}[ */</span>
-    seminfo<span style="color:#f92672">-&gt;</span>ts <span style="color:#f92672">=</span> luaX_newstring(ls, luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff) <span style="color:#f92672">+</span> (<span style="color:#ae81ff">2</span> <span style="color:#f92672">+</span> sep),	
-                                     luaZ_bufflen(ls<span style="color:#f92672">-&gt;</span>buff) <span style="color:#f92672">-</span> <span style="color:#ae81ff">2</span><span style="color:#f92672">*</span>(<span style="color:#ae81ff">2</span> <span style="color:#f92672">+</span> sep));
-  }
-}
-
-<span style="color:#75715e">/* 读一个&#34;字符串&#34;或&#39;字符串&#39;格式的字符串 */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">read_string</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">int</span> del, SemInfo <span style="color:#f92672">*</span>seminfo) {
-  save_and_next(ls);
-  <span style="color:#66d9ef">while</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> del) {
-    <span style="color:#66d9ef">switch</span> (ls<span style="color:#f92672">-&gt;</span>current) {
-      <span style="color:#66d9ef">case</span> EOZ:
-        luaX_lexerror(ls, <span style="color:#e6db74">&#34;unfinished string&#34;</span>, TK_EOS);
-        <span style="color:#66d9ef">continue</span>;  <span style="color:#75715e">/* to avoid warnings */</span>
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\n&#39;</span><span style="color:#f92672">:</span>
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\r&#39;</span><span style="color:#f92672">:</span>
-        luaX_lexerror(ls, <span style="color:#e6db74">&#34;unfinished string&#34;</span>, TK_STRING);
-        <span style="color:#66d9ef">continue</span>;  <span style="color:#75715e">/* to avoid warnings */</span>
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\\&#39;</span><span style="color:#f92672">:</span> {	<span style="color:#75715e">/* 可能的转移序列 */</span>
-        <span style="color:#66d9ef">int</span> c;
-        next(ls);  <span style="color:#75715e">/* do not save the `\&#39; */</span>
-        <span style="color:#66d9ef">switch</span> (ls<span style="color:#f92672">-&gt;</span>current) {
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;a&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\a&#39;</span>; <span style="color:#66d9ef">break</span>;
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;b&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\b&#39;</span>; <span style="color:#66d9ef">break</span>;
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;f&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\f&#39;</span>; <span style="color:#66d9ef">break</span>;
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;n&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\n&#39;</span>; <span style="color:#66d9ef">break</span>;
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;r&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\r&#39;</span>; <span style="color:#66d9ef">break</span>;
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;t&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\t&#39;</span>; <span style="color:#66d9ef">break</span>;
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;v&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\v&#39;</span>; <span style="color:#66d9ef">break</span>;
-
-		  <span style="color:#75715e">/* 本身就是一个换行符 */</span>
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\n&#39;</span><span style="color:#f92672">:</span>  <span style="color:#75715e">/* go through */</span>
-          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\r&#39;</span><span style="color:#f92672">:</span> save(ls, <span style="color:#e6db74">&#39;\n&#39;</span>); inclinenumber(ls); <span style="color:#66d9ef">continue</span>;
-		  
-          <span style="color:#66d9ef">case</span> EOZ: <span style="color:#66d9ef">continue</span>;  <span style="color:#75715e">/* will raise an error next loop */</span>
-          <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> {
-            <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>isdigit(ls<span style="color:#f92672">-&gt;</span>current))
-              save_and_next(ls);  <span style="color:#75715e">/* handles \\, \&#34;, \&#39;, and \? */</span>
-            <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* \xxx */</span>
-              <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-              c <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-              <span style="color:#66d9ef">do</span> {
-                c <span style="color:#f92672">=</span> <span style="color:#ae81ff">10</span><span style="color:#f92672">*</span>c <span style="color:#f92672">+</span> (ls<span style="color:#f92672">-&gt;</span>current<span style="color:#f92672">-</span><span style="color:#e6db74">&#39;0&#39;</span>);
-                next(ls);
-              } <span style="color:#66d9ef">while</span> (<span style="color:#f92672">++</span>i<span style="color:#f92672">&lt;</span><span style="color:#ae81ff">3</span> <span style="color:#f92672">&amp;&amp;</span> isdigit(ls<span style="color:#f92672">-&gt;</span>current));
-              <span style="color:#66d9ef">if</span> (c <span style="color:#f92672">&gt;</span> UCHAR_MAX)
-                luaX_lexerror(ls, <span style="color:#e6db74">&#34;escape sequence too large&#34;</span>, TK_STRING);
-              save(ls, c);
-            }
-            <span style="color:#66d9ef">continue</span>;
-          }
-        }
-        save(ls, c);
-        next(ls);
-        <span style="color:#66d9ef">continue</span>;
-      }
-      <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span>
-        save_and_next(ls);
-    }
-  }
-  save_and_next(ls);  <span style="color:#75715e">/* skip delimiter(分隔符) */</span>
-  seminfo<span style="color:#f92672">-&gt;</span>ts <span style="color:#f92672">=</span> luaX_newstring(ls, luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff) <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>,
-                                   luaZ_bufflen(ls<span style="color:#f92672">-&gt;</span>buff) <span style="color:#f92672">-</span> <span style="color:#ae81ff">2</span>);
-}
-
-<span style="color:#75715e">/* 从读取下一个字符token 
-</span><span style="color:#75715e">** 从ZIO读取下一个token到seminfo,并返回TokenType(中途可能用到lx-&gt;buff)
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">llex</span> (LexState <span style="color:#f92672">*</span>ls, SemInfo <span style="color:#f92672">*</span>seminfo) {
-  luaZ_resetbuffer(ls<span style="color:#f92672">-&gt;</span>buff);
-  <span style="color:#66d9ef">for</span> (;;) {
-    <span style="color:#66d9ef">switch</span> (ls<span style="color:#f92672">-&gt;</span>current) {
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\n&#39;</span><span style="color:#f92672">:</span>
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\r&#39;</span><span style="color:#f92672">:</span> {
-        inclinenumber(ls);
-        <span style="color:#66d9ef">continue</span>;
-      }
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;-&#39;</span><span style="color:#f92672">:</span> {
-        next(ls);
-		<span style="color:#75715e">/* 单独的 - */</span>
-        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;-&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;-&#39;</span>;
-        <span style="color:#75715e">/* else is a comment */</span>
-        next(ls);	<span style="color:#75715e">/* 单行OR多行注释? */</span>
-        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;[&#39;</span>) {
-          <span style="color:#66d9ef">int</span> sep <span style="color:#f92672">=</span> skip_sep(ls);
-          luaZ_resetbuffer(ls<span style="color:#f92672">-&gt;</span>buff);  <span style="color:#75715e">/* `skip_sep&#39; may dirty the buffer */</span>
-          <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>) {
-            read_long_string(ls, NULL, sep);  <span style="color:#75715e">/* long comment */</span>
-            luaZ_resetbuffer(ls<span style="color:#f92672">-&gt;</span>buff);
-            <span style="color:#66d9ef">continue</span>;
-          }
-        }
-        <span style="color:#75715e">/* else short comment */</span>
-        <span style="color:#66d9ef">while</span> (<span style="color:#f92672">!</span>currIsNewline(ls) <span style="color:#f92672">&amp;&amp;</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> EOZ)
-          next(ls);
-        <span style="color:#66d9ef">continue</span>;
-      }
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;[&#39;</span><span style="color:#f92672">:</span> {	<span style="color:#75715e">/* 长字符串: [{=}[ String ]{=}] */</span>
-        <span style="color:#66d9ef">int</span> sep <span style="color:#f92672">=</span> skip_sep(ls);
-        <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>) {	<span style="color:#75715e">/* 多行字符串开头 [{=}[ */</span>
-          read_long_string(ls, seminfo, sep);
-          <span style="color:#66d9ef">return</span> TK_STRING;
-        }
-        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;[&#39;</span>;	<span style="color:#75715e">/* [,others这样的开头 */</span>
-        <span style="color:#66d9ef">else</span> luaX_lexerror(ls, <span style="color:#e6db74">&#34;invalid long string delimiter&#34;</span>, TK_STRING);		<span style="color:#75715e">/* [={=},others这样的开头 */</span>
-      }
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;=&#39;</span><span style="color:#f92672">:</span> {
-        next(ls);
-        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;=&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;=&#39;</span>;
-        <span style="color:#66d9ef">else</span> { next(ls); <span style="color:#66d9ef">return</span> TK_EQ; }
-      }
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;&lt;&#39;</span><span style="color:#f92672">:</span> {
-        next(ls);
-        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;=&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;&lt;&#39;</span>;
-        <span style="color:#66d9ef">else</span> { next(ls); <span style="color:#66d9ef">return</span> TK_LE; }
-      }
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;&gt;&#39;</span><span style="color:#f92672">:</span> {
-        next(ls);
-        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;=&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;&gt;&#39;</span>;
-        <span style="color:#66d9ef">else</span> { next(ls); <span style="color:#66d9ef">return</span> TK_GE; }
-      }
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;~&#39;</span><span style="color:#f92672">:</span> {
-        next(ls);
-        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;=&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;~&#39;</span>;
-        <span style="color:#66d9ef">else</span> { next(ls); <span style="color:#66d9ef">return</span> TK_NE; }
-      }
-	  <span style="color:#75715e">/* 短字符串 */</span>
-	  <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;&#34;&#39;</span><span style="color:#f92672">:</span>
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\&#39;&#39;</span><span style="color:#f92672">:</span> {
-        read_string(ls, ls<span style="color:#f92672">-&gt;</span>current, seminfo);
-        <span style="color:#66d9ef">return</span> TK_STRING;
-      }
-	  <span style="color:#75715e">/* 看这个符号的解析，是一个深度优先的解析示例 */</span>
-      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;.&#39;</span><span style="color:#f92672">:</span> {
-        save_and_next(ls);
-        <span style="color:#66d9ef">if</span> (check_next(ls, <span style="color:#e6db74">&#34;.&#34;</span>)) {
-          <span style="color:#66d9ef">if</span> (check_next(ls, <span style="color:#e6db74">&#34;.&#34;</span>))
-            <span style="color:#66d9ef">return</span> TK_DOTS;   <span style="color:#75715e">/* ... */</span>
-          <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">return</span> TK_CONCAT;   <span style="color:#75715e">/* .. */</span>
-        }
-        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>isdigit(ls<span style="color:#f92672">-&gt;</span>current)) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;.&#39;</span>;
-        <span style="color:#66d9ef">else</span> {
-          read_numeral(ls, seminfo);
-          <span style="color:#66d9ef">return</span> TK_NUMBER;
-        }
-      }
-      <span style="color:#66d9ef">case</span> EOZ: {
-        <span style="color:#66d9ef">return</span> TK_EOS;
-      }
-      <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> {
-        <span style="color:#66d9ef">if</span> (isspace(ls<span style="color:#f92672">-&gt;</span>current)) {
-          lua_assert(<span style="color:#f92672">!</span>currIsNewline(ls));	<span style="color:#75715e">/* 换行符在前面就被解析掉了，这里不能再是换行符了,否则就重复了 */</span>
-          next(ls);
-          <span style="color:#66d9ef">continue</span>;
-        }
-        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (isdigit(ls<span style="color:#f92672">-&gt;</span>current)) {
-          read_numeral(ls, seminfo);
-          <span style="color:#66d9ef">return</span> TK_NUMBER;
-        }
-        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (isalpha(ls<span style="color:#f92672">-&gt;</span>current) <span style="color:#f92672">||</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;_&#39;</span>) {	<span style="color:#75715e">/* 标识符 */</span>
-          <span style="color:#75715e">/* identifier or reserved word */</span>
-          TString <span style="color:#f92672">*</span>ts;
-          <span style="color:#66d9ef">do</span> {
-            save_and_next(ls);
-          } <span style="color:#66d9ef">while</span> (isalnum(ls<span style="color:#f92672">-&gt;</span>current) <span style="color:#f92672">||</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;_&#39;</span>);	<span style="color:#75715e">/* 这里和上面的有一点差别 */</span>
-		  
-          ts <span style="color:#f92672">=</span> luaX_newstring(ls, luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff),
-                                  luaZ_bufflen(ls<span style="color:#f92672">-&gt;</span>buff));
-		  <span style="color:#75715e">/* 关键或保留字符串 */</span>
-          <span style="color:#66d9ef">if</span> (ts<span style="color:#f92672">-&gt;</span>tsv.reserved <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>)  <span style="color:#75715e">/* reserved word? */</span>
-            <span style="color:#66d9ef">return</span> ts<span style="color:#f92672">-&gt;</span>tsv.reserved <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">+</span> FIRST_RESERVED;
-          <span style="color:#66d9ef">else</span> {
-            seminfo<span style="color:#f92672">-&gt;</span>ts <span style="color:#f92672">=</span> ts;
-            <span style="color:#66d9ef">return</span> TK_NAME;
-          }
-        }
-        <span style="color:#66d9ef">else</span> {
-          <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>current;
-          next(ls);
-          <span style="color:#66d9ef">return</span> c;  <span style="color:#75715e">/* single-char tokens (+ - / ...) */</span>
-        }
-      }
-    }
-  }
-}
-
-
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_next</span> (LexState <span style="color:#f92672">*</span>ls) {
-  ls<span style="color:#f92672">-&gt;</span>lastline <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>linenumber
-  <span style="color:#75715e">/* 已有一个准备好的lookhead&#39;token,则取出来用 */</span>
-  <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">!=</span> TK_EOS) {  <span style="color:#75715e">/* is there a look-ahead token? */</span>
-    ls<span style="color:#f92672">-&gt;</span>t <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>lookahead;  <span style="color:#75715e">/* use this one */</span>
-    ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">=</span> TK_EOS;  <span style="color:#75715e">/* and discharge it */</span>
-  }
-  <span style="color:#66d9ef">else</span> <span style="color:#75715e">/* 读取一个token */</span>
-    ls<span style="color:#f92672">-&gt;</span>t.token <span style="color:#f92672">=</span> llex(ls, <span style="color:#f92672">&amp;</span>ls<span style="color:#f92672">-&gt;</span>t.seminfo);  <span style="color:#75715e">/* read next token */</span>
-}
-
-<span style="color:#75715e">/* 当前lookhead&#39;token已过期，重新准备lookhead&#39;token */</span>
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_lookahead</span> (LexState <span style="color:#f92672">*</span>ls) {
-  lua_assert(ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">==</span> TK_EOS);
-  ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">=</span> llex(ls, <span style="color:#f92672">&amp;</span>ls<span style="color:#f92672">-&gt;</span>lookahead.seminfo);
-}
-</code></pre></div>
+    <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** $Id: llex.c,v 2.20.1.2 2009/11/23 14:58:22 roberto Exp $
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Lexical Analyzer
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** See Copyright Notice in lua.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;ctype.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;locale.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define llex_c
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define LUA_CORE
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lua.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldo.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;llex.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lobject.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lparser.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstate.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstring.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ltable.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lzio.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define next(ls) (ls-&gt;current = zgetc(ls-&gt;z))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define currIsNewline(ls)	(ls-&gt;current == &#39;\n&#39; || ls-&gt;current == &#39;\r&#39;)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* ORDER RESERVED */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span><span style="color:#66d9ef">const</span> luaX_tokens [] <span style="color:#f92672">=</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;and&#34;</span>, <span style="color:#e6db74">&#34;break&#34;</span>, <span style="color:#e6db74">&#34;do&#34;</span>, <span style="color:#e6db74">&#34;else&#34;</span>, <span style="color:#e6db74">&#34;elseif&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;end&#34;</span>, <span style="color:#e6db74">&#34;false&#34;</span>, <span style="color:#e6db74">&#34;for&#34;</span>, <span style="color:#e6db74">&#34;function&#34;</span>, <span style="color:#e6db74">&#34;if&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;in&#34;</span>, <span style="color:#e6db74">&#34;local&#34;</span>, <span style="color:#e6db74">&#34;nil&#34;</span>, <span style="color:#e6db74">&#34;not&#34;</span>, <span style="color:#e6db74">&#34;or&#34;</span>, <span style="color:#e6db74">&#34;repeat&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;return&#34;</span>, <span style="color:#e6db74">&#34;then&#34;</span>, <span style="color:#e6db74">&#34;true&#34;</span>, <span style="color:#e6db74">&#34;until&#34;</span>, <span style="color:#e6db74">&#34;while&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;..&#34;</span>, <span style="color:#e6db74">&#34;...&#34;</span>, <span style="color:#e6db74">&#34;==&#34;</span>, <span style="color:#e6db74">&#34;&gt;=&#34;</span>, <span style="color:#e6db74">&#34;&lt;=&#34;</span>, <span style="color:#e6db74">&#34;~=&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;&lt;number&gt;&#34;</span>, <span style="color:#e6db74">&#34;&lt;name&gt;&#34;</span>, <span style="color:#e6db74">&#34;&lt;string&gt;&#34;</span>, <span style="color:#e6db74">&#34;&lt;eof&gt;&#34;</span>,
+</span></span><span style="display:flex;"><span>    NULL
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define save_and_next(ls) (save(ls, ls-&gt;current), next(ls))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 将c存到ls-&gt;buff中 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">save</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">int</span> c) {
+</span></span><span style="display:flex;"><span>  Mbuffer <span style="color:#f92672">*</span>b <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>buff;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (b<span style="color:#f92672">-&gt;</span>n <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">&gt;</span> b<span style="color:#f92672">-&gt;</span>buffsize) {
+</span></span><span style="display:flex;"><span>    size_t newsize;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (b<span style="color:#f92672">-&gt;</span>buffsize <span style="color:#f92672">&gt;=</span> MAX_SIZET<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>)
+</span></span><span style="display:flex;"><span>      luaX_lexerror(ls, <span style="color:#e6db74">&#34;lexical element too long&#34;</span>, <span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>    newsize <span style="color:#f92672">=</span> b<span style="color:#f92672">-&gt;</span>buffsize <span style="color:#f92672">*</span> <span style="color:#ae81ff">2</span>;
+</span></span><span style="display:flex;"><span>    luaZ_resizebuffer(ls<span style="color:#f92672">-&gt;</span>L, b, newsize);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  b<span style="color:#f92672">-&gt;</span>buffer[b<span style="color:#f92672">-&gt;</span>n<span style="color:#f92672">++</span>] <span style="color:#f92672">=</span> cast(<span style="color:#66d9ef">char</span>, c);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 构建出关键字 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_init</span> (lua_State <span style="color:#f92672">*</span>L) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>NUM_RESERVED; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    TString <span style="color:#f92672">*</span>ts <span style="color:#f92672">=</span> luaS_new(L, luaX_tokens[i]);
+</span></span><span style="display:flex;"><span>    luaS_fix(ts);  <span style="color:#75715e">/* reserved words are never collected */</span>
+</span></span><span style="display:flex;"><span>    lua_assert(strlen(luaX_tokens[i])<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span> <span style="color:#f92672">&lt;=</span> TOKEN_LEN);
+</span></span><span style="display:flex;"><span>    ts<span style="color:#f92672">-&gt;</span>tsv.reserved <span style="color:#f92672">=</span> cast_byte(i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* reserved word */</span>
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define MAXSRC          80
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">luaX_token2str</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">int</span> token) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (token <span style="color:#f92672">&lt;</span> FIRST_RESERVED) {
+</span></span><span style="display:flex;"><span>    lua_assert(token <span style="color:#f92672">==</span> cast(<span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">char</span>, token));
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> (iscntrl(token)) <span style="color:#f92672">?</span> luaO_pushfstring(ls<span style="color:#f92672">-&gt;</span>L, <span style="color:#e6db74">&#34;char(%d)&#34;</span>, token) <span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>                              luaO_pushfstring(ls<span style="color:#f92672">-&gt;</span>L, <span style="color:#e6db74">&#34;%c&#34;</span>, token);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> luaX_tokens[token<span style="color:#f92672">-</span>FIRST_RESERVED];
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">txtToken</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">int</span> token) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">switch</span> (token) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> TK_NAME:
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> TK_STRING:
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> TK_NUMBER:
+</span></span><span style="display:flex;"><span>      save(ls, <span style="color:#e6db74">&#39;\0&#39;</span>);
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> luaX_token2str(ls, token);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_lexerror</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>msg, <span style="color:#66d9ef">int</span> token) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">char</span> buff[MAXSRC];
+</span></span><span style="display:flex;"><span>  luaO_chunkid(buff, getstr(ls<span style="color:#f92672">-&gt;</span>source), MAXSRC);
+</span></span><span style="display:flex;"><span>  msg <span style="color:#f92672">=</span> luaO_pushfstring(ls<span style="color:#f92672">-&gt;</span>L, <span style="color:#e6db74">&#34;%s:%d: %s&#34;</span>, buff, ls<span style="color:#f92672">-&gt;</span>linenumber, msg);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (token)
+</span></span><span style="display:flex;"><span>    luaO_pushfstring(ls<span style="color:#f92672">-&gt;</span>L, <span style="color:#e6db74">&#34;%s near &#34;</span> LUA_QS, msg, txtToken(ls, token));
+</span></span><span style="display:flex;"><span>  luaD_throw(ls<span style="color:#f92672">-&gt;</span>L, LUA_ERRSYNTAX);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_syntaxerror</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>msg) {
+</span></span><span style="display:flex;"><span>  luaX_lexerror(ls, msg, ls<span style="color:#f92672">-&gt;</span>t.token);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>TString <span style="color:#f92672">*</span><span style="color:#a6e22e">luaX_newstring</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>str, size_t l) {
+</span></span><span style="display:flex;"><span>  lua_State <span style="color:#f92672">*</span>L <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>L;
+</span></span><span style="display:flex;"><span>  TString <span style="color:#f92672">*</span>ts <span style="color:#f92672">=</span> luaS_newlstr(L, str, l);
+</span></span><span style="display:flex;"><span>  TValue <span style="color:#f92672">*</span>o <span style="color:#f92672">=</span> luaH_setstr(L, ls<span style="color:#f92672">-&gt;</span>fs<span style="color:#f92672">-&gt;</span>h, ts);  <span style="color:#75715e">/* entry for `str&#39; */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (ttisnil(o)) {
+</span></span><span style="display:flex;"><span>    setbvalue(o, <span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* make sure `str&#39; will not be collected */</span>
+</span></span><span style="display:flex;"><span>    luaC_checkGC(L);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> ts;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 读到单个换行符\n，\r，再多读一个字符，看是否是双字符的换行\n\r,\r\n */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">inclinenumber</span> (LexState <span style="color:#f92672">*</span>ls) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> old <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>current;
+</span></span><span style="display:flex;"><span>  lua_assert(currIsNewline(ls));	<span style="color:#75715e">/* 当前是换行符 */</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 往后再读一个字符，看看不是不是\n\r和\r\n这种双字符的换行符（仅算一次换行） */</span>
+</span></span><span style="display:flex;"><span>  next(ls);  <span style="color:#75715e">/* skip `\n&#39; or `\r&#39; */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (currIsNewline(ls) <span style="color:#f92672">&amp;&amp;</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> old)
+</span></span><span style="display:flex;"><span>    next(ls);  <span style="color:#75715e">/* skip `\n\r&#39; or `\r\n&#39; */</span>
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">++</span>ls<span style="color:#f92672">-&gt;</span>linenumber <span style="color:#f92672">&gt;=</span> MAX_INT)
+</span></span><span style="display:flex;"><span>    luaX_syntaxerror(ls, <span style="color:#e6db74">&#34;chunk has too many lines&#34;</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 初始化LexState，初始化ls-&gt;buf,从ZIO读取第一个字符 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_setinput</span> (lua_State <span style="color:#f92672">*</span>L, LexState <span style="color:#f92672">*</span>ls, ZIO <span style="color:#f92672">*</span>z, TString <span style="color:#f92672">*</span>source) {
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>decpoint <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;.&#39;</span>;
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>L <span style="color:#f92672">=</span> L;
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">=</span> TK_EOS;  <span style="color:#75715e">/* no look-ahead token */</span>
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>z <span style="color:#f92672">=</span> z;
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>fs <span style="color:#f92672">=</span> NULL;	<span style="color:#75715e">/* 尚未开始编译函数，这里置NULL */</span>
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>linenumber <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* 当前在第一行，亲 */</span>
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>lastline <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>source <span style="color:#f92672">=</span> source;
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 申请属于ls-&gt;buff的私有buff */</span>
+</span></span><span style="display:flex;"><span>  luaZ_resizebuffer(ls<span style="color:#f92672">-&gt;</span>L, ls<span style="color:#f92672">-&gt;</span>buff, LUA_MINBUFFER);  <span style="color:#75715e">/* initialize buffer */</span>
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  next(ls);  <span style="color:#75715e">/* read first char */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** =======================================================
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** LEXICAL ANALYZER
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** =======================================================
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* ls-&gt;current和set字符集中的某个字符匹配吗 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">check_next</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>set) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>strchr(set, ls<span style="color:#f92672">-&gt;</span>current))	
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>  save_and_next(ls);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 将ls-&gt;buff中的from字符替换层to字符 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">buffreplace</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">char</span> from, <span style="color:#66d9ef">char</span> to) {
+</span></span><span style="display:flex;"><span>  size_t n <span style="color:#f92672">=</span> luaZ_bufflen(ls<span style="color:#f92672">-&gt;</span>buff);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (n<span style="color:#f92672">--</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (p[n] <span style="color:#f92672">==</span> from) p[n] <span style="color:#f92672">=</span> to;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 数字字符串转换为数字时失败，尝试更换成本地区的数字字符小数点后再次尝试转换 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">trydecpoint</span> (LexState <span style="color:#f92672">*</span>ls, SemInfo <span style="color:#f92672">*</span>seminfo) {
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* format error: try to update decimal point separator */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> lconv <span style="color:#f92672">*</span>cv <span style="color:#f92672">=</span> localeconv();
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">char</span> old <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>decpoint;
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>decpoint <span style="color:#f92672">=</span> (cv <span style="color:#f92672">?</span> cv<span style="color:#f92672">-&gt;</span>decimal_point[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">:</span> <span style="color:#e6db74">&#39;.&#39;</span>);
+</span></span><span style="display:flex;"><span>  buffreplace(ls, old, ls<span style="color:#f92672">-&gt;</span>decpoint);  <span style="color:#75715e">/* try updated decimal separator */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>luaO_str2d(luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff), <span style="color:#f92672">&amp;</span>seminfo<span style="color:#f92672">-&gt;</span>r)) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* format error with correct decimal point: no more options */</span>
+</span></span><span style="display:flex;"><span>    buffreplace(ls, ls<span style="color:#f92672">-&gt;</span>decpoint, <span style="color:#e6db74">&#39;.&#39;</span>);  <span style="color:#75715e">/* undo change (for error message) */</span>
+</span></span><span style="display:flex;"><span>    luaX_lexerror(ls, <span style="color:#e6db74">&#34;malformed number&#34;</span>, TK_NUMBER);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* LUA_NUMBER 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** .123这种  123或者科学计数法形式(1.99714E+13)的数字
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">read_numeral</span> (LexState <span style="color:#f92672">*</span>ls, SemInfo <span style="color:#f92672">*</span>seminfo) {
+</span></span><span style="display:flex;"><span>  lua_assert(isdigit(ls<span style="color:#f92672">-&gt;</span>current));	<span style="color:#75715e">/* 属于 [0,9] 集合？*/</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 读取第一部分 1.99714 */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>    save_and_next(ls);
+</span></span><span style="display:flex;"><span>  } <span style="color:#66d9ef">while</span> (isdigit(ls<span style="color:#f92672">-&gt;</span>current) <span style="color:#f92672">||</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;.&#39;</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 读取第二部分 E+ */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (check_next(ls, <span style="color:#e6db74">&#34;Ee&#34;</span>))  <span style="color:#75715e">/* `E&#39;? */</span>
+</span></span><span style="display:flex;"><span>    check_next(ls, <span style="color:#e6db74">&#34;+-&#34;</span>);  <span style="color:#75715e">/* optional exponent sign */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 读取第三部分 13 */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (isalnum(ls<span style="color:#f92672">-&gt;</span>current) <span style="color:#f92672">||</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;_&#39;</span>)	<span style="color:#75715e">/* 这里的_不太明白其含义 */</span>
+</span></span><span style="display:flex;"><span>    save_and_next(ls);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 主动补\0,关闭字符串 */</span>
+</span></span><span style="display:flex;"><span>  save(ls, <span style="color:#e6db74">&#39;\0&#39;</span>);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 不同国家不同的小数点 */</span>
+</span></span><span style="display:flex;"><span>  buffreplace(ls, <span style="color:#e6db74">&#39;.&#39;</span>, ls<span style="color:#f92672">-&gt;</span>decpoint);  <span style="color:#75715e">/* follow locale for decimal point */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>luaO_str2d(luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff), <span style="color:#f92672">&amp;</span>seminfo<span style="color:#f92672">-&gt;</span>r))  <span style="color:#75715e">/* format error? */</span>
+</span></span><span style="display:flex;"><span>    trydecpoint(ls, seminfo); <span style="color:#75715e">/* try to update decimal point separator */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 尝试读取多行字符串的开头或结尾 --[{=}[ 或者 ]{=}] */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">skip_sep</span> (LexState <span style="color:#f92672">*</span>ls) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> count <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> s <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>current;
+</span></span><span style="display:flex;"><span>  lua_assert(s <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;[&#39;</span> <span style="color:#f92672">||</span> s <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;]&#39;</span>);
+</span></span><span style="display:flex;"><span>  save_and_next(ls);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;=&#39;</span>) {
+</span></span><span style="display:flex;"><span>    save_and_next(ls);
+</span></span><span style="display:flex;"><span>    count<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> s) <span style="color:#f92672">?</span> count : (<span style="color:#f92672">-</span>count) <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 读取一个长字符串和&#34;结尾控制符&#34;(长注释或String的token)(同时更新linenumber) */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">read_long_string</span> (LexState <span style="color:#f92672">*</span>ls, SemInfo <span style="color:#f92672">*</span>seminfo, <span style="color:#66d9ef">int</span> sep) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> cont <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>  (<span style="color:#66d9ef">void</span>)(cont);  <span style="color:#75715e">/* avoid warnings when `cont&#39; is not used */</span>
+</span></span><span style="display:flex;"><span>  save_and_next(ls);  		<span style="color:#75715e">/* skip 2nd `[&#39; */</span>
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (currIsNewline(ls))  	<span style="color:#75715e">/* string starts with a newline? */</span>
+</span></span><span style="display:flex;"><span>    inclinenumber(ls);  <span style="color:#75715e">/* skip it */</span>
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (;;) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">switch</span> (ls<span style="color:#f92672">-&gt;</span>current) {
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> EOZ:
+</span></span><span style="display:flex;"><span>        luaX_lexerror(ls, (seminfo) <span style="color:#f92672">?</span> <span style="color:#e6db74">&#34;unfinished long string&#34;</span> <span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>                                   <span style="color:#e6db74">&#34;unfinished long comment&#34;</span>, TK_EOS);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>;  <span style="color:#75715e">/* to avoid warnings */</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#if defined(LUA_COMPAT_LSTR)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;[&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (skip_sep(ls) <span style="color:#f92672">==</span> sep) {
+</span></span><span style="display:flex;"><span>          save_and_next(ls);  <span style="color:#75715e">/* skip 2nd `[&#39; */</span>
+</span></span><span style="display:flex;"><span>          cont<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#if LUA_COMPAT_LSTR == 1
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>            luaX_lexerror(ls, <span style="color:#e6db74">&#34;nesting of [[...]] is deprecated&#34;</span>, <span style="color:#e6db74">&#39;[&#39;</span>);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;]&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (skip_sep(ls) <span style="color:#f92672">==</span> sep) {
+</span></span><span style="display:flex;"><span>          save_and_next(ls);  <span style="color:#75715e">/* skip 2nd `]&#39; */</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#if defined(LUA_COMPAT_LSTR) &amp;&amp; LUA_COMPAT_LSTR == 2
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          cont<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> cont <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>) <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#66d9ef">goto</span> endloop;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\n&#39;</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\r&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        save(ls, <span style="color:#e6db74">&#39;\n&#39;</span>);	
+</span></span><span style="display:flex;"><span>        inclinenumber(ls);	<span style="color:#75715e">/* 注释的业务中也不能忘了linenumber */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>seminfo) luaZ_resetbuffer(ls<span style="color:#f92672">-&gt;</span>buff);  <span style="color:#75715e">/* avoid wasting space */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (seminfo) save_and_next(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> next(ls);
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  } endloop:
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* seminfo为null是注释逻辑，注释不用管里面的具体String，否则是一个正常的String的token，需将String保存 */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (seminfo) {
+</span></span><span style="display:flex;"><span>  	<span style="color:#75715e">/* 2+sep:[{=}[ */</span>
+</span></span><span style="display:flex;"><span>    seminfo<span style="color:#f92672">-&gt;</span>ts <span style="color:#f92672">=</span> luaX_newstring(ls, luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff) <span style="color:#f92672">+</span> (<span style="color:#ae81ff">2</span> <span style="color:#f92672">+</span> sep),	
+</span></span><span style="display:flex;"><span>                                     luaZ_bufflen(ls<span style="color:#f92672">-&gt;</span>buff) <span style="color:#f92672">-</span> <span style="color:#ae81ff">2</span><span style="color:#f92672">*</span>(<span style="color:#ae81ff">2</span> <span style="color:#f92672">+</span> sep));
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 读一个&#34;字符串&#34;或&#39;字符串&#39;格式的字符串 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">read_string</span> (LexState <span style="color:#f92672">*</span>ls, <span style="color:#66d9ef">int</span> del, SemInfo <span style="color:#f92672">*</span>seminfo) {
+</span></span><span style="display:flex;"><span>  save_and_next(ls);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> del) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">switch</span> (ls<span style="color:#f92672">-&gt;</span>current) {
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> EOZ:
+</span></span><span style="display:flex;"><span>        luaX_lexerror(ls, <span style="color:#e6db74">&#34;unfinished string&#34;</span>, TK_EOS);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">continue</span>;  <span style="color:#75715e">/* to avoid warnings */</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\n&#39;</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\r&#39;</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>        luaX_lexerror(ls, <span style="color:#e6db74">&#34;unfinished string&#34;</span>, TK_STRING);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">continue</span>;  <span style="color:#75715e">/* to avoid warnings */</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\\&#39;</span><span style="color:#f92672">:</span> {	<span style="color:#75715e">/* 可能的转移序列 */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> c;
+</span></span><span style="display:flex;"><span>        next(ls);  <span style="color:#75715e">/* do not save the `\&#39; */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">switch</span> (ls<span style="color:#f92672">-&gt;</span>current) {
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;a&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\a&#39;</span>; <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;b&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\b&#39;</span>; <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;f&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\f&#39;</span>; <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;n&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\n&#39;</span>; <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;r&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\r&#39;</span>; <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;t&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\t&#39;</span>; <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;v&#39;</span><span style="color:#f92672">:</span> c <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;\v&#39;</span>; <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>		  <span style="color:#75715e">/* 本身就是一个换行符 */</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\n&#39;</span><span style="color:#f92672">:</span>  <span style="color:#75715e">/* go through */</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\r&#39;</span><span style="color:#f92672">:</span> save(ls, <span style="color:#e6db74">&#39;\n&#39;</span>); inclinenumber(ls); <span style="color:#66d9ef">continue</span>;
+</span></span><span style="display:flex;"><span>		  
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> EOZ: <span style="color:#66d9ef">continue</span>;  <span style="color:#75715e">/* will raise an error next loop */</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>isdigit(ls<span style="color:#f92672">-&gt;</span>current))
+</span></span><span style="display:flex;"><span>              save_and_next(ls);  <span style="color:#75715e">/* handles \\, \&#34;, \&#39;, and \? */</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* \xxx */</span>
+</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">int</span> i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>              c <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>                c <span style="color:#f92672">=</span> <span style="color:#ae81ff">10</span><span style="color:#f92672">*</span>c <span style="color:#f92672">+</span> (ls<span style="color:#f92672">-&gt;</span>current<span style="color:#f92672">-</span><span style="color:#e6db74">&#39;0&#39;</span>);
+</span></span><span style="display:flex;"><span>                next(ls);
+</span></span><span style="display:flex;"><span>              } <span style="color:#66d9ef">while</span> (<span style="color:#f92672">++</span>i<span style="color:#f92672">&lt;</span><span style="color:#ae81ff">3</span> <span style="color:#f92672">&amp;&amp;</span> isdigit(ls<span style="color:#f92672">-&gt;</span>current));
+</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">if</span> (c <span style="color:#f92672">&gt;</span> UCHAR_MAX)
+</span></span><span style="display:flex;"><span>                luaX_lexerror(ls, <span style="color:#e6db74">&#34;escape sequence too large&#34;</span>, TK_STRING);
+</span></span><span style="display:flex;"><span>              save(ls, c);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">continue</span>;
+</span></span><span style="display:flex;"><span>          }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        save(ls, c);
+</span></span><span style="display:flex;"><span>        next(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">continue</span>;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>        save_and_next(ls);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  save_and_next(ls);  <span style="color:#75715e">/* skip delimiter(分隔符) */</span>
+</span></span><span style="display:flex;"><span>  seminfo<span style="color:#f92672">-&gt;</span>ts <span style="color:#f92672">=</span> luaX_newstring(ls, luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff) <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>,
+</span></span><span style="display:flex;"><span>                                   luaZ_bufflen(ls<span style="color:#f92672">-&gt;</span>buff) <span style="color:#f92672">-</span> <span style="color:#ae81ff">2</span>);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 从读取下一个字符token 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 从ZIO读取下一个token到seminfo,并返回TokenType(中途可能用到lx-&gt;buff)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">llex</span> (LexState <span style="color:#f92672">*</span>ls, SemInfo <span style="color:#f92672">*</span>seminfo) {
+</span></span><span style="display:flex;"><span>  luaZ_resetbuffer(ls<span style="color:#f92672">-&gt;</span>buff);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (;;) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">switch</span> (ls<span style="color:#f92672">-&gt;</span>current) {
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\n&#39;</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\r&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        inclinenumber(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">continue</span>;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;-&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        next(ls);
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">/* 单独的 - */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;-&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;-&#39;</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* else is a comment */</span>
+</span></span><span style="display:flex;"><span>        next(ls);	<span style="color:#75715e">/* 单行OR多行注释? */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;[&#39;</span>) {
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">int</span> sep <span style="color:#f92672">=</span> skip_sep(ls);
+</span></span><span style="display:flex;"><span>          luaZ_resetbuffer(ls<span style="color:#f92672">-&gt;</span>buff);  <span style="color:#75715e">/* `skip_sep&#39; may dirty the buffer */</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>) {
+</span></span><span style="display:flex;"><span>            read_long_string(ls, NULL, sep);  <span style="color:#75715e">/* long comment */</span>
+</span></span><span style="display:flex;"><span>            luaZ_resetbuffer(ls<span style="color:#f92672">-&gt;</span>buff);
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">continue</span>;
+</span></span><span style="display:flex;"><span>          }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* else short comment */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (<span style="color:#f92672">!</span>currIsNewline(ls) <span style="color:#f92672">&amp;&amp;</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> EOZ)
+</span></span><span style="display:flex;"><span>          next(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">continue</span>;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;[&#39;</span><span style="color:#f92672">:</span> {	<span style="color:#75715e">/* 长字符串: [{=}[ String ]{=}] */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> sep <span style="color:#f92672">=</span> skip_sep(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>) {	<span style="color:#75715e">/* 多行字符串开头 [{=}[ */</span>
+</span></span><span style="display:flex;"><span>          read_long_string(ls, seminfo, sep);
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">return</span> TK_STRING;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (sep <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;[&#39;</span>;	<span style="color:#75715e">/* [,others这样的开头 */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> luaX_lexerror(ls, <span style="color:#e6db74">&#34;invalid long string delimiter&#34;</span>, TK_STRING);		<span style="color:#75715e">/* [={=},others这样的开头 */</span>
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;=&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        next(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;=&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;=&#39;</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> { next(ls); <span style="color:#66d9ef">return</span> TK_EQ; }
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;&lt;&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        next(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;=&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;&lt;&#39;</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> { next(ls); <span style="color:#66d9ef">return</span> TK_LE; }
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;&gt;&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        next(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;=&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;&gt;&#39;</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> { next(ls); <span style="color:#66d9ef">return</span> TK_GE; }
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;~&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        next(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;=&#39;</span>) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;~&#39;</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> { next(ls); <span style="color:#66d9ef">return</span> TK_NE; }
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>	  <span style="color:#75715e">/* 短字符串 */</span>
+</span></span><span style="display:flex;"><span>	  <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;&#34;&#39;</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;\&#39;&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        read_string(ls, ls<span style="color:#f92672">-&gt;</span>current, seminfo);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> TK_STRING;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>	  <span style="color:#75715e">/* 看这个符号的解析，是一个深度优先的解析示例 */</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> <span style="color:#e6db74">&#39;.&#39;</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        save_and_next(ls);
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (check_next(ls, <span style="color:#e6db74">&#34;.&#34;</span>)) {
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">if</span> (check_next(ls, <span style="color:#e6db74">&#34;.&#34;</span>))
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> TK_DOTS;   <span style="color:#75715e">/* ... */</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">return</span> TK_CONCAT;   <span style="color:#75715e">/* .. */</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>isdigit(ls<span style="color:#f92672">-&gt;</span>current)) <span style="color:#66d9ef">return</span> <span style="color:#e6db74">&#39;.&#39;</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>          read_numeral(ls, seminfo);
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">return</span> TK_NUMBER;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">case</span> EOZ: {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> TK_EOS;
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (isspace(ls<span style="color:#f92672">-&gt;</span>current)) {
+</span></span><span style="display:flex;"><span>          lua_assert(<span style="color:#f92672">!</span>currIsNewline(ls));	<span style="color:#75715e">/* 换行符在前面就被解析掉了，这里不能再是换行符了,否则就重复了 */</span>
+</span></span><span style="display:flex;"><span>          next(ls);
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">continue</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (isdigit(ls<span style="color:#f92672">-&gt;</span>current)) {
+</span></span><span style="display:flex;"><span>          read_numeral(ls, seminfo);
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">return</span> TK_NUMBER;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (isalpha(ls<span style="color:#f92672">-&gt;</span>current) <span style="color:#f92672">||</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;_&#39;</span>) {	<span style="color:#75715e">/* 标识符 */</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#75715e">/* identifier or reserved word */</span>
+</span></span><span style="display:flex;"><span>          TString <span style="color:#f92672">*</span>ts;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">do</span> {
+</span></span><span style="display:flex;"><span>            save_and_next(ls);
+</span></span><span style="display:flex;"><span>          } <span style="color:#66d9ef">while</span> (isalnum(ls<span style="color:#f92672">-&gt;</span>current) <span style="color:#f92672">||</span> ls<span style="color:#f92672">-&gt;</span>current <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;_&#39;</span>);	<span style="color:#75715e">/* 这里和上面的有一点差别 */</span>
+</span></span><span style="display:flex;"><span>		  
+</span></span><span style="display:flex;"><span>          ts <span style="color:#f92672">=</span> luaX_newstring(ls, luaZ_buffer(ls<span style="color:#f92672">-&gt;</span>buff),
+</span></span><span style="display:flex;"><span>                                  luaZ_bufflen(ls<span style="color:#f92672">-&gt;</span>buff));
+</span></span><span style="display:flex;"><span>		  <span style="color:#75715e">/* 关键或保留字符串 */</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">if</span> (ts<span style="color:#f92672">-&gt;</span>tsv.reserved <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>)  <span style="color:#75715e">/* reserved word? */</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> ts<span style="color:#f92672">-&gt;</span>tsv.reserved <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">+</span> FIRST_RESERVED;
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            seminfo<span style="color:#f92672">-&gt;</span>ts <span style="color:#f92672">=</span> ts;
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> TK_NAME;
+</span></span><span style="display:flex;"><span>          }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>current;
+</span></span><span style="display:flex;"><span>          next(ls);
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">return</span> c;  <span style="color:#75715e">/* single-char tokens (+ - / ...) */</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_next</span> (LexState <span style="color:#f92672">*</span>ls) {
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>lastline <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>linenumber
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 已有一个准备好的lookhead&#39;token,则取出来用 */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">!=</span> TK_EOS) {  <span style="color:#75715e">/* is there a look-ahead token? */</span>
+</span></span><span style="display:flex;"><span>    ls<span style="color:#f92672">-&gt;</span>t <span style="color:#f92672">=</span> ls<span style="color:#f92672">-&gt;</span>lookahead;  <span style="color:#75715e">/* use this one */</span>
+</span></span><span style="display:flex;"><span>    ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">=</span> TK_EOS;  <span style="color:#75715e">/* and discharge it */</span>
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> <span style="color:#75715e">/* 读取一个token */</span>
+</span></span><span style="display:flex;"><span>    ls<span style="color:#f92672">-&gt;</span>t.token <span style="color:#f92672">=</span> llex(ls, <span style="color:#f92672">&amp;</span>ls<span style="color:#f92672">-&gt;</span>t.seminfo);  <span style="color:#75715e">/* read next token */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 当前lookhead&#39;token已过期，重新准备lookhead&#39;token */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaX_lookahead</span> (LexState <span style="color:#f92672">*</span>ls) {
+</span></span><span style="display:flex;"><span>  lua_assert(ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">==</span> TK_EOS);
+</span></span><span style="display:flex;"><span>  ls<span style="color:#f92672">-&gt;</span>lookahead.token <span style="color:#f92672">=</span> llex(ls, <span style="color:#f92672">&amp;</span>ls<span style="color:#f92672">-&gt;</span>lookahead.seminfo);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div>
     </div>
     <footer class="post-footer">
      
@@ -767,7 +767,7 @@ TString <span style="color:#f92672">*</span><span style="color:#a6e22e">luaX_new
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -827,7 +827,7 @@ TString <span style="color:#f92672">*</span><span style="color:#a6e22e">luaX_new
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

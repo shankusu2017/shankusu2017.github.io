@@ -216,28 +216,28 @@ Go能够自动管理内存分配。这可以防止一大类潜在错误，但是
 <p>但是不幸的是，不是所有数据都能使用栈上分配的内存。栈分配要求可以在编译时确定变量的生存期和内存占用量。然而堆上的动态分配发生在运行时。malloc必须去找一块儿足够大的空闲内存来保存新值。然后垃圾收集器扫描堆以查找不再引用的对象。毫无疑问，它比堆栈分配使用的两条指令要贵得多。</p>
 <p>编译器使用逃逸分析技术去选择堆或者栈。基本思想是在编译时期进行垃圾收集工作。编译器追踪代码域变量的作用范围。它使用追踪数据来检查哪些变量的生命周期是完全可知的。如果变量通过这些检查，则可以在栈上进行分配。如果没通过，也就是所说的逃逸，则必须在堆上分配。</p>
 <p>go语言里没有明确说明逃逸分析规则。对于Go程序员来说，最直接去了解规则的方式就是去实验。通过构建时候加上go build -gcflags &lsquo;-m&rsquo;，可以看到逃逸分析结果。我们看一个例子。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
- 
-<span style="color:#f92672">import</span> <span style="color:#e6db74">&#34;fmt&#34;</span>
- 
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-        <span style="color:#a6e22e">x</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">42</span>
-        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">x</span>)
-}
-</code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ go build -gcflags <span style="color:#e6db74">&#39;-m&#39;</span> ./main.go
-<span style="color:#75715e"># command-line-arguments</span>
-./main.go:7: x escapes to heap
-./main.go:7: main ... argument does not escape
-</code></pre></div><p>我们这里看到变量x“逃逸到堆上”，因为它是在运行时期动态在堆上分配的。这个例子可能有点困惑。我们肉眼看上去，显然x变量在main()方法上不会逃逸。编译器输出并没有解释为什么它会认为变量逃逸了。为了看到更多细节，再加上一个-m参数，可以看到更多输出</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ go build -gcflags <span style="color:#e6db74">&#39;-m -m&#39;</span> ./main.go
-<span style="color:#75715e"># command-line-arguments</span>
-./main.go:5: cannot inline main: non-leaf <span style="color:#66d9ef">function</span>
-./main.go:7: x escapes to heap
-./main.go:7:         from ... argument <span style="color:#f92672">(</span>arg to ...<span style="color:#f92672">)</span> at ./main.go:7
-./main.go:7:         from *<span style="color:#f92672">(</span>... argument<span style="color:#f92672">)</span> <span style="color:#f92672">(</span>indirection<span style="color:#f92672">)</span> at ./main.go:7
-./main.go:7:         from ... argument <span style="color:#f92672">(</span>passed to call<span style="color:#f92672">[</span>argument content escapes<span style="color:#f92672">])</span> at ./main.go:7
-./main.go:7: main ... argument does not escape
-</code></pre></div><p>这说明，x逃逸是因为它被传入一个方法参数里，这个方法参数自己逃逸了。后面可以看到更多这种情况。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#f92672">import</span> <span style="color:#e6db74">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">x</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">42</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#a6e22e">x</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go build -gcflags <span style="color:#e6db74">&#39;-m&#39;</span> ./main.go
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># command-line-arguments</span>
+</span></span><span style="display:flex;"><span>./main.go:7: x escapes to heap
+</span></span><span style="display:flex;"><span>./main.go:7: main ... argument does not escape
+</span></span></code></pre></div><p>我们这里看到变量x“逃逸到堆上”，因为它是在运行时期动态在堆上分配的。这个例子可能有点困惑。我们肉眼看上去，显然x变量在main()方法上不会逃逸。编译器输出并没有解释为什么它会认为变量逃逸了。为了看到更多细节，再加上一个-m参数，可以看到更多输出</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go build -gcflags <span style="color:#e6db74">&#39;-m -m&#39;</span> ./main.go
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># command-line-arguments</span>
+</span></span><span style="display:flex;"><span>./main.go:5: cannot inline main: non-leaf <span style="color:#66d9ef">function</span>
+</span></span><span style="display:flex;"><span>./main.go:7: x escapes to heap
+</span></span><span style="display:flex;"><span>./main.go:7:         from ... argument <span style="color:#f92672">(</span>arg to ...<span style="color:#f92672">)</span> at ./main.go:7
+</span></span><span style="display:flex;"><span>./main.go:7:         from *<span style="color:#f92672">(</span>... argument<span style="color:#f92672">)</span> <span style="color:#f92672">(</span>indirection<span style="color:#f92672">)</span> at ./main.go:7
+</span></span><span style="display:flex;"><span>./main.go:7:         from ... argument <span style="color:#f92672">(</span>passed to call<span style="color:#f92672">[</span>argument content escapes<span style="color:#f92672">])</span> at ./main.go:7
+</span></span><span style="display:flex;"><span>./main.go:7: main ... argument does not escape
+</span></span></code></pre></div><p>这说明，x逃逸是因为它被传入一个方法参数里，这个方法参数自己逃逸了。后面可以看到更多这种情况。</p>
 <p>规则可能看上去是随意的，经过工具的尝试，一些规律显现出来。这里列出了一些典型的导致逃逸的情况：</p>
 <ol>
 <li>**发送指针或者是带有指针的值到channel里。**编译时期没有办法知道哪个goroutine会受到channel中的数据。因此编译器无法确定这个数据什么时候不再被引用到。</li>
@@ -259,43 +259,43 @@ Go能够自动管理内存分配。这可以防止一大类潜在错误，但是
 <p>减少指针不仅减少垃圾回收的工作量，还会生存出”cache友好“的代码。读取内存会将数据从主存移到CPU cache中。Caches是优先的，因此必须清掉一些数据来腾出空间。cache清掉的数据可能会和程序的其它部分相关。由此产生的cache抖动可能会导致不可预期行为和突然改变生产服务的行为。</p>
 <p><strong>指针深入</strong>
 减少指针使用通常意需要味着深入研究用于构建程序的类型的源代码。我们的服务Centrifuge保留了一个失败操作队列，来作为重试循环缓冲区去进行重试，它包含一组如下所示的数据结构：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">retryQueue</span> <span style="color:#66d9ef">struct</span> {
-    <span style="color:#a6e22e">buckets</span>       [][]<span style="color:#a6e22e">retryItem</span> <span style="color:#75715e">// each bucket represents a 1 second interval
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">currentTime</span>   <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>
-    <span style="color:#a6e22e">currentOffset</span> <span style="color:#66d9ef">int</span>
-}
- 
-<span style="color:#66d9ef">type</span> <span style="color:#a6e22e">retryItem</span> <span style="color:#66d9ef">struct</span> {
-    <span style="color:#a6e22e">id</span>   <span style="color:#a6e22e">ksuid</span>.<span style="color:#a6e22e">KSUID</span> <span style="color:#75715e">// ID of the item to retry
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">time</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>   <span style="color:#75715e">// exact time at which the item has to be retried
-</span><span style="color:#75715e"></span>}
-</code></pre></div><p>数组buckets的外部大小是一个常量值，但是[]retryItem所包含的items会在运行时期改变。重试次数越多，这些slices就变越大。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">retryQueue</span> <span style="color:#66d9ef">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">buckets</span>       [][]<span style="color:#a6e22e">retryItem</span> <span style="color:#75715e">// each bucket represents a 1 second interval
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">currentTime</span>   <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">currentOffset</span> <span style="color:#66d9ef">int</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">retryItem</span> <span style="color:#66d9ef">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">id</span>   <span style="color:#a6e22e">ksuid</span>.<span style="color:#a6e22e">KSUID</span> <span style="color:#75715e">// ID of the item to retry
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">time</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>   <span style="color:#75715e">// exact time at which the item has to be retried
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><p>数组buckets的外部大小是一个常量值，但是[]retryItem所包含的items会在运行时期改变。重试次数越多，这些slices就变越大。</p>
 <p>深入来看一下retryItem细节，我们了解到KSUID是一个[20]byte的同名类型，不包含指针，因此被逃逸规则排除在外。currentOffset是一个int值，是一个固定大小的原始值，也可以排除。下面看一下，time.Time的实现：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">Time</span> <span style="color:#66d9ef">struct</span> {
-    <span style="color:#a6e22e">sec</span>  <span style="color:#66d9ef">int64</span>
-    <span style="color:#a6e22e">nsec</span> <span style="color:#66d9ef">int32</span>
-    <span style="color:#a6e22e">loc</span>  <span style="color:#f92672">*</span><span style="color:#a6e22e">Location</span> <span style="color:#75715e">// pointer to the time zone structure
-</span><span style="color:#75715e"></span>}
-</code></pre></div><p>time.Time结构内部包含一个loc的指针。在retryItem内部使用它导致了在每次变量通过堆区域时候，GC都会去标记struct上的指针。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">Time</span> <span style="color:#66d9ef">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">sec</span>  <span style="color:#66d9ef">int64</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">nsec</span> <span style="color:#66d9ef">int32</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">loc</span>  <span style="color:#f92672">*</span><span style="color:#a6e22e">Location</span> <span style="color:#75715e">// pointer to the time zone structure
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><p>time.Time结构内部包含一个loc的指针。在retryItem内部使用它导致了在每次变量通过堆区域时候，GC都会去标记struct上的指针。</p>
 <p>我们发现这是在不可预期情况下级联效应的典型情况。通常情况下操作失败是很少见的。只有小量的内存去存这个retries的变量。当失败操作激增，retry队列会每秒增加到上千个，这会大大增加垃圾回收器的工作量。</p>
 <p>对于这种特殊使用场景，time.Time的time信息其实是不必要的。这些时间戳存在内存中，永远不会被序列化。可以重构这些数据结构以完全避免time类型出现。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">retryItem</span> <span style="color:#66d9ef">struct</span> {
-    <span style="color:#a6e22e">id</span>   <span style="color:#a6e22e">ksuid</span>.<span style="color:#a6e22e">KSUID</span>
-    <span style="color:#a6e22e">nsec</span> <span style="color:#66d9ef">uint32</span>
-    <span style="color:#a6e22e">sec</span>  <span style="color:#66d9ef">int64</span>
-}
- 
-<span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">item</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">retryItem</span>) <span style="color:#a6e22e">time</span>() <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span> {
-    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Unix</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">sec</span>, int64(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">nsec</span>))
-}
- 
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">makeRetryItem</span>(<span style="color:#a6e22e">id</span> <span style="color:#a6e22e">ksuid</span>.<span style="color:#a6e22e">KSUID</span>, <span style="color:#a6e22e">time</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>) <span style="color:#a6e22e">retryItem</span> {
-    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">retryItem</span>{
-        <span style="color:#a6e22e">id</span>:   <span style="color:#a6e22e">id</span>,
-        <span style="color:#a6e22e">nsec</span>: uint32(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Nanosecond</span>()),
-        <span style="color:#a6e22e">sec</span>:  <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Unix</span>(),
-}
-</code></pre></div><p>现在retryItem不包含任何指针。这样极大的减少了垃圾回收器的工作负载，编译器知道retryItem的整个足迹。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">retryItem</span> <span style="color:#66d9ef">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">id</span>   <span style="color:#a6e22e">ksuid</span>.<span style="color:#a6e22e">KSUID</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">nsec</span> <span style="color:#66d9ef">uint32</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">sec</span>  <span style="color:#66d9ef">int64</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">item</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">retryItem</span>) <span style="color:#a6e22e">time</span>() <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Unix</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">sec</span>, int64(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">nsec</span>))
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">makeRetryItem</span>(<span style="color:#a6e22e">id</span> <span style="color:#a6e22e">ksuid</span>.<span style="color:#a6e22e">KSUID</span>, <span style="color:#a6e22e">time</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>) <span style="color:#a6e22e">retryItem</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">retryItem</span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">id</span>:   <span style="color:#a6e22e">id</span>,
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">nsec</span>: uint32(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Nanosecond</span>()),
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">sec</span>:  <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Unix</span>(),
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>现在retryItem不包含任何指针。这样极大的减少了垃圾回收器的工作负载，编译器知道retryItem的整个足迹。</p>
 <p><strong>请给我传切片(Slice)</strong>
 slice使用很容易会产生低效分配代码。除非编译器知道slice的大小，否则slice(和maps)的底层数组会分配到堆上。我们来看一下一些方法，让slice在栈上分配而不是在堆上。</p>
 <p>Centrifuge集中使用了Mysql。整个程序的效率严重依赖了Mysql driver的效率。在使用pprof去分析了分配行为之后，我们发现Go MySQL driver代码序列化time.Time值的代价十分昂贵。</p>
@@ -307,20 +307,20 @@ slice使用很容易会产生低效分配代码。除非编译器知道slice的�
 <p>事实证明，有一种更加有效的方式来做同样的事情。虽然Format()方法方便容易，但是我们使用AppendFormat()在分配器上会更轻松。观察源码库，我们注意到所有内部的使用都是AppendFormat()而非Format()，这是一个重要提示，AppendFormat()的性能更高。</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/5b5b7511bf51b5445fee061c201b666e.png" alt=""></p>
 <p>实际上，Format方法仅仅是包装了一下AppendFormat方法：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">t</span> <span style="color:#a6e22e">Time</span>) <span style="color:#a6e22e">Format</span>(<span style="color:#a6e22e">layout</span> <span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">string</span> {
-          <span style="color:#66d9ef">const</span> <span style="color:#a6e22e">bufSize</span> = <span style="color:#ae81ff">64</span>
-          <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">b</span> []<span style="color:#66d9ef">byte</span>
-          <span style="color:#a6e22e">max</span> <span style="color:#f92672">:=</span> len(<span style="color:#a6e22e">layout</span>) <span style="color:#f92672">+</span> <span style="color:#ae81ff">10</span>
-          <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">max</span> &lt; <span style="color:#a6e22e">bufSize</span> {
-                  <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">buf</span> [<span style="color:#a6e22e">bufSize</span>]<span style="color:#66d9ef">byte</span>
-                  <span style="color:#a6e22e">b</span> = <span style="color:#a6e22e">buf</span>[:<span style="color:#ae81ff">0</span>]
-          } <span style="color:#66d9ef">else</span> {
-                  <span style="color:#a6e22e">b</span> = make([]<span style="color:#66d9ef">byte</span>, <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">max</span>)
-          }
-          <span style="color:#a6e22e">b</span> = <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">AppendFormat</span>(<span style="color:#a6e22e">b</span>, <span style="color:#a6e22e">layout</span>)
-          <span style="color:#66d9ef">return</span> string(<span style="color:#a6e22e">b</span>)
-}
-</code></pre></div><p>更重要的是，AppendFormat()给程序员提供更多分配控制。传递slice而不是像Format()自己在内部分配。相比Format，直接使用AppendFormat()可以使用固定大小的slice分配，因此内存分配会在栈空间上面。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">t</span> <span style="color:#a6e22e">Time</span>) <span style="color:#a6e22e">Format</span>(<span style="color:#a6e22e">layout</span> <span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">string</span> {
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">const</span> <span style="color:#a6e22e">bufSize</span> = <span style="color:#ae81ff">64</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">b</span> []<span style="color:#66d9ef">byte</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#a6e22e">max</span> <span style="color:#f92672">:=</span> len(<span style="color:#a6e22e">layout</span>) <span style="color:#f92672">+</span> <span style="color:#ae81ff">10</span>
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">max</span> &lt; <span style="color:#a6e22e">bufSize</span> {
+</span></span><span style="display:flex;"><span>                  <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">buf</span> [<span style="color:#a6e22e">bufSize</span>]<span style="color:#66d9ef">byte</span>
+</span></span><span style="display:flex;"><span>                  <span style="color:#a6e22e">b</span> = <span style="color:#a6e22e">buf</span>[:<span style="color:#ae81ff">0</span>]
+</span></span><span style="display:flex;"><span>          } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>                  <span style="color:#a6e22e">b</span> = make([]<span style="color:#66d9ef">byte</span>, <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">max</span>)
+</span></span><span style="display:flex;"><span>          }
+</span></span><span style="display:flex;"><span>          <span style="color:#a6e22e">b</span> = <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">AppendFormat</span>(<span style="color:#a6e22e">b</span>, <span style="color:#a6e22e">layout</span>)
+</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">return</span> string(<span style="color:#a6e22e">b</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>更重要的是，AppendFormat()给程序员提供更多分配控制。传递slice而不是像Format()自己在内部分配。相比Format，直接使用AppendFormat()可以使用固定大小的slice分配，因此内存分配会在栈空间上面。</p>
 <p>可以看一下我们给Go MySQL driver提的这个PR</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/e366b7b3992e86e8c382accbb48d8918.png" alt=""></p>
 <p>首先注意到var a [64]byte是一个大小固定的数组。编译期间我们知道它的大小，以及它的作用域仅在这个方法里，所以我们知道它会被分配在栈空间里。</p>
@@ -330,133 +330,133 @@ slice使用很容易会产生低效分配代码。除非编译器知道slice的�
 <h1 id="接口类型">接口类型</h1>
 <p>众所周知，接口类型上进行方法调用比struct类型上进行方法调用要昂贵的多。接口类型的方法调用通过动态调度执行。这严重限制了编译器确定代码在运行时执行方式的能力。到目前为止，我们已经在很大程度上讨论了类型固定的代码，以便编译器能够在编译时最好地理解它的行为。 接口类型抛弃了所有这些规则！</p>
 <p>不幸的是接口类型在抽象层面非常有用 &mdash; 它可以让我们写出更加灵活的代码。程序里常用的热路径代码的相关实例就是标准库提供的hash包。hash包定义了一系列常规接口并提供了几个具体实现。我们看一个例子。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
- 
-<span style="color:#f92672">import</span> (
-        <span style="color:#e6db74">&#34;fmt&#34;</span>
-        <span style="color:#e6db74">&#34;hash/fnv&#34;</span>
-)
- 
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">hashIt</span>(<span style="color:#a6e22e">in</span> <span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">uint64</span> {
-        <span style="color:#a6e22e">h</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fnv</span>.<span style="color:#a6e22e">New64a</span>()
-        <span style="color:#a6e22e">h</span>.<span style="color:#a6e22e">Write</span>([]byte(<span style="color:#a6e22e">in</span>))
-        <span style="color:#a6e22e">out</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">h</span>.<span style="color:#a6e22e">Sum64</span>()
-        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">out</span>
-}
- 
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-        <span style="color:#a6e22e">s</span> <span style="color:#f92672">:=</span> <span style="color:#e6db74">&#34;hello&#34;</span>
-        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;The FNV64a hash of &#39;%v&#39; is &#39;%v&#39;\n&#34;</span>, <span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">hashIt</span>(<span style="color:#a6e22e">s</span>))
-}
-</code></pre></div><p>构建检查逃逸分析结果：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">./foo1.go:9:17: inlining call to fnv.New64a
-./foo1.go:10:16: <span style="color:#f92672">([]</span>byte<span style="color:#f92672">)(</span>in<span style="color:#f92672">)</span> escapes to heap
-./foo1.go:9:17: hash.Hash64<span style="color:#f92672">(</span>&amp;fnv.s·2<span style="color:#f92672">)</span> escapes to heap
-./foo1.go:9:17: &amp;fnv.s·2 escapes to heap
-./foo1.go:9:17: moved to heap: fnv.s·2
-./foo1.go:8:24: hashIt in does not escape
-./foo1.go:17:13: s escapes to heap
-./foo1.go:17:59: hashIt<span style="color:#f92672">(</span>s<span style="color:#f92672">)</span> escapes to heap
-./foo1.go:17:12: main ... argument does not escape
-</code></pre></div><p>也就是说，hash对象，输入字符串，以及代表输入的[]byte全都会逃逸到堆上。我们肉眼看上去显然不会逃逸，但是接口类型限制了编译器。不通过hash包的接口就没有办法安全地使用具体的实现。 那么效率相关的开发人员应该做些什么呢？</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#f92672">import</span> (
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;hash/fnv&#34;</span>
+</span></span><span style="display:flex;"><span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">hashIt</span>(<span style="color:#a6e22e">in</span> <span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">uint64</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">h</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fnv</span>.<span style="color:#a6e22e">New64a</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">h</span>.<span style="color:#a6e22e">Write</span>([]byte(<span style="color:#a6e22e">in</span>))
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">out</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">h</span>.<span style="color:#a6e22e">Sum64</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">out</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">s</span> <span style="color:#f92672">:=</span> <span style="color:#e6db74">&#34;hello&#34;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;The FNV64a hash of &#39;%v&#39; is &#39;%v&#39;\n&#34;</span>, <span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">hashIt</span>(<span style="color:#a6e22e">s</span>))
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>构建检查逃逸分析结果：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>./foo1.go:9:17: inlining call to fnv.New64a
+</span></span><span style="display:flex;"><span>./foo1.go:10:16: <span style="color:#f92672">([]</span>byte<span style="color:#f92672">)(</span>in<span style="color:#f92672">)</span> escapes to heap
+</span></span><span style="display:flex;"><span>./foo1.go:9:17: hash.Hash64<span style="color:#f92672">(</span>&amp;fnv.s·2<span style="color:#f92672">)</span> escapes to heap
+</span></span><span style="display:flex;"><span>./foo1.go:9:17: &amp;fnv.s·2 escapes to heap
+</span></span><span style="display:flex;"><span>./foo1.go:9:17: moved to heap: fnv.s·2
+</span></span><span style="display:flex;"><span>./foo1.go:8:24: hashIt in does not escape
+</span></span><span style="display:flex;"><span>./foo1.go:17:13: s escapes to heap
+</span></span><span style="display:flex;"><span>./foo1.go:17:59: hashIt<span style="color:#f92672">(</span>s<span style="color:#f92672">)</span> escapes to heap
+</span></span><span style="display:flex;"><span>./foo1.go:17:12: main ... argument does not escape
+</span></span></code></pre></div><p>也就是说，hash对象，输入字符串，以及代表输入的[]byte全都会逃逸到堆上。我们肉眼看上去显然不会逃逸，但是接口类型限制了编译器。不通过hash包的接口就没有办法安全地使用具体的实现。 那么效率相关的开发人员应该做些什么呢？</p>
 <p>我们在构建Centrifuge的时候遇到了这个问题，Centrifuge在热代码路径对小字符串进行非加密hash。因此我们建立了fasthash库。构建它很直接，困难工作依旧在标准库里做。fasthash只是在没有使用堆分配的情况下重新打包了标准库。</p>
 <p>直接来看一下fasthash版本的代码</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
- 
-<span style="color:#f92672">import</span> (
-        <span style="color:#e6db74">&#34;fmt&#34;</span>
-        <span style="color:#e6db74">&#34;github.com/segmentio/fasthash/fnv1a&#34;</span>
-)
- 
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">hashIt</span>(<span style="color:#a6e22e">in</span> <span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">uint64</span> {
-        <span style="color:#a6e22e">out</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fnv1a</span>.<span style="color:#a6e22e">HashString64</span>(<span style="color:#a6e22e">in</span>)
-        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">out</span>
-}
- 
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-        <span style="color:#a6e22e">s</span> <span style="color:#f92672">:=</span> <span style="color:#e6db74">&#34;hello&#34;</span>
-        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;The FNV64a hash of &#39;%v&#39; is &#39;%v&#39;\n&#34;</span>, <span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">hashIt</span>(<span style="color:#a6e22e">s</span>))
-}
-</code></pre></div><p>看一下逃逸分析输出</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">./foo2.go:9:24: hashIt in does not escape
-./foo2.go:16:13: s escapes to heap
-./foo2.go:16:59: hashIt<span style="color:#f92672">(</span>s<span style="color:#f92672">)</span> escapes to heap
-./foo2.go:16:12: main ... argument does not escape
-</code></pre></div><p>唯一产生的逃逸就是因为fmt.Printf()方法的动态特性。尽管通常我们更喜欢是用标准库，但是在一些情况下需要进行权衡是否要提高分配效率。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#f92672">import</span> (
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;github.com/segmentio/fasthash/fnv1a&#34;</span>
+</span></span><span style="display:flex;"><span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">hashIt</span>(<span style="color:#a6e22e">in</span> <span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">uint64</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">out</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fnv1a</span>.<span style="color:#a6e22e">HashString64</span>(<span style="color:#a6e22e">in</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">out</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">s</span> <span style="color:#f92672">:=</span> <span style="color:#e6db74">&#34;hello&#34;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;The FNV64a hash of &#39;%v&#39; is &#39;%v&#39;\n&#34;</span>, <span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">hashIt</span>(<span style="color:#a6e22e">s</span>))
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>看一下逃逸分析输出</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>./foo2.go:9:24: hashIt in does not escape
+</span></span><span style="display:flex;"><span>./foo2.go:16:13: s escapes to heap
+</span></span><span style="display:flex;"><span>./foo2.go:16:59: hashIt<span style="color:#f92672">(</span>s<span style="color:#f92672">)</span> escapes to heap
+</span></span><span style="display:flex;"><span>./foo2.go:16:12: main ... argument does not escape
+</span></span></code></pre></div><p>唯一产生的逃逸就是因为fmt.Printf()方法的动态特性。尽管通常我们更喜欢是用标准库，但是在一些情况下需要进行权衡是否要提高分配效率。</p>
 <p><strong>一个小窍门</strong>
 我们最后这个事情，不够实际但是很有趣。它有助我们理解编译器的逃逸分析机制。 在查看所涵盖优化的标准库时，我们遇到了一段相当奇怪的代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#75715e">// noescape hides a pointer from escape analysis.  noescape is
-</span><span style="color:#75715e">// the identity function but escape analysis doesn&#39;t think the
-</span><span style="color:#75715e">// output depends on the input.  noescape is inlined and currently
-</span><span style="color:#75715e">// compiles down to zero instructions.
-</span><span style="color:#75715e">// USE CAREFULLY!
-</span><span style="color:#75715e">//go:nosplit
-</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">noescape</span>(<span style="color:#a6e22e">p</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>) <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span> {
-    <span style="color:#a6e22e">x</span> <span style="color:#f92672">:=</span> uintptr(<span style="color:#a6e22e">p</span>)
-    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">x</span> ^ <span style="color:#ae81ff">0</span>)
-}
-</code></pre></div><p>这个方法会让传递的指针逃过编译器的逃逸分析检查。那么这意味着什么呢？我们来设置个实验看一下。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">package main
- 
-import <span style="color:#f92672">(</span>
-        <span style="color:#e6db74">&#34;unsafe&#34;</span>
-<span style="color:#f92672">)</span>
- 
-type Foo struct <span style="color:#f92672">{</span>
-        S *string
-<span style="color:#f92672">}</span>
- 
-func <span style="color:#f92672">(</span>f *Foo<span style="color:#f92672">)</span> String<span style="color:#f92672">()</span> string <span style="color:#f92672">{</span>
-        <span style="color:#66d9ef">return</span> *f.S
-<span style="color:#f92672">}</span>
- 
-type FooTrick struct <span style="color:#f92672">{</span>
-        S unsafe.Pointer
-<span style="color:#f92672">}</span>
- 
-func <span style="color:#f92672">(</span>f *FooTrick<span style="color:#f92672">)</span> String<span style="color:#f92672">()</span> string <span style="color:#f92672">{</span>
-        <span style="color:#66d9ef">return</span> *<span style="color:#f92672">(</span>*string<span style="color:#f92672">)(</span>f.S<span style="color:#f92672">)</span>
-<span style="color:#f92672">}</span>
- 
-func NewFoo<span style="color:#f92672">(</span>s string<span style="color:#f92672">)</span> Foo <span style="color:#f92672">{</span>
-        <span style="color:#66d9ef">return</span> Foo<span style="color:#f92672">{</span>S: &amp;s<span style="color:#f92672">}</span>
-<span style="color:#f92672">}</span>
- 
-func NewFooTrick<span style="color:#f92672">(</span>s string<span style="color:#f92672">)</span> FooTrick <span style="color:#f92672">{</span>
-        <span style="color:#66d9ef">return</span> FooTrick<span style="color:#f92672">{</span>S: noescape<span style="color:#f92672">(</span>unsafe.Pointer<span style="color:#f92672">(</span>&amp;s<span style="color:#f92672">))}</span>
-<span style="color:#f92672">}</span>
- 
-func noescape<span style="color:#f92672">(</span>p unsafe.Pointer<span style="color:#f92672">)</span> unsafe.Pointer <span style="color:#f92672">{</span>
-        x :<span style="color:#f92672">=</span> uintptr<span style="color:#f92672">(</span>p<span style="color:#f92672">)</span>
-        <span style="color:#66d9ef">return</span> unsafe.Pointer<span style="color:#f92672">(</span>x ^ 0<span style="color:#f92672">)</span>
-<span style="color:#f92672">}</span>
- 
-func main<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
-        s :<span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;hello&#34;</span>
-        f1 :<span style="color:#f92672">=</span> NewFoo<span style="color:#f92672">(</span>s<span style="color:#f92672">)</span>
-        f2 :<span style="color:#f92672">=</span> NewFooTrick<span style="color:#f92672">(</span>s<span style="color:#f92672">)</span>
-        s1 :<span style="color:#f92672">=</span> f1.String<span style="color:#f92672">()</span>
-        s2 :<span style="color:#f92672">=</span> f2.String<span style="color:#f92672">()</span>
-<span style="color:#f92672">}</span>
-</code></pre></div><p>这个代码包含两个相同任务的实现：它们包含一个字符串，并使用String()方法返回所持有的字符串。但是，编译器的逃逸分析说明FooTrick版本根本没有逃逸。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">./foo3.go:24:16: &amp;s escapes to heap
-./foo3.go:23:23: moved to heap: s
-./foo3.go:27:28: NewFooTrick s does not escape
-./foo3.go:28:45: NewFooTrick &amp;s does not escape
-./foo3.go:31:33: noescape p does not escape
-./foo3.go:38:14: main &amp;s does not escape
-./foo3.go:39:19: main &amp;s does not escape
-./foo3.go:40:17: main f1 does not escape
-./foo3.go:41:17: main f2 does not escape
-</code></pre></div><p>这两行是最相关的</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">./foo3.go:24:16: &amp;s escapes to heap
-./foo3.go:23:23: moved to heap: s
-</code></pre></div><p>这是编译器认为NewFoo()``方法把拿了一个string类型的引用并把它存到了结构体里，导致了逃逸。但是NewFooTrick()方法并没有这样的输出。如果去掉noescape()，逃逸分析会把FooTrick结构体引用的数据移动到堆上。这里发生了什么?</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">noescape</span>(<span style="color:#a6e22e">p</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>) <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span> {
-    <span style="color:#a6e22e">x</span> <span style="color:#f92672">:=</span> uintptr(<span style="color:#a6e22e">p</span>)
-    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">x</span> ^ <span style="color:#ae81ff">0</span>)
-}
-</code></pre></div><p>noescape()方法掩盖了输入参数和返回值直接的依赖关系。编译器不认为p会通过x逃逸，因为uintptr()会产生一个对编译器不透明的引用。内置的uintptr类型的名称会让人相信它是一个真正的指针类型，但是从编译器的视角来看，它只是一个恰好大到足以存储指针的整数。最后一行代码构造并返回了一个看似任意整数的unsafe.Pointer值。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#75715e">// noescape hides a pointer from escape analysis.  noescape is
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// the identity function but escape analysis doesn&#39;t think the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// output depends on the input.  noescape is inlined and currently
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// compiles down to zero instructions.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// USE CAREFULLY!
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//go:nosplit
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">noescape</span>(<span style="color:#a6e22e">p</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>) <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">x</span> <span style="color:#f92672">:=</span> uintptr(<span style="color:#a6e22e">p</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">x</span> ^ <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这个方法会让传递的指针逃过编译器的逃逸分析检查。那么这意味着什么呢？我们来设置个实验看一下。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>package main
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>import <span style="color:#f92672">(</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#e6db74">&#34;unsafe&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>type Foo struct <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        S *string
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>func <span style="color:#f92672">(</span>f *Foo<span style="color:#f92672">)</span> String<span style="color:#f92672">()</span> string <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> *f.S
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>type FooTrick struct <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        S unsafe.Pointer
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>func <span style="color:#f92672">(</span>f *FooTrick<span style="color:#f92672">)</span> String<span style="color:#f92672">()</span> string <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> *<span style="color:#f92672">(</span>*string<span style="color:#f92672">)(</span>f.S<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>func NewFoo<span style="color:#f92672">(</span>s string<span style="color:#f92672">)</span> Foo <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> Foo<span style="color:#f92672">{</span>S: &amp;s<span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>func NewFooTrick<span style="color:#f92672">(</span>s string<span style="color:#f92672">)</span> FooTrick <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> FooTrick<span style="color:#f92672">{</span>S: noescape<span style="color:#f92672">(</span>unsafe.Pointer<span style="color:#f92672">(</span>&amp;s<span style="color:#f92672">))}</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>func noescape<span style="color:#f92672">(</span>p unsafe.Pointer<span style="color:#f92672">)</span> unsafe.Pointer <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        x :<span style="color:#f92672">=</span> uintptr<span style="color:#f92672">(</span>p<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> unsafe.Pointer<span style="color:#f92672">(</span>x ^ 0<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>func main<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        s :<span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;hello&#34;</span>
+</span></span><span style="display:flex;"><span>        f1 :<span style="color:#f92672">=</span> NewFoo<span style="color:#f92672">(</span>s<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>        f2 :<span style="color:#f92672">=</span> NewFooTrick<span style="color:#f92672">(</span>s<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span>        s1 :<span style="color:#f92672">=</span> f1.String<span style="color:#f92672">()</span>
+</span></span><span style="display:flex;"><span>        s2 :<span style="color:#f92672">=</span> f2.String<span style="color:#f92672">()</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>这个代码包含两个相同任务的实现：它们包含一个字符串，并使用String()方法返回所持有的字符串。但是，编译器的逃逸分析说明FooTrick版本根本没有逃逸。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>./foo3.go:24:16: &amp;s escapes to heap
+</span></span><span style="display:flex;"><span>./foo3.go:23:23: moved to heap: s
+</span></span><span style="display:flex;"><span>./foo3.go:27:28: NewFooTrick s does not escape
+</span></span><span style="display:flex;"><span>./foo3.go:28:45: NewFooTrick &amp;s does not escape
+</span></span><span style="display:flex;"><span>./foo3.go:31:33: noescape p does not escape
+</span></span><span style="display:flex;"><span>./foo3.go:38:14: main &amp;s does not escape
+</span></span><span style="display:flex;"><span>./foo3.go:39:19: main &amp;s does not escape
+</span></span><span style="display:flex;"><span>./foo3.go:40:17: main f1 does not escape
+</span></span><span style="display:flex;"><span>./foo3.go:41:17: main f2 does not escape
+</span></span></code></pre></div><p>这两行是最相关的</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>./foo3.go:24:16: &amp;s escapes to heap
+</span></span><span style="display:flex;"><span>./foo3.go:23:23: moved to heap: s
+</span></span></code></pre></div><p>这是编译器认为NewFoo()``方法把拿了一个string类型的引用并把它存到了结构体里，导致了逃逸。但是NewFooTrick()方法并没有这样的输出。如果去掉noescape()，逃逸分析会把FooTrick结构体引用的数据移动到堆上。这里发生了什么?</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">noescape</span>(<span style="color:#a6e22e">p</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>) <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">x</span> <span style="color:#f92672">:=</span> uintptr(<span style="color:#a6e22e">p</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">x</span> ^ <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>noescape()方法掩盖了输入参数和返回值直接的依赖关系。编译器不认为p会通过x逃逸，因为uintptr()会产生一个对编译器不透明的引用。内置的uintptr类型的名称会让人相信它是一个真正的指针类型，但是从编译器的视角来看，它只是一个恰好大到足以存储指针的整数。最后一行代码构造并返回了一个看似任意整数的unsafe.Pointer值。</p>
 <p>一定要清楚，我们并不推荐使用这种技术。这也是为什么它引用的包叫做unsafe，并且注释里写着USE CAREFULLY!</p>
 <p><strong>总结</strong>
 我们来总结一下关键点：</p>
@@ -543,7 +543,7 @@ func main<span style="color:#f92672">()</span> <span style="color:#f92672">{</sp
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -603,7 +603,7 @@ func main<span style="color:#f92672">()</span> <span style="color:#f92672">{</sp
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

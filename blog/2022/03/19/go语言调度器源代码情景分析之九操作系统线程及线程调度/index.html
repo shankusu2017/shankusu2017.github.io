@@ -196,7 +196,7 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">1865 字 ~4分钟</span>
+<span class="leancloud-visitors-count">1867 字 ~4分钟</span>
 </span>
       </div>
     </header>
@@ -205,45 +205,45 @@
 <p><strong>本文是《go调度器源代码情景分析》系列 第一章 预备知识的第九小节。</strong></p>
 <p>要深入理解goroutine的调度器，就需要对操作系统线程有个大致的了解，因为go的调度系统是建立在操作系统线程之上的，所以接下来我们对其做一个简单的介绍。</p>
 <p>很难对线程下一个准确且易于理解的定义，特别是对于从未接触过多线程编程的读者来说，要搞懂什么是线程可能并不是很容易，所以下面我们抛开定义直接从一个C语言的程序开始来直观的看一下什么是线程。之所以使用C语言，是因为C语言中我们一般使用pthread线程库，而使用该线程库创建的用户态线程其实就是Linux操作系统内核所支持的线程，它与go语言中的工作线程是一样的，这些线程都由Linux内核负责管理和调度，然后go语言在操作系统线程之上又做了goroutine，实现了一个二级线程模型。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;unistd.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;pthread.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">#define N (1000 * 1000 * 1000)
-</span><span style="color:#75715e"></span>
-<span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">int</span> g <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-
-<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">start</span>(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>arg)
-{
-<span style="color:#66d9ef">int</span> i;
-
-<span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> N; i<span style="color:#f92672">++</span>) {
-g<span style="color:#f92672">++</span>;
-}
-
-<span style="color:#66d9ef">return</span> NULL;
-}
-
-<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(<span style="color:#66d9ef">int</span> argc, <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>argv[])
-{
-pthread_t tid;
-
-<span style="color:#75715e">// 使用pthread_create函数创建一个新线程执行start函数
-</span><span style="color:#75715e"></span>pthread_create(<span style="color:#f92672">&amp;</span>tid, NULL, start, NULL);
-
-<span style="color:#66d9ef">for</span> (;;) {
-usleep(<span style="color:#ae81ff">1000</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">100</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">5</span>);
-printf(<span style="color:#e6db74">&#34;loop g: %d</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, g);
-<span style="color:#66d9ef">if</span> (g <span style="color:#f92672">==</span> N) {
-<span style="color:#66d9ef">break</span>;
-}
-}
-
-pthread_join(tid, NULL); <span style="color:#75715e">// 等待子线程结束运行
-</span><span style="color:#75715e"></span>
-<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
-}
-</code></pre></div><p>该程序运行起来之后将会有2个线程，一个是操作系统把程序加载起来运行时创建的主线程，另一个是主线程调用pthread_create创建的start子线程，主线程在创建完子线程之后每隔500毫秒打印一下全局变量 g 的值直到 g 等于10亿，而start线程启动后就开始执行一个10亿次的对 g 自增加 1 的循环，这两个线程同时并发运行在系统中，操作系统负责对它们进行调度，我们无法精确预知某个线程在什么时候会运行。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdio.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;unistd.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;pthread.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define N (1000 * 1000 * 1000)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">int</span> g <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">start</span>(<span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>arg)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> N; i<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>g<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">return</span> NULL;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">main</span>(<span style="color:#66d9ef">int</span> argc, <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>argv[])
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>pthread_t tid;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 使用pthread_create函数创建一个新线程执行start函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>pthread_create(<span style="color:#f92672">&amp;</span>tid, NULL, start, NULL);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (;;) {
+</span></span><span style="display:flex;"><span>usleep(<span style="color:#ae81ff">1000</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">100</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">5</span>);
+</span></span><span style="display:flex;"><span>printf(<span style="color:#e6db74">&#34;loop g: %d</span><span style="color:#ae81ff">\n</span><span style="color:#e6db74">&#34;</span>, g);
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (g <span style="color:#f92672">==</span> N) {
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>pthread_join(tid, NULL); <span style="color:#75715e">// 等待子线程结束运行
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>该程序运行起来之后将会有2个线程，一个是操作系统把程序加载起来运行时创建的主线程，另一个是主线程调用pthread_create创建的start子线程，主线程在创建完子线程之后每隔500毫秒打印一下全局变量 g 的值直到 g 等于10亿，而start线程启动后就开始执行一个10亿次的对 g 自增加 1 的循环，这两个线程同时并发运行在系统中，操作系统负责对它们进行调度，我们无法精确预知某个线程在什么时候会运行。</p>
 <p><strong>关于操作系统对线程的调度，有两个问题需要搞清楚：</strong></p>
 <ol>
 <li>
@@ -258,20 +258,20 @@ pthread_join(tid, NULL); <span style="color:#75715e">// 等待子线程结束运
 <p>硬件中断。硬件中断处理程序由操作系统提供，所以当硬件发生中断时，就会执行操作系统代码。硬件中断有个特别重要的时钟中断，这是操作系统能够发起抢占调度的基础。</p>
 <p>操作系统会在执行操作系统代码路径上的某些点检查是否需要调度，所以操作系统对线程的调度也会相应的发生在上述两种情况之下。</p>
 <p>下面来看一下在笔者的单核电脑上运行该程序的输出：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">bobo@ubuntu:~/study/c$ gcc thread.c -o thread -lpthread
-bobo@ubuntu:~/study/c$ ./thread
-loop g: <span style="color:#ae81ff">98938361</span>
-loop g: <span style="color:#ae81ff">198264794</span>
-loop g: <span style="color:#ae81ff">297862478</span>
-loop g: <span style="color:#ae81ff">396750048</span>
-loop g: <span style="color:#ae81ff">489684941</span>
-loop g: <span style="color:#ae81ff">584723988</span>
-loop g: <span style="color:#ae81ff">679293257</span>
-loop g: <span style="color:#ae81ff">777715939</span>
-loop g: <span style="color:#ae81ff">876083765</span>
-loop g: <span style="color:#ae81ff">974378774</span>
-loop g: <span style="color:#ae81ff">1000000000</span>
-</code></pre></div><p>从输出可以看出，主线程和start线程在轮流着运行，这是操作系统对它们进行了调度的结果，操作系统一会儿把start线程调度起来运行，一会儿又把主线程调度起来运行。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>bobo@ubuntu:~/study/c$ gcc thread.c -o thread -lpthread
+</span></span><span style="display:flex;"><span>bobo@ubuntu:~/study/c$ ./thread
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">98938361</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">198264794</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">297862478</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">396750048</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">489684941</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">584723988</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">679293257</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">777715939</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">876083765</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">974378774</span>
+</span></span><span style="display:flex;"><span>loop g: <span style="color:#ae81ff">1000000000</span>
+</span></span></code></pre></div><p>从输出可以看出，主线程和start线程在轮流着运行，这是操作系统对它们进行了调度的结果，操作系统一会儿把start线程调度起来运行，一会儿又把主线程调度起来运行。</p>
 <p>从程序的输出结果可以看到抢占调度的身影，因为主线程在start线程运行过程中得到了运行，而start线程执行的start函数根本没有系统调用，并且这个程序又运行在单核系统中，没有其它CPU来运行主线程，所以如果没有中断时发生的抢占调度，操作系统就无法获取到CPU的控制权，也就不可能发生线程调度。</p>
 <p>接下来我们再来看看操作系统在调度线程时会做哪些事情。</p>
 <p>如上所述，操作系统会把不同的线程调度到同一个CPU上运行，而每个线程运行时又都会使用CPU的寄存器，但每个CPU却只有一组寄存器，所以操作系统在把线程B调度到CPU上运行时需要首先把刚刚正在运行的线程A所使用到的寄存器的值全部保存在内存之中，然后再把保存在内存中的线程B的寄存器的值全部又放回CPU的寄存器，这样线程B就能恢复到之前运行的状态接着运行。</p>
@@ -358,7 +358,7 @@ loop g: <span style="color:#ae81ff">1000000000</span>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -418,7 +418,7 @@ loop g: <span style="color:#ae81ff">1000000000</span>
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

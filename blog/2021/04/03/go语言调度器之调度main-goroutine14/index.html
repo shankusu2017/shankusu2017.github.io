@@ -208,236 +208,236 @@
 <p>schedule函数有什么重要作用？</p>
 <p>gogo函数如何完成从g0到main goroutine的切换？</p>
 <p>接着前一节继续分析代码，从newproc返回到rt0_go，继续往下执行mstart。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">1153</span>
-
- 
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">mstart</span>() {
-    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>() <span style="color:#75715e">//_g_ = g0
-</span><span style="color:#75715e"></span> 
-    <span style="color:#75715e">//对于启动过程来说，g0的stack.lo早已完成初始化，所以onStack = false
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">osStack</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">lo</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>
-    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">osStack</span> {
-        <span style="color:#75715e">// Initialize stack bounds from system stack.
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">// Cgo may have left stack size in stack.hi.
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">// minit may update the stack bounds.
-</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">size</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">hi</span>
-        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">size</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
-            <span style="color:#a6e22e">size</span> = <span style="color:#ae81ff">8192</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">sys</span>.<span style="color:#a6e22e">StackGuardMultiplier</span>
-        }
-        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">hi</span> = uintptr(<span style="color:#a6e22e">noescape</span>(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">size</span>)))
-        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">lo</span> = <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">hi</span> <span style="color:#f92672">-</span> <span style="color:#a6e22e">size</span> <span style="color:#f92672">+</span> <span style="color:#ae81ff">1024</span>
-    }
-    <span style="color:#75715e">// Initialize stack guards so that we can start calling
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// both Go and C functions with stack growth prologues.
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stackguard0</span> = <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">lo</span> <span style="color:#f92672">+</span> <span style="color:#a6e22e">_StackGuard</span>
-    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stackguard1</span> = <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stackguard0</span>
-    
-    <span style="color:#a6e22e">mstart1</span>()
- 
-    <span style="color:#75715e">// Exit this thread.
-</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;windows&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;solaris&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;plan9&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;darwin&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;aix&#34;</span> {
-        <span style="color:#75715e">// Window, Solaris, Darwin, AIX and Plan 9 always system-allocate
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">// the stack, but put it in _g_.stack before mstart,
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">// so the logic above hasn&#39;t set osStack yet.
-</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">osStack</span> = <span style="color:#66d9ef">true</span>
-    }
-    <span style="color:#a6e22e">mexit</span>(<span style="color:#a6e22e">osStack</span>)
-}
-</code></pre></div><p>mstart函数本身没啥说的，它继续调用mstart1函数。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">1184</span>
-
- 
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">mstart1</span>() {
-    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()  <span style="color:#75715e">//启动过程时 _g_ = m0的g0
-</span><span style="color:#75715e"></span> 
-    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">g0</span> {
-        <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;bad runtime·mstart&#34;</span>)
-    }
- 
-    <span style="color:#75715e">// Record the caller for use as the top of stack in mcall and
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// for terminating the thread.
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// We&#39;re never coming back to mstart1 after we call schedule,
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// so other calls can reuse the current frame.
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">//getcallerpc()获取mstart1执行完的返回地址
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">//getcallersp()获取调用mstart1时的栈顶地址
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">save</span>(<span style="color:#a6e22e">getcallerpc</span>(), <span style="color:#a6e22e">getcallersp</span>())
-    <span style="color:#a6e22e">asminit</span>()  <span style="color:#75715e">//在AMD64 Linux平台中，这个函数什么也没做，是个空函数
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">minit</span>()    <span style="color:#75715e">//与信号相关的初始化，目前不需要关心
-</span><span style="color:#75715e"></span> 
-    <span style="color:#75715e">// Install signal handlers; after minit so that minit can
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// prepare the thread to be able to handle the signals.
-</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span> <span style="color:#f92672">==</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">m0</span> { <span style="color:#75715e">//启动时_g_.m是m0，所以会执行下面的mstartm0函数
-</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">mstartm0</span>() <span style="color:#75715e">//也是信号相关的初始化，现在我们不关注
-</span><span style="color:#75715e"></span>    }
- 
-    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">fn</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">mstartfn</span>; <span style="color:#a6e22e">fn</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> { <span style="color:#75715e">//初始化过程中fn == nil
-</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">fn</span>()
-    }
- 
-    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span> <span style="color:#f92672">!=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">m0</span> {<span style="color:#75715e">// m0已经绑定了allp[0]，不是m0的话还没有p，所以需要获取一个p
-</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">acquirep</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">nextp</span>.<span style="color:#a6e22e">ptr</span>())
-        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">nextp</span> = <span style="color:#ae81ff">0</span>
-    }
-    
-    <span style="color:#75715e">//schedule函数永远不会返回
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">schedule</span>()
-}
-</code></pre></div><p>mstart1首先调用save函数来保存g0的调度信息，save这一行代码非常重要，是我们理解调度循环的关键点之一。这里首先需要注意的是代码中的getcallerpc()返回的是mstart调用mstart1时被call指令压栈的返回地址，getcallersp()函数返回的是调用mstart1函数之前mstart函数的栈顶地址，其次需要看看save函数到底做了哪些重要工作。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2733</span>
-
- 
-<span style="color:#75715e">// save updates getg().sched to refer to pc and sp so that a following
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">// gogo will restore pc and sp.
-</span><span style="color:#75715e">//
-</span><span style="color:#75715e">// save must not have write barriers because invoking a write barrier
-</span><span style="color:#75715e">// can clobber getg().sched.
-</span><span style="color:#75715e">//
-</span><span style="color:#75715e">//go:nosplit
-</span><span style="color:#75715e">//go:nowritebarrierrec
-</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">save</span>(<span style="color:#a6e22e">pc</span>, <span style="color:#a6e22e">sp</span> <span style="color:#66d9ef">uintptr</span>) {
-    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()
- 
-    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">pc</span> = <span style="color:#a6e22e">pc</span> <span style="color:#75715e">//再次运行时的指令地址
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">sp</span> = <span style="color:#a6e22e">sp</span> <span style="color:#75715e">//再次运行时到栈顶
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lr</span> = <span style="color:#ae81ff">0</span>
-    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">ret</span> = <span style="color:#ae81ff">0</span>
-    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">g</span> = <span style="color:#a6e22e">guintptr</span>(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">_g_</span>))
-    <span style="color:#75715e">// We need to ensure ctxt is zero, but can&#39;t have a write
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// barrier here. However, it should always already be zero.
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// Assert that.
-</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">ctxt</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-        <span style="color:#a6e22e">badctxt</span>()
-    }
-}
-</code></pre></div><p>可以看到，save函数保存了调度相关的所有信息，包括最为重要的当前正在运行的g的下一条指令的地址和栈顶地址，不管是对g0还是其它goroutine来说这些信息在调度过程中都是必不可少的，我们会在后面的调度分析中看到调度器是如何利用这些信息来完成调度的。代码执行完save函数之后g0的状态如下图所示：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">1153</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">mstart</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>() <span style="color:#75715e">//_g_ = g0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//对于启动过程来说，g0的stack.lo早已完成初始化，所以onStack = false
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">osStack</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">lo</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">osStack</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Initialize stack bounds from system stack.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// Cgo may have left stack size in stack.hi.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// minit may update the stack bounds.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">size</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">hi</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">size</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">size</span> = <span style="color:#ae81ff">8192</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">sys</span>.<span style="color:#a6e22e">StackGuardMultiplier</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">hi</span> = uintptr(<span style="color:#a6e22e">noescape</span>(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">size</span>)))
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">lo</span> = <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">hi</span> <span style="color:#f92672">-</span> <span style="color:#a6e22e">size</span> <span style="color:#f92672">+</span> <span style="color:#ae81ff">1024</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Initialize stack guards so that we can start calling
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// both Go and C functions with stack growth prologues.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stackguard0</span> = <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stack</span>.<span style="color:#a6e22e">lo</span> <span style="color:#f92672">+</span> <span style="color:#a6e22e">_StackGuard</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stackguard1</span> = <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">stackguard0</span>
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mstart1</span>()
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Exit this thread.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;windows&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;solaris&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;plan9&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;darwin&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;aix&#34;</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Window, Solaris, Darwin, AIX and Plan 9 always system-allocate
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// the stack, but put it in _g_.stack before mstart,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// so the logic above hasn&#39;t set osStack yet.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">osStack</span> = <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mexit</span>(<span style="color:#a6e22e">osStack</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>mstart函数本身没啥说的，它继续调用mstart1函数。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">1184</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">mstart1</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()  <span style="color:#75715e">//启动过程时 _g_ = m0的g0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">g0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;bad runtime·mstart&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Record the caller for use as the top of stack in mcall and
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// for terminating the thread.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// We&#39;re never coming back to mstart1 after we call schedule,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// so other calls can reuse the current frame.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//getcallerpc()获取mstart1执行完的返回地址
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//getcallersp()获取调用mstart1时的栈顶地址
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">save</span>(<span style="color:#a6e22e">getcallerpc</span>(), <span style="color:#a6e22e">getcallersp</span>())
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">asminit</span>()  <span style="color:#75715e">//在AMD64 Linux平台中，这个函数什么也没做，是个空函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">minit</span>()    <span style="color:#75715e">//与信号相关的初始化，目前不需要关心
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Install signal handlers; after minit so that minit can
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// prepare the thread to be able to handle the signals.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span> <span style="color:#f92672">==</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">m0</span> { <span style="color:#75715e">//启动时_g_.m是m0，所以会执行下面的mstartm0函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">mstartm0</span>() <span style="color:#75715e">//也是信号相关的初始化，现在我们不关注
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">fn</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">mstartfn</span>; <span style="color:#a6e22e">fn</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> { <span style="color:#75715e">//初始化过程中fn == nil
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">fn</span>()
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span> <span style="color:#f92672">!=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">m0</span> {<span style="color:#75715e">// m0已经绑定了allp[0]，不是m0的话还没有p，所以需要获取一个p
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">acquirep</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">nextp</span>.<span style="color:#a6e22e">ptr</span>())
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">nextp</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//schedule函数永远不会返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">schedule</span>()
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>mstart1首先调用save函数来保存g0的调度信息，save这一行代码非常重要，是我们理解调度循环的关键点之一。这里首先需要注意的是代码中的getcallerpc()返回的是mstart调用mstart1时被call指令压栈的返回地址，getcallersp()函数返回的是调用mstart1函数之前mstart函数的栈顶地址，其次需要看看save函数到底做了哪些重要工作。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2733</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// save updates getg().sched to refer to pc and sp so that a following
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// gogo will restore pc and sp.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// save must not have write barriers because invoking a write barrier
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// can clobber getg().sched.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//go:nosplit
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//go:nowritebarrierrec
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">save</span>(<span style="color:#a6e22e">pc</span>, <span style="color:#a6e22e">sp</span> <span style="color:#66d9ef">uintptr</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">pc</span> = <span style="color:#a6e22e">pc</span> <span style="color:#75715e">//再次运行时的指令地址
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">sp</span> = <span style="color:#a6e22e">sp</span> <span style="color:#75715e">//再次运行时到栈顶
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lr</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">ret</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">g</span> = <span style="color:#a6e22e">guintptr</span>(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">_g_</span>))
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// We need to ensure ctxt is zero, but can&#39;t have a write
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// barrier here. However, it should always already be zero.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// Assert that.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">ctxt</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">badctxt</span>()
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>可以看到，save函数保存了调度相关的所有信息，包括最为重要的当前正在运行的g的下一条指令的地址和栈顶地址，不管是对g0还是其它goroutine来说这些信息在调度过程中都是必不可少的，我们会在后面的调度分析中看到调度器是如何利用这些信息来完成调度的。代码执行完save函数之后g0的状态如下图所示：</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/ab90055747ffb9e0de576987a3bd6377.png" alt=""></p>
 <p>从上图可以看出，g0.sched.sp指向了mstart1函数执行完成后的返回地址，该地址保存在了mstart函数的栈帧之中；g0.sched.pc指向的是mstart函数中调用mstart1函数之后的 if 语句。</p>
 <p>为什么g0已经执行到mstart1这个函数了而且还会继续调用其它函数，但g0的调度信息中的pc和sp却要设置在mstart函数中？难道下次切换到g0时要从mstart函数中的 if 语句继续执行？可是从mstart函数可以看到，if语句之后就要退出线程了！这看起来很奇怪，不过随着分析的进行，我们会看到这里为什么要这么做。</p>
 <p>继续分析代码，save函数执行完成后，返回到mstart1继续其它跟m相关的一些初始化，完成这些初始化后则调用调度系统的核心函数schedule()完成goroutine的调度，之所以说它是核心，原因在于每次调度goroutine都是从schedule函数开始的。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2469</span>
-
- 
-<span style="color:#75715e">// One round of scheduler: find a runnable goroutine and execute it.
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">// Never returns.
-</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">schedule</span>() {
-    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()  <span style="color:#75715e">//_g_ = 每个工作线程m对应的g0，初始化时是m0的g0
-</span><span style="color:#75715e"></span> 
-    <span style="color:#75715e">//......
-</span><span style="color:#75715e"></span> 
-    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>
- 
-    <span style="color:#75715e">//......
-</span><span style="color:#75715e"></span>    
-    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-        <span style="color:#75715e">// Check the global runnable queue once in a while to ensure fairness.
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">// Otherwise two goroutines can completely occupy the local runqueue
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">// by constantly respawning each other.
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">//为了保证调度的公平性，每进行61次调度就需要优先从全局运行队列中获取goroutine，
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">//因为如果只调度本地队列中的g，那么全局运行队列中的goroutine将得不到运行
-</span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>().<span style="color:#a6e22e">schedtick</span><span style="color:#f92672">%</span><span style="color:#ae81ff">61</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> &gt; <span style="color:#ae81ff">0</span> {
-            <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>) <span style="color:#75715e">//所有工作线程都能访问全局运行队列，所以需要加锁
-</span><span style="color:#75715e"></span>            <span style="color:#a6e22e">gp</span> = <span style="color:#a6e22e">globrunqget</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>(), <span style="color:#ae81ff">1</span>) <span style="color:#75715e">//从全局运行队列中获取1个goroutine
-</span><span style="color:#75715e"></span>            <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-        }
-    }
-    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-        <span style="color:#75715e">//从与m关联的p的本地运行队列中获取goroutine
-</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> = <span style="color:#a6e22e">runqget</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>())
-        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> {
-            <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;schedule: spinning with local work&#34;</span>)
-        }
-    }
-    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-        <span style="color:#75715e">//如果从本地运行队列和全局运行队列都没有找到需要运行的goroutine，
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">//则调用findrunnable函数从其它工作线程的运行队列中偷取，如果偷取不到，则当前工作线程进入睡眠，
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">//直到获取到需要运行的goroutine之后findrunnable函数才会返回。
-</span><span style="color:#75715e"></span>      <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> = <span style="color:#a6e22e">findrunnable</span>() <span style="color:#75715e">// blocks until work is available
-</span><span style="color:#75715e"></span>    }
- 
-    <span style="color:#75715e">//跟启动无关的代码.....
-</span><span style="color:#75715e"></span> 
-    <span style="color:#75715e">//当前运行的是runtime的代码，函数调用栈使用的是g0的栈空间
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">//调用execte切换到gp的代码和栈空间去运行
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">execute</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span>)  
-}
-</code></pre></div><p>schedule函数通过调用globrunqget()和runqget()函数分别从全局运行队列和当前工作线程的本地运行队列中选取下一个需要运行的goroutine，如果这两个队列都没有需要运行的goroutine则通过findrunnalbe()函数从其它p的运行队列中盗取goroutine，一旦找到下一个需要运行的goroutine，则调用excute函数从g0切换到该goroutine去运行。对于我们这个场景来说，前面的启动流程已经创建好第一个goroutine并放入了当前工作线程的本地运行队列，所以这里会通过runqget把目前唯一的一个goroutine取出来，至于具体是如何取出来的，我们将在第三章讨论调度策略时再回头来详细分析globrunqget()，runqget()和findrunnable()这三个函数的实现流程，现在我们先来分析execute函数是如何把从运行队列中找出来的goroutine调度到CPU上运行的。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2136</span>
-
- 
-<span style="color:#75715e">// Schedules gp to run on the current M.
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">// If inheritTime is true, gp inherits the remaining time in the
-</span><span style="color:#75715e">// current time slice. Otherwise, it starts a new time slice.
-</span><span style="color:#75715e">// Never returns.
-</span><span style="color:#75715e">//
-</span><span style="color:#75715e">// Write barriers are allowed because this is called immediately after
-</span><span style="color:#75715e">// acquiring a P in several places.
-</span><span style="color:#75715e">//
-</span><span style="color:#75715e">//go:yeswritebarrierrec
-</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">execute</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>, <span style="color:#a6e22e">inheritTime</span> <span style="color:#66d9ef">bool</span>) {
-    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>() <span style="color:#75715e">//g0
-</span><span style="color:#75715e"></span> 
-    <span style="color:#75715e">//设置待运行g的状态为_Grunning
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">casgstatus</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_Grunnable</span>, <span style="color:#a6e22e">_Grunning</span>)
- 
-    <span style="color:#75715e">//......
-</span><span style="color:#75715e"></span>    
-    <span style="color:#75715e">//把g和m关联起来
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">curg</span> = <span style="color:#a6e22e">gp</span> 
-    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">m</span> = <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>
- 
-    <span style="color:#75715e">//......
-</span><span style="color:#75715e"></span> 
-    <span style="color:#75715e">//gogo完成从g0到gp真正的切换
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gogo</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">sched</span>)
-}
-</code></pre></div><p>execute函数的第一个参数gp即是需要调度起来运行的goroutine，这里首先把gp的状态从_Grunnable修改为_Grunning，然后把gp和m关联起来，这样通过m就可以找到当前工作线程正在执行哪个goroutine，反之亦然。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2469</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// One round of scheduler: find a runnable goroutine and execute it.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Never returns.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">schedule</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()  <span style="color:#75715e">//_g_ = 每个工作线程m对应的g0，初始化时是m0的g0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//......
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//......
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Check the global runnable queue once in a while to ensure fairness.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// Otherwise two goroutines can completely occupy the local runqueue
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// by constantly respawning each other.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//为了保证调度的公平性，每进行61次调度就需要优先从全局运行队列中获取goroutine，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//因为如果只调度本地队列中的g，那么全局运行队列中的goroutine将得不到运行
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>().<span style="color:#a6e22e">schedtick</span><span style="color:#f92672">%</span><span style="color:#ae81ff">61</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> &gt; <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>) <span style="color:#75715e">//所有工作线程都能访问全局运行队列，所以需要加锁
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">gp</span> = <span style="color:#a6e22e">globrunqget</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>(), <span style="color:#ae81ff">1</span>) <span style="color:#75715e">//从全局运行队列中获取1个goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//从与m关联的p的本地运行队列中获取goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> = <span style="color:#a6e22e">runqget</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>())
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;schedule: spinning with local work&#34;</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//如果从本地运行队列和全局运行队列都没有找到需要运行的goroutine，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//则调用findrunnable函数从其它工作线程的运行队列中偷取，如果偷取不到，则当前工作线程进入睡眠，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//直到获取到需要运行的goroutine之后findrunnable函数才会返回。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> = <span style="color:#a6e22e">findrunnable</span>() <span style="color:#75715e">// blocks until work is available
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//跟启动无关的代码.....
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//当前运行的是runtime的代码，函数调用栈使用的是g0的栈空间
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//调用execte切换到gp的代码和栈空间去运行
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">execute</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span>)  
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>schedule函数通过调用globrunqget()和runqget()函数分别从全局运行队列和当前工作线程的本地运行队列中选取下一个需要运行的goroutine，如果这两个队列都没有需要运行的goroutine则通过findrunnalbe()函数从其它p的运行队列中盗取goroutine，一旦找到下一个需要运行的goroutine，则调用excute函数从g0切换到该goroutine去运行。对于我们这个场景来说，前面的启动流程已经创建好第一个goroutine并放入了当前工作线程的本地运行队列，所以这里会通过runqget把目前唯一的一个goroutine取出来，至于具体是如何取出来的，我们将在第三章讨论调度策略时再回头来详细分析globrunqget()，runqget()和findrunnable()这三个函数的实现流程，现在我们先来分析execute函数是如何把从运行队列中找出来的goroutine调度到CPU上运行的。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2136</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Schedules gp to run on the current M.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// If inheritTime is true, gp inherits the remaining time in the
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// current time slice. Otherwise, it starts a new time slice.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Never returns.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Write barriers are allowed because this is called immediately after
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// acquiring a P in several places.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//go:yeswritebarrierrec
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">execute</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>, <span style="color:#a6e22e">inheritTime</span> <span style="color:#66d9ef">bool</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>() <span style="color:#75715e">//g0
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//设置待运行g的状态为_Grunning
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">casgstatus</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_Grunnable</span>, <span style="color:#a6e22e">_Grunning</span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//......
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//把g和m关联起来
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">curg</span> = <span style="color:#a6e22e">gp</span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">m</span> = <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//......
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//gogo完成从g0到gp真正的切换
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gogo</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">sched</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>execute函数的第一个参数gp即是需要调度起来运行的goroutine，这里首先把gp的状态从_Grunnable修改为_Grunning，然后把gp和m关联起来，这样通过m就可以找到当前工作线程正在执行哪个goroutine，反之亦然。</p>
 <p>完成gp运行前的准备工作之后，execute调用gogo函数完成从g0到gp的的切换：CPU执行权的转让以及栈的切换。</p>
 <p>gogo函数也是通过汇编语言编写的，这里之所以需要使用汇编，是因为goroutine的调度涉及不同执行流之间的切换，前面我们在讨论操作系统切换线程时已经看到过，执行流的切换从本质上来说就是CPU寄存器以及函数调用栈的切换，然而不管是go还是c这种高级语言都无法精确控制CPU寄存器的修改，因而高级语言在这里也就无能为力了，只能依靠汇编指令来达成目的。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">asm_amd64</span>.<span style="color:#a6e22e">s</span> : <span style="color:#ae81ff">251</span>
-
- 
-<span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">gogo</span>(<span style="color:#a6e22e">buf</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">gobuf</span>)
-
-<span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">restore</span> <span style="color:#a6e22e">state</span> <span style="color:#a6e22e">from</span> <span style="color:#a6e22e">Gobuf</span>; <span style="color:#a6e22e">longjmp</span>
-<span style="color:#a6e22e">TEXT</span> <span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">gogo</span>(<span style="color:#a6e22e">SB</span>), <span style="color:#a6e22e">NOSPLIT</span>, <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">16</span><span style="color:#f92672">-</span><span style="color:#ae81ff">8</span>
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">buf</span> = <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">sched</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">buf</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">BX</span>   <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">BX</span> = <span style="color:#a6e22e">buf</span>
- 
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">gobuf</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">g</span> <span style="color:#f92672">--</span>&gt; <span style="color:#a6e22e">dx</span> <span style="color:#a6e22e">register</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_g</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">DX</span>  <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">DX</span> = <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">g</span>
- 
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">下面这行代码没有实质作用</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">检查gp</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">g是否是nil</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">如果是nil进程会crash死掉</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">DX</span>), <span style="color:#a6e22e">CX</span>   <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">make</span> <span style="color:#a6e22e">sure</span> <span style="color:#a6e22e">g</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span>
- 
-    <span style="color:#a6e22e">get_tls</span>(<span style="color:#a6e22e">CX</span>) 
- 
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">把要运行的g的指针放入线程本地存储</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">这样后面的代码就可以通过线程本地存储</span>
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">获取到当前正在执行的goroutine的g结构体对象</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">从而找到与之关联的m和p</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">DX</span>, <span style="color:#a6e22e">g</span>(<span style="color:#a6e22e">CX</span>)
- 
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">把CPU的SP寄存器设置为sched</span>.<span style="color:#a6e22e">sp</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">完成了栈的切换</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_sp</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">SP</span>  <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">restore</span> <span style="color:#a6e22e">SP</span>
- 
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">下面三条同样是恢复调度上下文到CPU相关寄存器</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_ret</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">AX</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_ctxt</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">DX</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_bp</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">BP</span>
- 
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">清空sched的值</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">因为我们已把相关值放入CPU对应的寄存器了</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">不再需要</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">这样做可以少gc的工作量</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">gobuf_sp</span>(<span style="color:#a6e22e">BX</span>)  <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">clear</span> <span style="color:#a6e22e">to</span> <span style="color:#a6e22e">help</span> <span style="color:#a6e22e">garbage</span> <span style="color:#a6e22e">collector</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">gobuf_ret</span>(<span style="color:#a6e22e">BX</span>)
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">gobuf_ctxt</span>(<span style="color:#a6e22e">BX</span>)
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">gobuf_bp</span>(<span style="color:#a6e22e">BX</span>)
- 
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">把sched</span>.<span style="color:#a6e22e">pc值放入BX寄存器</span>
-    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_pc</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">BX</span>
- 
-    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">JMP把BX寄存器的包含的地址值放入CPU的IP寄存器</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">于是</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">CPU跳转到该地址继续执行指令</span><span style="color:#960050;background-color:#1e0010">，</span>
-    <span style="color:#a6e22e">JMP</span> <span style="color:#a6e22e">BX</span>
-</code></pre></div><p>gogo函数的这段汇编代码短小而强悍，虽然笔者已经在代码中做了详细的注释，但为了完全搞清楚它的工作原理，我们有必要再对这些指令进行逐条分析：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">asm_amd64</span>.<span style="color:#a6e22e">s</span> : <span style="color:#ae81ff">251</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">gogo</span>(<span style="color:#a6e22e">buf</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">gobuf</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">restore</span> <span style="color:#a6e22e">state</span> <span style="color:#a6e22e">from</span> <span style="color:#a6e22e">Gobuf</span>; <span style="color:#a6e22e">longjmp</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">TEXT</span> <span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">gogo</span>(<span style="color:#a6e22e">SB</span>), <span style="color:#a6e22e">NOSPLIT</span>, <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">16</span><span style="color:#f92672">-</span><span style="color:#ae81ff">8</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">buf</span> = <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">sched</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">buf</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">BX</span>   <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">BX</span> = <span style="color:#a6e22e">buf</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">gobuf</span><span style="color:#f92672">-</span>&gt;<span style="color:#a6e22e">g</span> <span style="color:#f92672">--</span>&gt; <span style="color:#a6e22e">dx</span> <span style="color:#a6e22e">register</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_g</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">DX</span>  <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">DX</span> = <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">g</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">下面这行代码没有实质作用</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">检查gp</span>.<span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">g是否是nil</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">如果是nil进程会crash死掉</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">DX</span>), <span style="color:#a6e22e">CX</span>   <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">make</span> <span style="color:#a6e22e">sure</span> <span style="color:#a6e22e">g</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">get_tls</span>(<span style="color:#a6e22e">CX</span>) 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">把要运行的g的指针放入线程本地存储</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">这样后面的代码就可以通过线程本地存储</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">获取到当前正在执行的goroutine的g结构体对象</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">从而找到与之关联的m和p</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">DX</span>, <span style="color:#a6e22e">g</span>(<span style="color:#a6e22e">CX</span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">把CPU的SP寄存器设置为sched</span>.<span style="color:#a6e22e">sp</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">完成了栈的切换</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_sp</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">SP</span>  <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">restore</span> <span style="color:#a6e22e">SP</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">下面三条同样是恢复调度上下文到CPU相关寄存器</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_ret</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">AX</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_ctxt</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">DX</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_bp</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">BP</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">清空sched的值</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">因为我们已把相关值放入CPU对应的寄存器了</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">不再需要</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">这样做可以少gc的工作量</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">gobuf_sp</span>(<span style="color:#a6e22e">BX</span>)  <span style="color:#960050;background-color:#1e0010">#</span> <span style="color:#a6e22e">clear</span> <span style="color:#a6e22e">to</span> <span style="color:#a6e22e">help</span> <span style="color:#a6e22e">garbage</span> <span style="color:#a6e22e">collector</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">gobuf_ret</span>(<span style="color:#a6e22e">BX</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">gobuf_ctxt</span>(<span style="color:#a6e22e">BX</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">gobuf_bp</span>(<span style="color:#a6e22e">BX</span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">把sched</span>.<span style="color:#a6e22e">pc值放入BX寄存器</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">gobuf_pc</span>(<span style="color:#a6e22e">BX</span>), <span style="color:#a6e22e">BX</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">JMP把BX寄存器的包含的地址值放入CPU的IP寄存器</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">于是</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">CPU跳转到该地址继续执行指令</span><span style="color:#960050;background-color:#1e0010">，</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">JMP</span> <span style="color:#a6e22e">BX</span>
+</span></span></code></pre></div><p>gogo函数的这段汇编代码短小而强悍，虽然笔者已经在代码中做了详细的注释，但为了完全搞清楚它的工作原理，我们有必要再对这些指令进行逐条分析：</p>
 <p>execute函数在调用gogo时把gp的sched成员的地址作为实参（型参buf）传递了过来，该参数位于FP寄存器所指的位置，所以第1条指令</p>
 <p>MOVQ  buf+0(FP), BX # &amp;gp.sched &ndash;&gt; BX</p>
 <p>把buf的值也就是gp.sched的地址放在了BX寄存器之中，这样便于后面的指令依靠BX寄存器来存取gp.sched的成员。sched成员保存了调度相关的信息，上一节我们已经看到，main goroutine创建时已经把这些信息设置好了。</p>
@@ -476,70 +476,70 @@ MOVQ  $0, gobuf_bp(BX)
 <p>把gp.sched的成员恢复到CPU的寄存器完成状态以及栈的切换；</p>
 <p>跳转到gp.sched.pc所指的指令地址（runtime.main）处执行。</p>
 <p>现在已经从g0切换到了gp这个goroutine，对于我们这个场景来说，gp还是第一次被调度起来运行，它的入口函数是runtime.main，所以接下来CPU就开始执行runtime.main函数：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">109</span>
-
- 
-<span style="color:#75715e">// The main goroutine.
-</span><span style="color:#75715e"></span>
-<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-    <span style="color:#a6e22e">g</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()  <span style="color:#75715e">// g = main goroutine，不再是g0了
-</span><span style="color:#75715e"></span> 
-    <span style="color:#f92672">......</span>
- 
-    <span style="color:#75715e">// Max stack size is 1 GB on 64-bit, 250 MB on 32-bit.
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// Using decimal instead of binary GB and MB because
-</span><span style="color:#75715e"></span>    <span style="color:#75715e">// they look nicer in the stack overflow failure message.
-</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">sys</span>.<span style="color:#a6e22e">PtrSize</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">8</span> { <span style="color:#75715e">//64位系统上每个goroutine的栈最大可达1G
-</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">maxstacksize</span> = <span style="color:#ae81ff">1000000000</span>
-    } <span style="color:#66d9ef">else</span> {
-        <span style="color:#a6e22e">maxstacksize</span> = <span style="color:#ae81ff">250000000</span>
-    }
- 
-    <span style="color:#75715e">// Allow newproc to start new Ms.
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">mainStarted</span> = <span style="color:#66d9ef">true</span>
- 
-    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">GOARCH</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;wasm&#34;</span> { <span style="color:#75715e">// no threads on wasm yet, so no sysmon
-</span><span style="color:#75715e"></span>        <span style="color:#75715e">//现在执行的是main goroutine，所以使用的是main goroutine的栈，需要切换到g0栈去执行newm()
-</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">systemstack</span>(<span style="color:#66d9ef">func</span>() {
-            <span style="color:#75715e">//创建监控线程，该线程独立于调度器，不需要跟p关联即可运行
-</span><span style="color:#75715e"></span>             <span style="color:#a6e22e">newm</span>(<span style="color:#a6e22e">sysmon</span>, <span style="color:#66d9ef">nil</span>)
-        })
-    }
-    
-    <span style="color:#f92672">......</span>
- 
-    <span style="color:#75715e">//调用runtime包的初始化函数，由编译器实现
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">runtime_init</span>() <span style="color:#75715e">// must be before defer
-</span><span style="color:#75715e"></span> 
-    <span style="color:#75715e">// Record when the world started.
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">runtimeInitTime</span> = <span style="color:#a6e22e">nanotime</span>()
- 
-    <span style="color:#a6e22e">gcenable</span>()  <span style="color:#75715e">//开启垃圾回收器
-</span><span style="color:#75715e"></span> 
-    <span style="color:#f92672">......</span>
- 
-    <span style="color:#75715e">//main 包的初始化函数，也是由编译器实现，会递归的调用我们import进来的包的初始化函数
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fn</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">main_init</span> <span style="color:#75715e">// make an indirect call, as the linker doesn&#39;t know the address of the main package when laying down the runtime
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fn</span>()
- 
-    <span style="color:#f92672">......</span>
-    
-    <span style="color:#75715e">//调用main.main函数
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fn</span> = <span style="color:#a6e22e">main_main</span> <span style="color:#75715e">// make an indirect call, as the linker doesn&#39;t know the address of the main package when laying down the runtime
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fn</span>()
-    
-    <span style="color:#f92672">......</span>
- 
-    <span style="color:#75715e">//进入系统调用，退出进程，可以看出main goroutine并未返回，而是直接进入系统调用退出进程了
-</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">exit</span>(<span style="color:#ae81ff">0</span>)
-    
-    <span style="color:#75715e">//保护性代码，如果exit意外返回，下面的代码也会让该进程crash死掉
-</span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> {
-        <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">x</span> <span style="color:#f92672">*</span><span style="color:#66d9ef">int32</span>
-        <span style="color:#f92672">*</span><span style="color:#a6e22e">x</span> = <span style="color:#ae81ff">0</span>
-    }
-}
-</code></pre></div><p>runtime.main函数主要工作流程如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">109</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// The main goroutine.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">g</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()  <span style="color:#75715e">// g = main goroutine，不再是g0了
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Max stack size is 1 GB on 64-bit, 250 MB on 32-bit.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// Using decimal instead of binary GB and MB because
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// they look nicer in the stack overflow failure message.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">sys</span>.<span style="color:#a6e22e">PtrSize</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">8</span> { <span style="color:#75715e">//64位系统上每个goroutine的栈最大可达1G
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">maxstacksize</span> = <span style="color:#ae81ff">1000000000</span>
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">maxstacksize</span> = <span style="color:#ae81ff">250000000</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Allow newproc to start new Ms.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">mainStarted</span> = <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">GOARCH</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;wasm&#34;</span> { <span style="color:#75715e">// no threads on wasm yet, so no sysmon
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//现在执行的是main goroutine，所以使用的是main goroutine的栈，需要切换到g0栈去执行newm()
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">systemstack</span>(<span style="color:#66d9ef">func</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//创建监控线程，该线程独立于调度器，不需要跟p关联即可运行
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>             <span style="color:#a6e22e">newm</span>(<span style="color:#a6e22e">sysmon</span>, <span style="color:#66d9ef">nil</span>)
+</span></span><span style="display:flex;"><span>        })
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//调用runtime包的初始化函数，由编译器实现
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">runtime_init</span>() <span style="color:#75715e">// must be before defer
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Record when the world started.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">runtimeInitTime</span> = <span style="color:#a6e22e">nanotime</span>()
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gcenable</span>()  <span style="color:#75715e">//开启垃圾回收器
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//main 包的初始化函数，也是由编译器实现，会递归的调用我们import进来的包的初始化函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fn</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">main_init</span> <span style="color:#75715e">// make an indirect call, as the linker doesn&#39;t know the address of the main package when laying down the runtime
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fn</span>()
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//调用main.main函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fn</span> = <span style="color:#a6e22e">main_main</span> <span style="color:#75715e">// make an indirect call, as the linker doesn&#39;t know the address of the main package when laying down the runtime
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fn</span>()
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//进入系统调用，退出进程，可以看出main goroutine并未返回，而是直接进入系统调用退出进程了
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">exit</span>(<span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//保护性代码，如果exit意外返回，下面的代码也会让该进程crash死掉
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">x</span> <span style="color:#f92672">*</span><span style="color:#66d9ef">int32</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">*</span><span style="color:#a6e22e">x</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>runtime.main函数主要工作流程如下：</p>
 <p>启动一个sysmon系统监控线程，该线程负责整个程序的gc、抢占调度以及netpoll等功能的监控，在抢占调度一章我们再继续分析sysmon是如何协助完成goroutine的抢占调度的；</p>
 <p>执行runtime包的初始化；</p>
 <p>执行main包以及main包import的所有包的初始化；</p>
@@ -629,7 +629,7 @@ MOVQ  $0, gobuf_bp(BX)
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -689,7 +689,7 @@ MOVQ  $0, gobuf_bp(BX)
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

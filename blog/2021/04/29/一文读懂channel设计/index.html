@@ -225,25 +225,25 @@
 <p>在Go中通过goroutine+channel的方式，可以简单、高效地解决并发问题，channel就是goroutine之间的数据桥梁。</p>
 <p><em>Concurrency is the key to designing high performance network services. Go&rsquo;s concurrency primitives (goroutines and channels) provide a simple and efficient means of expressing concurrent execution.</em></p>
 <p>以下是一个简单的channel使用示例代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func goroutineA(ch &lt;-chan int)  {
- 2    fmt.Println(&#34;[goroutineA] want a data&#34;)
- 3    val := &lt;- ch
- 4    fmt.Println(&#34;[goroutineA] received the data&#34;, val)
- 5}
- 6
- 7func goroutineB(ch chan&lt;- int)  {
- 8    time.Sleep(time.Second*1)
- 9    ch &lt;- 1
-10    fmt.Println(&#34;[goroutineB] send the data 1&#34;)
-11}
-12
-13func main() {
-14    ch := make(chan int, 1)
-15    go goroutineA(ch)
-16    go goroutineB(ch)
-17    time.Sleep(2*time.Second)
-18}
-</code></pre></div><p>上述过程趣解图如下</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func goroutineA(ch &lt;-chan int)  {
+</span></span><span style="display:flex;"><span> 2    fmt.Println(&#34;[goroutineA] want a data&#34;)
+</span></span><span style="display:flex;"><span> 3    val := &lt;- ch
+</span></span><span style="display:flex;"><span> 4    fmt.Println(&#34;[goroutineA] received the data&#34;, val)
+</span></span><span style="display:flex;"><span> 5}
+</span></span><span style="display:flex;"><span> 6
+</span></span><span style="display:flex;"><span> 7func goroutineB(ch chan&lt;- int)  {
+</span></span><span style="display:flex;"><span> 8    time.Sleep(time.Second*1)
+</span></span><span style="display:flex;"><span> 9    ch &lt;- 1
+</span></span><span style="display:flex;"><span>10    fmt.Println(&#34;[goroutineB] send the data 1&#34;)
+</span></span><span style="display:flex;"><span>11}
+</span></span><span style="display:flex;"><span>12
+</span></span><span style="display:flex;"><span>13func main() {
+</span></span><span style="display:flex;"><span>14    ch := make(chan int, 1)
+</span></span><span style="display:flex;"><span>15    go goroutineA(ch)
+</span></span><span style="display:flex;"><span>16    go goroutineB(ch)
+</span></span><span style="display:flex;"><span>17    time.Sleep(2*time.Second)
+</span></span><span style="display:flex;"><span>18}
+</span></span></code></pre></div><p>上述过程趣解图如下</p>
 <p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/4.png" alt="img"></p>
 <p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/1.png" alt="img"></p>
 <p><strong>channel源码解析</strong></p>
@@ -251,83 +251,83 @@
 <p><strong>1. channel内部结构</strong></p>
 <p>**
 **</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1ch := make(chan int,2)
-</code></pre></div><p>对于以上channel的申明语句，我们可以在程序中加入断点，得到ch的信息如下。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1ch := make(chan int,2)
+</span></span></code></pre></div><p>对于以上channel的申明语句，我们可以在程序中加入断点，得到ch的信息如下。</p>
 <p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/5.png" alt="img"></p>
 <p>很好，看起来非常的清晰。但是，这些信息代表的是什么含义呢？接下来，我们先看几个重要的结构体。</p>
 <ul>
 <li><strong>hchan</strong></li>
 </ul>
 <p>当我们通过make(chan Type, size)生成channel时，在runtime系统中，生成的是一个hchan结构体对象。源码位于src/runtime/chan.go</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1type hchan struct {
- 2    qcount   uint           // 循环队列中数据数
- 3    dataqsiz uint           // 循环队列的大小
- 4    buf      unsafe.Pointer // 指向大小为dataqsize的包含数据元素的数组指针
- 5    elemsize uint16         // 数据元素的大小
- 6    closed   uint32         // 代表channel是否关闭   
- 7    elemtype *_type         // _type代表Go的类型系统，elemtype代表channel中的元素类型
- 8    sendx    uint           // 发送索引号，初始值为0
- 9    recvx    uint           // 接收索引号，初始值为0
-10  recvq    waitq          // 接收等待队列，存储试图从channel接收数据(&lt;-ch)的阻塞goroutines
-11    sendq    waitq          // 发送等待队列，存储试图发送数据(ch&lt;-)到channel的阻塞goroutines
-12
-13    lock mutex              // 加锁能保护hchan的所有字段，包括waitq中sudoq对象
-14}
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1type hchan struct {
+</span></span><span style="display:flex;"><span> 2    qcount   uint           // 循环队列中数据数
+</span></span><span style="display:flex;"><span> 3    dataqsiz uint           // 循环队列的大小
+</span></span><span style="display:flex;"><span> 4    buf      unsafe.Pointer // 指向大小为dataqsize的包含数据元素的数组指针
+</span></span><span style="display:flex;"><span> 5    elemsize uint16         // 数据元素的大小
+</span></span><span style="display:flex;"><span> 6    closed   uint32         // 代表channel是否关闭   
+</span></span><span style="display:flex;"><span> 7    elemtype *_type         // _type代表Go的类型系统，elemtype代表channel中的元素类型
+</span></span><span style="display:flex;"><span> 8    sendx    uint           // 发送索引号，初始值为0
+</span></span><span style="display:flex;"><span> 9    recvx    uint           // 接收索引号，初始值为0
+</span></span><span style="display:flex;"><span>10  recvq    waitq          // 接收等待队列，存储试图从channel接收数据(&lt;-ch)的阻塞goroutines
+</span></span><span style="display:flex;"><span>11    sendq    waitq          // 发送等待队列，存储试图发送数据(ch&lt;-)到channel的阻塞goroutines
+</span></span><span style="display:flex;"><span>12
+</span></span><span style="display:flex;"><span>13    lock mutex              // 加锁能保护hchan的所有字段，包括waitq中sudoq对象
+</span></span><span style="display:flex;"><span>14}
+</span></span></code></pre></div><ul>
 <li><strong>waitq</strong></li>
 </ul>
 <p>waitq用于表达处于阻塞状态的goroutines链表信息，first指向链头goroutine，last指向链尾goroutine。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1type waitq struct {
-2    first *sudog         
-3    last  *sudog
-4}
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1type waitq struct {
+</span></span><span style="display:flex;"><span>2    first *sudog         
+</span></span><span style="display:flex;"><span>3    last  *sudog
+</span></span><span style="display:flex;"><span>4}
+</span></span></code></pre></div><ul>
 <li><strong>sudug</strong></li>
 </ul>
 <p>sudog代表的就是一个处于等待列表中的goroutine对象，源码位于src/runtime/runtime2.go</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1type sudog struct {
-2    g *g
-3    next *sudog
-4    prev *sudog
-5    elem unsafe.Pointer // data element (may point to stack)
-6    c        *hchan // channel
-7  ...
-8}
-</code></pre></div><p>为了更好理解hchan结构体，我们将通过以下代码来理解hchan中的字段含义。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#ae81ff">1</span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
- <span style="color:#ae81ff">2</span>
- <span style="color:#ae81ff">3i</span><span style="color:#a6e22e">mport</span> <span style="color:#e6db74">&#34;time&#34;</span>
- <span style="color:#ae81ff">4</span>
- <span style="color:#ae81ff">5</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goroutineA</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
- <span style="color:#ae81ff">6</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">100</span>
- <span style="color:#ae81ff">7</span>}
- <span style="color:#ae81ff">8</span>
- <span style="color:#ae81ff">9</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goroutineB</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
-<span style="color:#ae81ff">10</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">200</span>
-<span style="color:#ae81ff">11</span>}
-<span style="color:#ae81ff">12</span>
-<span style="color:#ae81ff">13</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goroutineC</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
-<span style="color:#ae81ff">14</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">300</span>
-<span style="color:#ae81ff">15</span>}
-<span style="color:#ae81ff">16</span>
-<span style="color:#ae81ff">17</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goroutineD</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
-<span style="color:#ae81ff">18</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">300</span>
-<span style="color:#ae81ff">19</span>}
-<span style="color:#ae81ff">20</span>
-<span style="color:#ae81ff">21</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-<span style="color:#ae81ff">22</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>, <span style="color:#ae81ff">4</span>)
-<span style="color:#ae81ff">23</span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#ae81ff">4</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
-<span style="color:#ae81ff">24</span>        <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">10</span>
-<span style="color:#ae81ff">25</span>    }
-<span style="color:#ae81ff">26</span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">goroutineA</span>(<span style="color:#a6e22e">ch</span>)
-<span style="color:#ae81ff">27</span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">goroutineB</span>(<span style="color:#a6e22e">ch</span>)
-<span style="color:#ae81ff">28</span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">goroutineC</span>(<span style="color:#a6e22e">ch</span>)
-<span style="color:#ae81ff">29</span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">goroutineD</span>(<span style="color:#a6e22e">ch</span>)
-<span style="color:#ae81ff">30</span>    <span style="color:#75715e">// 第一个sleep是为了给上足够的时间让所有goroutine都已启动
-</span><span style="color:#75715e"></span><span style="color:#ae81ff">31</span>    <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Millisecond</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">500</span>)
-<span style="color:#ae81ff">32</span>    <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>)
-<span style="color:#ae81ff">33</span>}
-</code></pre></div><p>打开代码调试功能，将程序运行至断点time.Sleep(time.Second)处，此时得到的chan信息如下。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1type sudog struct {
+</span></span><span style="display:flex;"><span>2    g *g
+</span></span><span style="display:flex;"><span>3    next *sudog
+</span></span><span style="display:flex;"><span>4    prev *sudog
+</span></span><span style="display:flex;"><span>5    elem unsafe.Pointer // data element (may point to stack)
+</span></span><span style="display:flex;"><span>6    c        *hchan // channel
+</span></span><span style="display:flex;"><span>7  ...
+</span></span><span style="display:flex;"><span>8}
+</span></span></code></pre></div><p>为了更好理解hchan结构体，我们将通过以下代码来理解hchan中的字段含义。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#ae81ff">1</span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">2</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">3i</span><span style="color:#a6e22e">mport</span> <span style="color:#e6db74">&#34;time&#34;</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">4</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">5</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goroutineA</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">6</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">100</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">7</span>}
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">8</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">9</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goroutineB</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">10</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">200</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">11</span>}
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">12</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">13</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goroutineC</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">14</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">300</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">15</span>}
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">16</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">17</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goroutineD</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">18</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">300</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">19</span>}
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">20</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">21</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">22</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>, <span style="color:#ae81ff">4</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">23</span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#ae81ff">4</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">24</span>        <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">10</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">25</span>    }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">26</span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">goroutineA</span>(<span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">27</span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">goroutineB</span>(<span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">28</span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">goroutineC</span>(<span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">29</span>    <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">goroutineD</span>(<span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">30</span>    <span style="color:#75715e">// 第一个sleep是为了给上足够的时间让所有goroutine都已启动
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#ae81ff">31</span>    <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Millisecond</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">500</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">32</span>    <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">33</span>}
+</span></span></code></pre></div><p>打开代码调试功能，将程序运行至断点time.Sleep(time.Second)处，此时得到的chan信息如下。</p>
 <p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/6.png" alt="img"></p>
 <p>在该channel中，通过make(chan int, 4)定义的channel大小为4，即dataqsiz的值为4。同时由于循环队列中已经添加了4个元素，所以qcount值也为4。此时，有4个goroutine（A-D）想发送数据给channel，但是由于存放数据的循环队列已满，所以只能进入发送等待列表，即sendq。同时要注意到，此时的发送和接收索引值均为0，即下一次接收数据的goroutine会从循环队列的第一个元素拿，发送数据的goroutine会发送到循环队列的第一个位置。</p>
 <p>上述hchan结构可视化图解如下</p>
@@ -341,53 +341,53 @@
 </li>
 </ul>
 <p>本文的参考Go版本为1.15.2。其channel的创建实现代码位于src/go/runtime/chan.go的makechan方法。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func makechan(t *chantype, size int) *hchan {
- 2    elem := t.elem
- 3
- 4  // 发送元素大小限制
- 5    if elem.size &gt;= 1&lt;&lt;16 {
- 6        throw(&#34;makechan: invalid channel element type&#34;)
- 7    }
- 8  // 对齐检查
- 9    if hchanSize%maxAlign != 0 || elem.align &gt; maxAlign {
-10        throw(&#34;makechan: bad alignment&#34;)
-11    }
-12
-13  // 判断是否会内存溢出
-14    mem, overflow := math.MulUintptr(elem.size, uintptr(size))
-15    if overflow || mem &gt; maxAlloc-hchanSize || size &lt; 0 {
-16        panic(plainError(&#34;makechan: size out of range&#34;))
-17    }
-18
-19  // 为构造的hchan对象分配内存
-20    var c *hchan
-21    switch {
-22  // 无缓冲的channel或者元素大小为0的情况
-23    case mem == 0:
-24        c = (*hchan)(mallocgc(hchanSize, nil, true))
-25        c.buf = c.raceaddr()
-26  // 元素不包含指针的情况  
-27    case elem.ptrdata == 0:
-28        c = (*hchan)(mallocgc(hchanSize+mem, nil, true))
-29        c.buf = add(unsafe.Pointer(c), hchanSize)
-30  // 元素包含指针  
-31    default:
-32        c = new(hchan)
-33        c.buf = mallocgc(mem, elem, true)
-34    }
-35
-36  // 初始化相关参数
-37    c.elemsize = uint16(elem.size)
-38    c.elemtype = elem
-39    c.dataqsiz = uint(size)
-40    lockInit(&amp;c.lock, lockRankHchan)
-41
-42    if debugChan {
-43        print(&#34;makechan: chan=&#34;, c, &#34;; elemsize=&#34;, elem.size, &#34;; dataqsiz=&#34;, size, &#34;\n&#34;)
-44    }
-45    return c
-46}
-</code></pre></div><p>可以看到，makechan方法主要就是检查传送元素的合法性，并为hchan分配内存，初始化相关参数，包括对锁的初始化。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func makechan(t *chantype, size int) *hchan {
+</span></span><span style="display:flex;"><span> 2    elem := t.elem
+</span></span><span style="display:flex;"><span> 3
+</span></span><span style="display:flex;"><span> 4  // 发送元素大小限制
+</span></span><span style="display:flex;"><span> 5    if elem.size &gt;= 1&lt;&lt;16 {
+</span></span><span style="display:flex;"><span> 6        throw(&#34;makechan: invalid channel element type&#34;)
+</span></span><span style="display:flex;"><span> 7    }
+</span></span><span style="display:flex;"><span> 8  // 对齐检查
+</span></span><span style="display:flex;"><span> 9    if hchanSize%maxAlign != 0 || elem.align &gt; maxAlign {
+</span></span><span style="display:flex;"><span>10        throw(&#34;makechan: bad alignment&#34;)
+</span></span><span style="display:flex;"><span>11    }
+</span></span><span style="display:flex;"><span>12
+</span></span><span style="display:flex;"><span>13  // 判断是否会内存溢出
+</span></span><span style="display:flex;"><span>14    mem, overflow := math.MulUintptr(elem.size, uintptr(size))
+</span></span><span style="display:flex;"><span>15    if overflow || mem &gt; maxAlloc-hchanSize || size &lt; 0 {
+</span></span><span style="display:flex;"><span>16        panic(plainError(&#34;makechan: size out of range&#34;))
+</span></span><span style="display:flex;"><span>17    }
+</span></span><span style="display:flex;"><span>18
+</span></span><span style="display:flex;"><span>19  // 为构造的hchan对象分配内存
+</span></span><span style="display:flex;"><span>20    var c *hchan
+</span></span><span style="display:flex;"><span>21    switch {
+</span></span><span style="display:flex;"><span>22  // 无缓冲的channel或者元素大小为0的情况
+</span></span><span style="display:flex;"><span>23    case mem == 0:
+</span></span><span style="display:flex;"><span>24        c = (*hchan)(mallocgc(hchanSize, nil, true))
+</span></span><span style="display:flex;"><span>25        c.buf = c.raceaddr()
+</span></span><span style="display:flex;"><span>26  // 元素不包含指针的情况  
+</span></span><span style="display:flex;"><span>27    case elem.ptrdata == 0:
+</span></span><span style="display:flex;"><span>28        c = (*hchan)(mallocgc(hchanSize+mem, nil, true))
+</span></span><span style="display:flex;"><span>29        c.buf = add(unsafe.Pointer(c), hchanSize)
+</span></span><span style="display:flex;"><span>30  // 元素包含指针  
+</span></span><span style="display:flex;"><span>31    default:
+</span></span><span style="display:flex;"><span>32        c = new(hchan)
+</span></span><span style="display:flex;"><span>33        c.buf = mallocgc(mem, elem, true)
+</span></span><span style="display:flex;"><span>34    }
+</span></span><span style="display:flex;"><span>35
+</span></span><span style="display:flex;"><span>36  // 初始化相关参数
+</span></span><span style="display:flex;"><span>37    c.elemsize = uint16(elem.size)
+</span></span><span style="display:flex;"><span>38    c.elemtype = elem
+</span></span><span style="display:flex;"><span>39    c.dataqsiz = uint(size)
+</span></span><span style="display:flex;"><span>40    lockInit(&amp;c.lock, lockRankHchan)
+</span></span><span style="display:flex;"><span>41
+</span></span><span style="display:flex;"><span>42    if debugChan {
+</span></span><span style="display:flex;"><span>43        print(&#34;makechan: chan=&#34;, c, &#34;; elemsize=&#34;, elem.size, &#34;; dataqsiz=&#34;, size, &#34;\n&#34;)
+</span></span><span style="display:flex;"><span>44    }
+</span></span><span style="display:flex;"><span>45    return c
+</span></span><span style="display:flex;"><span>46}
+</span></span></code></pre></div><p>可以看到，makechan方法主要就是检查传送元素的合法性，并为hchan分配内存，初始化相关参数，包括对锁的初始化。</p>
 <ul>
 <li>
 <h4 id="发送"><strong>发送</strong></h4>
@@ -395,88 +395,88 @@
 </ul>
 <p>channel的发送实现代码位于src/go/runtime/chan.go的chansend方法。发送过程，存在以下几种情况。</p>
 <p><strong>a. 当发送的channel为nil</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1if c == nil {
-2    if !block {
-3        return false
-4    }
-5    gopark(nil, nil, waitReasonChanSendNilChan, traceEvGoStop, 2)
-6    throw(&#34;unreachable&#34;)
-7}
-</code></pre></div><p>往一个nil的channel中发送数据时，调用gopark函数将当前执行的goroutine从running态转入waiting态。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1if c == nil {
+</span></span><span style="display:flex;"><span>2    if !block {
+</span></span><span style="display:flex;"><span>3        return false
+</span></span><span style="display:flex;"><span>4    }
+</span></span><span style="display:flex;"><span>5    gopark(nil, nil, waitReasonChanSendNilChan, traceEvGoStop, 2)
+</span></span><span style="display:flex;"><span>6    throw(&#34;unreachable&#34;)
+</span></span><span style="display:flex;"><span>7}
+</span></span></code></pre></div><p>往一个nil的channel中发送数据时，调用gopark函数将当前执行的goroutine从running态转入waiting态。</p>
 <p><strong>b. 往已关闭的channel中发送数据</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1    if c.closed != 0 {
-2        unlock(&amp;c.lock)
-3        panic(plainError(&#34;send on closed channel&#34;))
-4    }
-</code></pre></div><p>如果向已关闭的channel中发送数据，会引发panic。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1    if c.closed != 0 {
+</span></span><span style="display:flex;"><span>2        unlock(&amp;c.lock)
+</span></span><span style="display:flex;"><span>3        panic(plainError(&#34;send on closed channel&#34;))
+</span></span><span style="display:flex;"><span>4    }
+</span></span></code></pre></div><p>如果向已关闭的channel中发送数据，会引发panic。</p>
 <p><strong>c. 如果已经有阻塞的接收goroutines（即recvq中指向非空），那么数据将被直接发送给接收goroutine</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1if sg := c.recvq.dequeue(); sg != nil {
-2    // Found a waiting receiver. We pass the value we want to send
-3    // directly to the receiver, bypassing the channel buffer (if any).
-4    send(c, sg, ep, func() { unlock(&amp;c.lock) }, 3)
-5    return true
-6}
-</code></pre></div><p>该逻辑的实现代码在send方法和sendDirect中。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
- 2  ... // 省略了竞态代码
- 3    if sg.elem != nil {
- 4        sendDirect(c.elemtype, sg, ep)
- 5        sg.elem = nil
- 6    }
- 7    gp := sg.g
- 8    unlockf()
- 9    gp.param = unsafe.Pointer(sg)
-10    if sg.releasetime != 0 {
-11        sg.releasetime = cputicks()
-12    }
-13    goready(gp, skip+1)
-14}
-15
-16func sendDirect(t *_type, sg *sudog, src unsafe.Pointer) {
-17    dst := sg.elem
-18    typeBitsBulkBarrier(t, uintptr(dst), uintptr(src), t.size)
-19    memmove(dst, src, t.size)
-20}
-</code></pre></div><p>其中，memmove我们已经在源码系列中遇到多次了，它的目的是将内存中src的内容拷贝至dst中去。另外，注意到goready(gp, skip+1)这句代码，它会使得之前在接收等待队列中的第一个goroutine的状态变为runnable，这样go的调度器就可以重新让该goroutine得到执行。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1if sg := c.recvq.dequeue(); sg != nil {
+</span></span><span style="display:flex;"><span>2    // Found a waiting receiver. We pass the value we want to send
+</span></span><span style="display:flex;"><span>3    // directly to the receiver, bypassing the channel buffer (if any).
+</span></span><span style="display:flex;"><span>4    send(c, sg, ep, func() { unlock(&amp;c.lock) }, 3)
+</span></span><span style="display:flex;"><span>5    return true
+</span></span><span style="display:flex;"><span>6}
+</span></span></code></pre></div><p>该逻辑的实现代码在send方法和sendDirect中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func send(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf func(), skip int) {
+</span></span><span style="display:flex;"><span> 2  ... // 省略了竞态代码
+</span></span><span style="display:flex;"><span> 3    if sg.elem != nil {
+</span></span><span style="display:flex;"><span> 4        sendDirect(c.elemtype, sg, ep)
+</span></span><span style="display:flex;"><span> 5        sg.elem = nil
+</span></span><span style="display:flex;"><span> 6    }
+</span></span><span style="display:flex;"><span> 7    gp := sg.g
+</span></span><span style="display:flex;"><span> 8    unlockf()
+</span></span><span style="display:flex;"><span> 9    gp.param = unsafe.Pointer(sg)
+</span></span><span style="display:flex;"><span>10    if sg.releasetime != 0 {
+</span></span><span style="display:flex;"><span>11        sg.releasetime = cputicks()
+</span></span><span style="display:flex;"><span>12    }
+</span></span><span style="display:flex;"><span>13    goready(gp, skip+1)
+</span></span><span style="display:flex;"><span>14}
+</span></span><span style="display:flex;"><span>15
+</span></span><span style="display:flex;"><span>16func sendDirect(t *_type, sg *sudog, src unsafe.Pointer) {
+</span></span><span style="display:flex;"><span>17    dst := sg.elem
+</span></span><span style="display:flex;"><span>18    typeBitsBulkBarrier(t, uintptr(dst), uintptr(src), t.size)
+</span></span><span style="display:flex;"><span>19    memmove(dst, src, t.size)
+</span></span><span style="display:flex;"><span>20}
+</span></span></code></pre></div><p>其中，memmove我们已经在源码系列中遇到多次了，它的目的是将内存中src的内容拷贝至dst中去。另外，注意到goready(gp, skip+1)这句代码，它会使得之前在接收等待队列中的第一个goroutine的状态变为runnable，这样go的调度器就可以重新让该goroutine得到执行。</p>
 <p><strong>d. 对于有缓冲的channel来说，如果当前缓冲区hchan.buf有可用空间，那么会将数据拷贝至缓冲区</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1if c.qcount &lt; c.dataqsiz {
- 2    qp := chanbuf(c, c.sendx)
- 3    if raceenabled {
- 4        raceacquire(qp)
- 5        racerelease(qp)
- 6    }
- 7    typedmemmove(c.elemtype, qp, ep)
- 8  // 发送索引号+1
- 9    c.sendx++
-10  // 因为存储数据元素的结构是循环队列，所以当当前索引号已经到队末时，将索引号调整到队头
-11    if c.sendx == c.dataqsiz {
-12        c.sendx = 0
-13    }
-14  // 当前循环队列中存储元素数+1
-15    c.qcount++
-16    unlock(&amp;c.lock)
-17    return true
-18}
-</code></pre></div><p>其中，chanbuf(c, c.sendx)是获取指向对应内存区域的指针。typememmove会调用memmove方法，完成数据的拷贝工作。另外注意到，当对hchan进行实际操作时，是需要调用lock(&amp;c.lock)加锁，因此，在完成数据拷贝后，通过unlock(&amp;c.lock)将锁释放。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1if c.qcount &lt; c.dataqsiz {
+</span></span><span style="display:flex;"><span> 2    qp := chanbuf(c, c.sendx)
+</span></span><span style="display:flex;"><span> 3    if raceenabled {
+</span></span><span style="display:flex;"><span> 4        raceacquire(qp)
+</span></span><span style="display:flex;"><span> 5        racerelease(qp)
+</span></span><span style="display:flex;"><span> 6    }
+</span></span><span style="display:flex;"><span> 7    typedmemmove(c.elemtype, qp, ep)
+</span></span><span style="display:flex;"><span> 8  // 发送索引号+1
+</span></span><span style="display:flex;"><span> 9    c.sendx++
+</span></span><span style="display:flex;"><span>10  // 因为存储数据元素的结构是循环队列，所以当当前索引号已经到队末时，将索引号调整到队头
+</span></span><span style="display:flex;"><span>11    if c.sendx == c.dataqsiz {
+</span></span><span style="display:flex;"><span>12        c.sendx = 0
+</span></span><span style="display:flex;"><span>13    }
+</span></span><span style="display:flex;"><span>14  // 当前循环队列中存储元素数+1
+</span></span><span style="display:flex;"><span>15    c.qcount++
+</span></span><span style="display:flex;"><span>16    unlock(&amp;c.lock)
+</span></span><span style="display:flex;"><span>17    return true
+</span></span><span style="display:flex;"><span>18}
+</span></span></code></pre></div><p>其中，chanbuf(c, c.sendx)是获取指向对应内存区域的指针。typememmove会调用memmove方法，完成数据的拷贝工作。另外注意到，当对hchan进行实际操作时，是需要调用lock(&amp;c.lock)加锁，因此，在完成数据拷贝后，通过unlock(&amp;c.lock)将锁释放。</p>
 <p><strong>e. 有缓冲的channel，当hchan.buf已满；或者无缓冲的channel，当前没有接收的goroutine</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1gp := getg()
- 2mysg := acquireSudog()
- 3mysg.releasetime = 0
- 4if t0 != 0 {
- 5    mysg.releasetime = -1
- 6}
- 7// No stack splits between assigning elem and enqueuing mysg
- 8// on gp.waiting where copystack can find it.
- 9mysg.elem = ep
-10mysg.waitlink = nil
-11mysg.g = gp
-12mysg.isSelect = false
-13mysg.c = c
-14gp.waiting = mysg
-15gp.param = nil
-16c.sendq.enqueue(mysg)
-17gopark(chanparkcommit, unsafe.Pointer(&amp;c.lock), waitReasonChanSend, traceEvGoBlockSend, 2)
-</code></pre></div><p>通过getg获取当前执行的goroutine。acquireSudog是先获得当前执行goroutine的线程M，再获取M对应的P，最后将P的sudugo缓存队列中的队头sudog取出（详见源码src/runtime/proc.go）。通过c.sendq.enqueue将sudug加入到channel的发送等待列表中，并调用gopark将当前goroutine转为waiting态。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1gp := getg()
+</span></span><span style="display:flex;"><span> 2mysg := acquireSudog()
+</span></span><span style="display:flex;"><span> 3mysg.releasetime = 0
+</span></span><span style="display:flex;"><span> 4if t0 != 0 {
+</span></span><span style="display:flex;"><span> 5    mysg.releasetime = -1
+</span></span><span style="display:flex;"><span> 6}
+</span></span><span style="display:flex;"><span> 7// No stack splits between assigning elem and enqueuing mysg
+</span></span><span style="display:flex;"><span> 8// on gp.waiting where copystack can find it.
+</span></span><span style="display:flex;"><span> 9mysg.elem = ep
+</span></span><span style="display:flex;"><span>10mysg.waitlink = nil
+</span></span><span style="display:flex;"><span>11mysg.g = gp
+</span></span><span style="display:flex;"><span>12mysg.isSelect = false
+</span></span><span style="display:flex;"><span>13mysg.c = c
+</span></span><span style="display:flex;"><span>14gp.waiting = mysg
+</span></span><span style="display:flex;"><span>15gp.param = nil
+</span></span><span style="display:flex;"><span>16c.sendq.enqueue(mysg)
+</span></span><span style="display:flex;"><span>17gopark(chanparkcommit, unsafe.Pointer(&amp;c.lock), waitReasonChanSend, traceEvGoBlockSend, 2)
+</span></span></code></pre></div><p>通过getg获取当前执行的goroutine。acquireSudog是先获得当前执行goroutine的线程M，再获取M对应的P，最后将P的sudugo缓存队列中的队头sudog取出（详见源码src/runtime/proc.go）。通过c.sendq.enqueue将sudug加入到channel的发送等待列表中，并调用gopark将当前goroutine转为waiting态。</p>
 <ul>
 <li>发送操作会对hchan加锁。</li>
 <li>当recvq中存在等待接收的goroutine时，数据元素将会被直接拷贝给接收goroutine。</li>
@@ -485,19 +485,19 @@
 <li>向已经关闭的channel发送数据，会引发panic。</li>
 </ul>
 <p>对于无缓冲的channel来说，它天然就是hchan.buf已满的情况，因为它的hchan.buf的容量为0。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#ae81ff">1</span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
- <span style="color:#ae81ff">2</span>
- <span style="color:#ae81ff">3i</span><span style="color:#a6e22e">mport</span> <span style="color:#e6db74">&#34;time&#34;</span>
- <span style="color:#ae81ff">4</span>
- <span style="color:#ae81ff">5</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
- <span style="color:#ae81ff">6</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
- <span style="color:#ae81ff">7</span>    <span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
- <span style="color:#ae81ff">8</span>        <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">100</span>
- <span style="color:#ae81ff">9</span>    }(<span style="color:#a6e22e">ch</span>)
-<span style="color:#ae81ff">10</span>    <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Millisecond</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">500</span>)
-<span style="color:#ae81ff">11</span>    <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>)
-<span style="color:#ae81ff">12</span>}
-</code></pre></div><p>在上述示例中，发送goroutine向无缓冲的channel发送数据，但是没有接收goroutine。将断点置于time.Sleep(time.Second)，得到此时ch结构如下。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#ae81ff">1</span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">2</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">3i</span><span style="color:#a6e22e">mport</span> <span style="color:#e6db74">&#34;time&#34;</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">4</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">5</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">6</span>    <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">7</span>    <span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>) {
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">8</span>        <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">100</span>
+</span></span><span style="display:flex;"><span> <span style="color:#ae81ff">9</span>    }(<span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">10</span>    <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Millisecond</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">500</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">11</span>    <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Sleep</span>(<span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">12</span>}
+</span></span></code></pre></div><p>在上述示例中，发送goroutine向无缓冲的channel发送数据，但是没有接收goroutine。将断点置于time.Sleep(time.Second)，得到此时ch结构如下。</p>
 <p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/8.png" alt="img"></p>
 <p>可以看到，在无缓冲的channel中，其hchan的buf长度为0，当没有接收groutine时，发送的goroutine将被置于sendq的发送队列中。</p>
 <ul>
@@ -506,15 +506,15 @@
 </li>
 </ul>
 <p>channel的接收实现分两种，v :=&lt;-ch对应于chanrecv1，v, ok := &lt;- ch对应于chanrecv2，但它们都依赖于位于src/go/runtime/chan.go的chanrecv方法。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func chanrecv1(c *hchan, elem unsafe.Pointer) {
-2    chanrecv(c, elem, true)
-3}
-4
-5func chanrecv2(c *hchan, elem unsafe.Pointer) (received bool) {
-6    _, received = chanrecv(c, elem, true)
-7    return
-8}
-</code></pre></div><p>chanrecv的详细代码此处就不再展示，和chansend逻辑对应，具体处理准则如下。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func chanrecv1(c *hchan, elem unsafe.Pointer) {
+</span></span><span style="display:flex;"><span>2    chanrecv(c, elem, true)
+</span></span><span style="display:flex;"><span>3}
+</span></span><span style="display:flex;"><span>4
+</span></span><span style="display:flex;"><span>5func chanrecv2(c *hchan, elem unsafe.Pointer) (received bool) {
+</span></span><span style="display:flex;"><span>6    _, received = chanrecv(c, elem, true)
+</span></span><span style="display:flex;"><span>7    return
+</span></span><span style="display:flex;"><span>8}
+</span></span></code></pre></div><p>chanrecv的详细代码此处就不再展示，和chansend逻辑对应，具体处理准则如下。</p>
 <ul>
 <li>接收操作会对hchan加锁。</li>
 <li>当sendq中存在等待发送的goroutine时，意味着此时的hchan.buf已满（无缓存的天然已满），分两种情况（见代码src/go/runtime/chan.go的recv方法）：1. 如果是有缓存的hchan，那么先将缓冲区的数据拷贝给接收goroutine，再将sendq的队头sudog出队，将出队的sudog上的元素拷贝至hchan的缓存区。2. 如果是无缓存的hchan，那么直接将出队的sudog上的元素拷贝给接收goroutine。两种情况的最后都会唤醒出队的sudog上的发送goroutine。</li>
@@ -523,182 +523,182 @@
 <li>与发送不同的是，当channel关闭时，goroutine还能从channel中获取数据。如果recvq等待列表中有goroutines，那么它们都会被唤醒接收数据。如果hchan.buf中还有未接收的数据，那么goroutine会接收缓冲区中的数据，否则goroutine会获取到元素的零值。</li>
 </ul>
 <p>以下是channel关闭之后，接收goroutine的读取示例代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func main() {
- 2    ch := make(chan int, 1)
- 3    ch &lt;- 10
- 4    close(ch)
- 5    a, ok := &lt;-ch
- 6    fmt.Println(a, ok)
- 7    b, ok := &lt;-ch
- 8    fmt.Println(b, ok)
- 9    c := &lt;-ch
-10    fmt.Println(c)
-11}
-12
-13//输出如下
-1410 true
-150 false
-160
-</code></pre></div><p><strong>注意：在channel中进行的所有元素转移都伴随着内存的拷贝。</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func main() {
- 2    type Instance struct {
- 3        ID   int
- 4        name string
- 5    }
- 6
- 7    var ins = Instance{ID: 1, name: &#34;Golang&#34;}
- 8
- 9    ch := make(chan Instance, 3)
-10    ch &lt;- ins
-11
-12    fmt.Println(&#34;ins的原始值：&#34;, ins)
-13
-14    ins.name = &#34;Python&#34;
-15    go func(ch chan Instance) {
-16        fmt.Println(&#34;channel接收值：&#34;, &lt;-ch)
-17    }(ch)
-18
-19    time.Sleep(time.Second)
-20    fmt.Println(&#34;ins的最终值：&#34;, ins)
-21}
-22
-23// 输出结果
-24ins的原始值： {1 Golang}
-25channel接收值： {1 Golang}
-26ins的最终值： {1 Python}
-</code></pre></div><p>前半段图解如下</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func main() {
+</span></span><span style="display:flex;"><span> 2    ch := make(chan int, 1)
+</span></span><span style="display:flex;"><span> 3    ch &lt;- 10
+</span></span><span style="display:flex;"><span> 4    close(ch)
+</span></span><span style="display:flex;"><span> 5    a, ok := &lt;-ch
+</span></span><span style="display:flex;"><span> 6    fmt.Println(a, ok)
+</span></span><span style="display:flex;"><span> 7    b, ok := &lt;-ch
+</span></span><span style="display:flex;"><span> 8    fmt.Println(b, ok)
+</span></span><span style="display:flex;"><span> 9    c := &lt;-ch
+</span></span><span style="display:flex;"><span>10    fmt.Println(c)
+</span></span><span style="display:flex;"><span>11}
+</span></span><span style="display:flex;"><span>12
+</span></span><span style="display:flex;"><span>13//输出如下
+</span></span><span style="display:flex;"><span>1410 true
+</span></span><span style="display:flex;"><span>150 false
+</span></span><span style="display:flex;"><span>160
+</span></span></code></pre></div><p><strong>注意：在channel中进行的所有元素转移都伴随着内存的拷贝。</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func main() {
+</span></span><span style="display:flex;"><span> 2    type Instance struct {
+</span></span><span style="display:flex;"><span> 3        ID   int
+</span></span><span style="display:flex;"><span> 4        name string
+</span></span><span style="display:flex;"><span> 5    }
+</span></span><span style="display:flex;"><span> 6
+</span></span><span style="display:flex;"><span> 7    var ins = Instance{ID: 1, name: &#34;Golang&#34;}
+</span></span><span style="display:flex;"><span> 8
+</span></span><span style="display:flex;"><span> 9    ch := make(chan Instance, 3)
+</span></span><span style="display:flex;"><span>10    ch &lt;- ins
+</span></span><span style="display:flex;"><span>11
+</span></span><span style="display:flex;"><span>12    fmt.Println(&#34;ins的原始值：&#34;, ins)
+</span></span><span style="display:flex;"><span>13
+</span></span><span style="display:flex;"><span>14    ins.name = &#34;Python&#34;
+</span></span><span style="display:flex;"><span>15    go func(ch chan Instance) {
+</span></span><span style="display:flex;"><span>16        fmt.Println(&#34;channel接收值：&#34;, &lt;-ch)
+</span></span><span style="display:flex;"><span>17    }(ch)
+</span></span><span style="display:flex;"><span>18
+</span></span><span style="display:flex;"><span>19    time.Sleep(time.Second)
+</span></span><span style="display:flex;"><span>20    fmt.Println(&#34;ins的最终值：&#34;, ins)
+</span></span><span style="display:flex;"><span>21}
+</span></span><span style="display:flex;"><span>22
+</span></span><span style="display:flex;"><span>23// 输出结果
+</span></span><span style="display:flex;"><span>24ins的原始值： {1 Golang}
+</span></span><span style="display:flex;"><span>25channel接收值： {1 Golang}
+</span></span><span style="display:flex;"><span>26ins的最终值： {1 Python}
+</span></span></code></pre></div><p>前半段图解如下</p>
 <p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/9.png" alt="img"></p>
 <p>后半段图解如下</p>
 <p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/10.png" alt="img"></p>
 <p>注意: 如果把channel传递类型替换为Instance指针时，那么尽管channel存入到buf中的元素已经是拷贝对象了，从channel中取出又被拷贝了一次。但是由于它们的类型是Instance指针，拷贝对象与原始对象均会指向同一个内存地址，修改原有元素对象的数据时，会影响到取出数据。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func main() {
- 2    type Instance struct {
- 3        ID   int
- 4        name string
- 5    }
- 6
- 7    var ins = &amp;Instance{ID: 1, name: &#34;Golang&#34;}
- 8
- 9    ch := make(chan *Instance, 3)
-10    ch &lt;- ins
-11
-12    fmt.Println(&#34;ins的原始值：&#34;, ins)
-13
-14    ins.name = &#34;Python&#34;
-15    go func(ch chan *Instance) {
-16        fmt.Println(&#34;channel接收值：&#34;, &lt;-ch)
-17    }(ch)
-18
-19    time.Sleep(time.Second)
-20    fmt.Println(&#34;ins的最终值：&#34;, ins)
-21}
-22
-23// 输出结果
-24ins的原始值： &amp;{1 Golang}
-25channel接收值： &amp;{1 Python}
-26ins的最终值： &amp;{1 Python}
-</code></pre></div><p>因此，在使用channel时，尽量避免传递指针，如果传递指针，则需谨慎。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func main() {
+</span></span><span style="display:flex;"><span> 2    type Instance struct {
+</span></span><span style="display:flex;"><span> 3        ID   int
+</span></span><span style="display:flex;"><span> 4        name string
+</span></span><span style="display:flex;"><span> 5    }
+</span></span><span style="display:flex;"><span> 6
+</span></span><span style="display:flex;"><span> 7    var ins = &amp;Instance{ID: 1, name: &#34;Golang&#34;}
+</span></span><span style="display:flex;"><span> 8
+</span></span><span style="display:flex;"><span> 9    ch := make(chan *Instance, 3)
+</span></span><span style="display:flex;"><span>10    ch &lt;- ins
+</span></span><span style="display:flex;"><span>11
+</span></span><span style="display:flex;"><span>12    fmt.Println(&#34;ins的原始值：&#34;, ins)
+</span></span><span style="display:flex;"><span>13
+</span></span><span style="display:flex;"><span>14    ins.name = &#34;Python&#34;
+</span></span><span style="display:flex;"><span>15    go func(ch chan *Instance) {
+</span></span><span style="display:flex;"><span>16        fmt.Println(&#34;channel接收值：&#34;, &lt;-ch)
+</span></span><span style="display:flex;"><span>17    }(ch)
+</span></span><span style="display:flex;"><span>18
+</span></span><span style="display:flex;"><span>19    time.Sleep(time.Second)
+</span></span><span style="display:flex;"><span>20    fmt.Println(&#34;ins的最终值：&#34;, ins)
+</span></span><span style="display:flex;"><span>21}
+</span></span><span style="display:flex;"><span>22
+</span></span><span style="display:flex;"><span>23// 输出结果
+</span></span><span style="display:flex;"><span>24ins的原始值： &amp;{1 Golang}
+</span></span><span style="display:flex;"><span>25channel接收值： &amp;{1 Python}
+</span></span><span style="display:flex;"><span>26ins的最终值： &amp;{1 Python}
+</span></span></code></pre></div><p>因此，在使用channel时，尽量避免传递指针，如果传递指针，则需谨慎。</p>
 <ul>
 <li>
 <h4 id="关闭"><strong>关闭</strong></h4>
 </li>
 </ul>
 <p>channel的关闭实现代码位于src/go/runtime/chan.go的chansend方法，详细执行逻辑已通过注释写明。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func closechan(c *hchan) {
- 2  // 如果hchan对象为nil，则会引发painc
- 3    if c == nil {
- 4        panic(plainError(&#34;close of nil channel&#34;))
- 5    }
- 6
- 7  // 对hchan加锁
- 8    lock(&amp;c.lock)
- 9  // 不同多次调用close(c chan&lt;- Type)方法，否则会引发painc
-10    if c.closed != 0 {
-11        unlock(&amp;c.lock)
-12        panic(plainError(&#34;close of closed channel&#34;))
-13    }
-14
-15    if raceenabled {
-16        callerpc := getcallerpc()
-17        racewritepc(c.raceaddr(), callerpc, funcPC(closechan))
-18        racerelease(c.raceaddr())
-19    }
-20
-21  // close标志
-22    c.closed = 1
-23
-24  // gList代表Go的GMP调度的G集合
-25    var glist gList
-26
-27    // 该for循环是为了释放recvq上的所有等待接收sudog
-28    for {
-29        sg := c.recvq.dequeue()
-30        if sg == nil {
-31            break
-32        }
-33        if sg.elem != nil {
-34            typedmemclr(c.elemtype, sg.elem)
-35            sg.elem = nil
-36        }
-37        if sg.releasetime != 0 {
-38            sg.releasetime = cputicks()
-39        }
-40        gp := sg.g
-41        gp.param = nil
-42        if raceenabled {
-43            raceacquireg(gp, c.raceaddr())
-44        }
-45        glist.push(gp)
-46    }
-47
-48    // 该for循环会释放sendq上的所有等待发送sudog
-49    for {
-50        sg := c.sendq.dequeue()
-51        if sg == nil {
-52            break
-53        }
-54        sg.elem = nil
-55        if sg.releasetime != 0 {
-56            sg.releasetime = cputicks()
-57        }
-58        gp := sg.g
-59        gp.param = nil
-60        if raceenabled {
-61            raceacquireg(gp, c.raceaddr())
-62        }
-63        glist.push(gp)
-64    }
-65  // 释放sendq和recvq之后，hchan释放锁
-66    unlock(&amp;c.lock)
-67
-68  // 将上文中glist中的加入的goroutine取出，让它们均变为runnable（可执行）状态，等待调度器执行
-69    // 注意：我们上文中分析过，试图向一个已关闭的channel发送数据，会引发painc。
-70  // 所以，如果是释放sendq中的goroutine，它们一旦得到执行将会引发panic。
-71    for !glist.empty() {
-72        gp := glist.pop()
-73        gp.schedlink = 0
-74        goready(gp, 3)
-75    }
-76}
-</code></pre></div><p>关于关闭操作，有几个点需要注意一下。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func closechan(c *hchan) {
+</span></span><span style="display:flex;"><span> 2  // 如果hchan对象为nil，则会引发painc
+</span></span><span style="display:flex;"><span> 3    if c == nil {
+</span></span><span style="display:flex;"><span> 4        panic(plainError(&#34;close of nil channel&#34;))
+</span></span><span style="display:flex;"><span> 5    }
+</span></span><span style="display:flex;"><span> 6
+</span></span><span style="display:flex;"><span> 7  // 对hchan加锁
+</span></span><span style="display:flex;"><span> 8    lock(&amp;c.lock)
+</span></span><span style="display:flex;"><span> 9  // 不同多次调用close(c chan&lt;- Type)方法，否则会引发painc
+</span></span><span style="display:flex;"><span>10    if c.closed != 0 {
+</span></span><span style="display:flex;"><span>11        unlock(&amp;c.lock)
+</span></span><span style="display:flex;"><span>12        panic(plainError(&#34;close of closed channel&#34;))
+</span></span><span style="display:flex;"><span>13    }
+</span></span><span style="display:flex;"><span>14
+</span></span><span style="display:flex;"><span>15    if raceenabled {
+</span></span><span style="display:flex;"><span>16        callerpc := getcallerpc()
+</span></span><span style="display:flex;"><span>17        racewritepc(c.raceaddr(), callerpc, funcPC(closechan))
+</span></span><span style="display:flex;"><span>18        racerelease(c.raceaddr())
+</span></span><span style="display:flex;"><span>19    }
+</span></span><span style="display:flex;"><span>20
+</span></span><span style="display:flex;"><span>21  // close标志
+</span></span><span style="display:flex;"><span>22    c.closed = 1
+</span></span><span style="display:flex;"><span>23
+</span></span><span style="display:flex;"><span>24  // gList代表Go的GMP调度的G集合
+</span></span><span style="display:flex;"><span>25    var glist gList
+</span></span><span style="display:flex;"><span>26
+</span></span><span style="display:flex;"><span>27    // 该for循环是为了释放recvq上的所有等待接收sudog
+</span></span><span style="display:flex;"><span>28    for {
+</span></span><span style="display:flex;"><span>29        sg := c.recvq.dequeue()
+</span></span><span style="display:flex;"><span>30        if sg == nil {
+</span></span><span style="display:flex;"><span>31            break
+</span></span><span style="display:flex;"><span>32        }
+</span></span><span style="display:flex;"><span>33        if sg.elem != nil {
+</span></span><span style="display:flex;"><span>34            typedmemclr(c.elemtype, sg.elem)
+</span></span><span style="display:flex;"><span>35            sg.elem = nil
+</span></span><span style="display:flex;"><span>36        }
+</span></span><span style="display:flex;"><span>37        if sg.releasetime != 0 {
+</span></span><span style="display:flex;"><span>38            sg.releasetime = cputicks()
+</span></span><span style="display:flex;"><span>39        }
+</span></span><span style="display:flex;"><span>40        gp := sg.g
+</span></span><span style="display:flex;"><span>41        gp.param = nil
+</span></span><span style="display:flex;"><span>42        if raceenabled {
+</span></span><span style="display:flex;"><span>43            raceacquireg(gp, c.raceaddr())
+</span></span><span style="display:flex;"><span>44        }
+</span></span><span style="display:flex;"><span>45        glist.push(gp)
+</span></span><span style="display:flex;"><span>46    }
+</span></span><span style="display:flex;"><span>47
+</span></span><span style="display:flex;"><span>48    // 该for循环会释放sendq上的所有等待发送sudog
+</span></span><span style="display:flex;"><span>49    for {
+</span></span><span style="display:flex;"><span>50        sg := c.sendq.dequeue()
+</span></span><span style="display:flex;"><span>51        if sg == nil {
+</span></span><span style="display:flex;"><span>52            break
+</span></span><span style="display:flex;"><span>53        }
+</span></span><span style="display:flex;"><span>54        sg.elem = nil
+</span></span><span style="display:flex;"><span>55        if sg.releasetime != 0 {
+</span></span><span style="display:flex;"><span>56            sg.releasetime = cputicks()
+</span></span><span style="display:flex;"><span>57        }
+</span></span><span style="display:flex;"><span>58        gp := sg.g
+</span></span><span style="display:flex;"><span>59        gp.param = nil
+</span></span><span style="display:flex;"><span>60        if raceenabled {
+</span></span><span style="display:flex;"><span>61            raceacquireg(gp, c.raceaddr())
+</span></span><span style="display:flex;"><span>62        }
+</span></span><span style="display:flex;"><span>63        glist.push(gp)
+</span></span><span style="display:flex;"><span>64    }
+</span></span><span style="display:flex;"><span>65  // 释放sendq和recvq之后，hchan释放锁
+</span></span><span style="display:flex;"><span>66    unlock(&amp;c.lock)
+</span></span><span style="display:flex;"><span>67
+</span></span><span style="display:flex;"><span>68  // 将上文中glist中的加入的goroutine取出，让它们均变为runnable（可执行）状态，等待调度器执行
+</span></span><span style="display:flex;"><span>69    // 注意：我们上文中分析过，试图向一个已关闭的channel发送数据，会引发painc。
+</span></span><span style="display:flex;"><span>70  // 所以，如果是释放sendq中的goroutine，它们一旦得到执行将会引发panic。
+</span></span><span style="display:flex;"><span>71    for !glist.empty() {
+</span></span><span style="display:flex;"><span>72        gp := glist.pop()
+</span></span><span style="display:flex;"><span>73        gp.schedlink = 0
+</span></span><span style="display:flex;"><span>74        goready(gp, 3)
+</span></span><span style="display:flex;"><span>75    }
+</span></span><span style="display:flex;"><span>76}
+</span></span></code></pre></div><p>关于关闭操作，有几个点需要注意一下。</p>
 <ul>
 <li>如果关闭已关闭的channel会引发painc。</li>
 <li>对channel关闭后，如果有阻塞的读取或发送goroutines将会被唤醒。读取goroutines会获取到hchan的已接收元素，如果没有，则获取到元素零值；发送goroutine的执行则会引发painc。</li>
 </ul>
 <p>对于第二点，我们可以很好利用这一特性来实现对程序执行流的控制（类似于sync.WaitGroup的作用），以下是示例程序代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func main() {
- 2    ch := make(chan struct{})
- 3    //
- 4    go func() {
- 5        // do something work...
- 6        // when work has done, call close()
- 7        close(ch)
- 8    }()
- 9    // waiting work done
-10    &lt;- ch
-11    // other work continue...
-12}
-</code></pre></div><p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/1.png" alt="img"></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func main() {
+</span></span><span style="display:flex;"><span> 2    ch := make(chan struct{})
+</span></span><span style="display:flex;"><span> 3    //
+</span></span><span style="display:flex;"><span> 4    go func() {
+</span></span><span style="display:flex;"><span> 5        // do something work...
+</span></span><span style="display:flex;"><span> 6        // when work has done, call close()
+</span></span><span style="display:flex;"><span> 7        close(ch)
+</span></span><span style="display:flex;"><span> 8    }()
+</span></span><span style="display:flex;"><span> 9    // waiting work done
+</span></span><span style="display:flex;"><span>10    &lt;- ch
+</span></span><span style="display:flex;"><span>11    // other work continue...
+</span></span><span style="display:flex;"><span>12}
+</span></span></code></pre></div><p><img src="http://shanks.link/img/Go%E4%B9%8BChannel%E8%AE%BE%E8%AE%A1/1.png" alt="img"></p>
 <p><strong>总结</strong></p>
 <p>channel是Go中非常强大有用的机制，为了更有效地使用它，我们必须了解它的实现原理，这也是写作本文的目的。</p>
 <ul>
@@ -791,7 +791,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -851,7 +851,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

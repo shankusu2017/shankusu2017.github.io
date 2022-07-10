@@ -221,109 +221,109 @@
 <h3 id="二channel-的使用">二、channel 的使用</h3>
 <p>在深入了解 channel 的底层之前，我们先来看看 channel 的常用用法。</p>
 <h4 id="channel-的创建">channel 的创建</h4>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
-</code></pre></div><p>上面是创建了<strong>无缓冲</strong>的 channel，一旦有 goroutine 往 channel 发送数据，那么当前的 goroutine 会被阻塞住，直到有其他的 goroutine 消费了 channel 里的数据，才能继续运行。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
+</span></span></code></pre></div><p>上面是创建了<strong>无缓冲</strong>的 channel，一旦有 goroutine 往 channel 发送数据，那么当前的 goroutine 会被阻塞住，直到有其他的 goroutine 消费了 channel 里的数据，才能继续运行。</p>
 <p>还有另外一种是有缓冲的 channel，它的创建是这样的:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>, <span style="color:#ae81ff">2</span>)
-</code></pre></div><p>第二个参数表示 channel 可缓冲数据的容量。只要当前 channel 里的元素总数不大于这个可缓冲容量，则当前的 goroutine 就不会被阻塞住。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>, <span style="color:#ae81ff">2</span>)
+</span></span></code></pre></div><p>第二个参数表示 channel 可缓冲数据的容量。只要当前 channel 里的元素总数不大于这个可缓冲容量，则当前的 goroutine 就不会被阻塞住。</p>
 <p>需要注意的是，上面 make 后返回的是一个指向 <strong>hchan</strong> 结构的指针变量，等会将会聊聊 hchan 的底层结构。</p>
 <p>另外，我们也可以声明一个 <strong>nil</strong> 的 channel，只是创建这样的 channel 没有意义，读、写 channel 都将会被阻塞住。一般 nil channel 用在 select 上，让 select 不再从这个 channel 里读取数据，如下用法：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#a6e22e">ch1</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
- <span style="color:#a6e22e">ch2</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
-
- <span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>() {
-  <span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> { <span style="color:#75715e">// 某些原因，设置 ch1 为 nil
-</span><span style="color:#75715e"></span>   <span style="color:#a6e22e">ch1</span> = <span style="color:#66d9ef">nil</span>
-  }
- }()
-
- <span style="color:#66d9ef">for</span> {
-  <span style="color:#66d9ef">select</span> {
-  <span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch1</span>: <span style="color:#75715e">// 当 ch1 被设置为 nil 后，将不会到达此分支了。
-</span><span style="color:#75715e"></span>   <span style="color:#a6e22e">doSomething1</span>()
-  <span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch2</span>:
-   <span style="color:#a6e22e">doSomething2</span>()
-  }
- }
-</code></pre></div><p>使用 channel 时我们还可以控制 channel 只读只写操作：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">readChan</span>(<span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>){
-  <span style="color:#75715e">// chan 只允许被读
-</span><span style="color:#75715e"></span> }
-
- <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>(){
-  <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
-  <span style="color:#a6e22e">readChan</span>(<span style="color:#a6e22e">ch</span>)
- }
-</code></pre></div><p>反之，如果要求只写操作，则可以这样：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">writeChan</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span><span style="color:#f92672">&lt;-</span> <span style="color:#66d9ef">int</span>){
-     <span style="color:#75715e">// chan 只允许被写
-</span><span style="color:#75715e"></span> }
-</code></pre></div><h4 id="channel-的读写">channel 的读写</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#a6e22e">ch1</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
+</span></span><span style="display:flex;"><span> <span style="color:#a6e22e">ch2</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>() {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">ok</span> { <span style="color:#75715e">// 某些原因，设置 ch1 为 nil
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#a6e22e">ch1</span> = <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span> }()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">for</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">select</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch1</span>: <span style="color:#75715e">// 当 ch1 被设置为 nil 后，将不会到达此分支了。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#a6e22e">doSomething1</span>()
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch2</span>:
+</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">doSomething2</span>()
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>使用 channel 时我们还可以控制 channel 只读只写操作：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">readChan</span>(<span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>){
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// chan 只允许被读
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>(){
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">readChan</span>(<span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>反之，如果要求只写操作，则可以这样：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">writeChan</span>(<span style="color:#a6e22e">ch</span> <span style="color:#66d9ef">chan</span><span style="color:#f92672">&lt;-</span> <span style="color:#66d9ef">int</span>){
+</span></span><span style="display:flex;"><span>     <span style="color:#75715e">// chan 只允许被写
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> }
+</span></span></code></pre></div><h4 id="channel-的读写">channel 的读写</h4>
 <p>往一个 channel 发送数据，可以这样<strong>写</strong>：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
- <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">1</span>
-</code></pre></div><p>对应的<strong>读</strong>操作：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#a6e22e">data</span> <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">ch</span>
-</code></pre></div><p>当我们不再使用 channel 的时候，可以对其进行关闭：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> close(<span style="color:#a6e22e">ch</span>)
-</code></pre></div><p>当 channel 被关闭后，如果继续往里面写数据，则程序会直接 <strong>panic</strong> 退出。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
+</span></span><span style="display:flex;"><span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#ae81ff">1</span>
+</span></span></code></pre></div><p>对应的<strong>读</strong>操作：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#a6e22e">data</span> <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">ch</span>
+</span></span></code></pre></div><p>当我们不再使用 channel 的时候，可以对其进行关闭：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> close(<span style="color:#a6e22e">ch</span>)
+</span></span></code></pre></div><p>当 channel 被关闭后，如果继续往里面写数据，则程序会直接 <strong>panic</strong> 退出。</p>
 <p>不过<strong>读取关闭</strong>后的 channel，<strong>不会</strong>产生 pannic，还是可以读到数据。</p>
 <p>如果关闭后的 channel 没有数据可读取时，将得到零值，即对应类型的默认值。</p>
 <p>为了能知道当前 channel 是否被关闭，可以使用下面的写法来判断。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">v</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch</span>; !<span style="color:#a6e22e">ok</span> {
-  <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;channel 已关闭，读取不到数据&#34;</span>)
- }
-</code></pre></div><p>还可以使用下面的写法不断的获取 channel 里的数据：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">data</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">ch</span> {
-  <span style="color:#75715e">// get data dosomething
-</span><span style="color:#75715e"></span> }
-</code></pre></div><p>这种用法会在读取完 channel 里的数据后就结束 for 循环，执行后面的代码。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">v</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch</span>; !<span style="color:#a6e22e">ok</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;channel 已关闭，读取不到数据&#34;</span>)
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>还可以使用下面的写法不断的获取 channel 里的数据：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">data</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">ch</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// get data dosomething
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> }
+</span></span></code></pre></div><p>这种用法会在读取完 channel 里的数据后就结束 for 循环，执行后面的代码。</p>
 <h4 id="channel-和-select">channel 和 select</h4>
 <p>在写程序时，有时并不单单只会和一个 goroutine 通信，当我们要进行多 goroutine 通信时，则会使用 select 写法来管理多个 channel 的通信数据：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#a6e22e">ch1</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{})
- <span style="color:#a6e22e">ch2</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{})
-
- <span style="color:#75715e">// ch1, ch2 发送数据
-</span><span style="color:#75715e"></span> <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">sendCh1</span>(<span style="color:#a6e22e">ch1</span>)
- <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">sendCh1</span>(<span style="color:#a6e22e">ch2</span>)
-
- <span style="color:#75715e">// channel 数据接受处理
-</span><span style="color:#75715e"></span> <span style="color:#66d9ef">for</span> {
-  <span style="color:#66d9ef">select</span> {
-  <span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch1</span>:
-   <span style="color:#a6e22e">doSomething1</span>()
-  <span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch2</span>:
-   <span style="color:#a6e22e">doSomething2</span>()
-  }
- }
-</code></pre></div><h4 id="channel-的-deadlock">channel 的 deadlock</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#a6e22e">ch1</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{})
+</span></span><span style="display:flex;"><span> <span style="color:#a6e22e">ch2</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{})
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#75715e">// ch1, ch2 发送数据
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">sendCh1</span>(<span style="color:#a6e22e">ch1</span>)
+</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">sendCh1</span>(<span style="color:#a6e22e">ch2</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#75715e">// channel 数据接受处理
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">for</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">select</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch1</span>:
+</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">doSomething1</span>()
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch2</span>:
+</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">doSomething2</span>()
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><h4 id="channel-的-deadlock">channel 的 deadlock</h4>
 <p>前面提到过，往 channel 里读写数据时是有可能被阻塞住的，一旦被阻塞，则需要其他的 goroutine 执行对应的读写操作，才能解除阻塞状态。</p>
 <p>然而，阻塞后一直<strong>没能</strong>发生调度行为，没有可用的 goroutine 可执行，则会一直卡在这个地方，程序就失去执行意义了。此时 Go 就会报 deadlock 错误，如下代码：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-  <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
-  <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch</span>
-
-  <span style="color:#75715e">// 执行后将 panic：
-</span><span style="color:#75715e"></span>  <span style="color:#75715e">// fatal error: all goroutines are asleep - deadlock!
-</span><span style="color:#75715e"></span> }
-</code></pre></div><p>因此，在使用 channel 时要注意 goroutine 的一发一取，避免 goroutine 永久阻塞！</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">int</span>)
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ch</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// 执行后将 panic：
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// fatal error: all goroutines are asleep - deadlock!
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> }
+</span></span></code></pre></div><p>因此，在使用 channel 时要注意 goroutine 的一发一取，避免 goroutine 永久阻塞！</p>
 <h3 id="三channel-的底层原理">三、channel 的底层原理</h3>
 <p>前面提及过 channel 创建后返回了 <strong>hchan</strong> 结构体，现在我们来研究下这个结构体，它的主要字段如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">hchan</span> <span style="color:#66d9ef">struct</span> {
- <span style="color:#a6e22e">qcount</span>   <span style="color:#66d9ef">uint</span>   <span style="color:#75715e">// channel 里的元素计数
-</span><span style="color:#75715e"></span> <span style="color:#a6e22e">dataqsiz</span> <span style="color:#66d9ef">uint</span>   <span style="color:#75715e">// 可以缓冲的数量，如 ch := make(chan int, 10)。 此处的 10 即 dataqsiz
-</span><span style="color:#75715e"></span> <span style="color:#a6e22e">elemsize</span> <span style="color:#66d9ef">uint16</span> <span style="color:#75715e">// 要发送或接收的数据类型大小
-</span><span style="color:#75715e"></span> <span style="color:#a6e22e">buf</span>      <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span> <span style="color:#75715e">// 当 channel 设置了缓冲数量时，该 buf 指向一个存储缓冲数据的区域，该区域是一个循环队列的数据结构
-</span><span style="color:#75715e"></span> <span style="color:#a6e22e">closed</span>   <span style="color:#66d9ef">uint32</span> <span style="color:#75715e">// 关闭状态
-</span><span style="color:#75715e"></span> <span style="color:#a6e22e">sendx</span>    <span style="color:#66d9ef">uint</span>  <span style="color:#75715e">// 当 channel 设置了缓冲数量时，数据区域即循环队列此时已发送数据的索引位置
-</span><span style="color:#75715e"></span> <span style="color:#a6e22e">recvx</span>    <span style="color:#66d9ef">uint</span>  <span style="color:#75715e">// 当 channel 设置了缓冲数量时，数据区域即循环队列此时已接收数据的索引位置
-</span><span style="color:#75715e"></span> <span style="color:#a6e22e">recvq</span>    <span style="color:#a6e22e">waitq</span> <span style="color:#75715e">// 想读取数据但又被阻塞住的 goroutine 队列
-</span><span style="color:#75715e"></span> <span style="color:#a6e22e">sendq</span>    <span style="color:#a6e22e">waitq</span> <span style="color:#75715e">// 想发送数据但又被阻塞住的 goroutine 队列
-</span><span style="color:#75715e"></span>
- <span style="color:#a6e22e">lock</span> <span style="color:#a6e22e">mutex</span>
- <span style="color:#f92672">...</span>
-}
-</code></pre></div><p>channel 在进行读写数据时，会根据无缓冲、有缓冲设置进行对应的阻塞唤起动作，它们之间还是有区别的。下面我们来捋一下这些不同之处。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">hchan</span> <span style="color:#66d9ef">struct</span> {
+</span></span><span style="display:flex;"><span> <span style="color:#a6e22e">qcount</span>   <span style="color:#66d9ef">uint</span>   <span style="color:#75715e">// channel 里的元素计数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#a6e22e">dataqsiz</span> <span style="color:#66d9ef">uint</span>   <span style="color:#75715e">// 可以缓冲的数量，如 ch := make(chan int, 10)。 此处的 10 即 dataqsiz
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#a6e22e">elemsize</span> <span style="color:#66d9ef">uint16</span> <span style="color:#75715e">// 要发送或接收的数据类型大小
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#a6e22e">buf</span>      <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span> <span style="color:#75715e">// 当 channel 设置了缓冲数量时，该 buf 指向一个存储缓冲数据的区域，该区域是一个循环队列的数据结构
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#a6e22e">closed</span>   <span style="color:#66d9ef">uint32</span> <span style="color:#75715e">// 关闭状态
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#a6e22e">sendx</span>    <span style="color:#66d9ef">uint</span>  <span style="color:#75715e">// 当 channel 设置了缓冲数量时，数据区域即循环队列此时已发送数据的索引位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#a6e22e">recvx</span>    <span style="color:#66d9ef">uint</span>  <span style="color:#75715e">// 当 channel 设置了缓冲数量时，数据区域即循环队列此时已接收数据的索引位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#a6e22e">recvq</span>    <span style="color:#a6e22e">waitq</span> <span style="color:#75715e">// 想读取数据但又被阻塞住的 goroutine 队列
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#a6e22e">sendq</span>    <span style="color:#a6e22e">waitq</span> <span style="color:#75715e">// 想发送数据但又被阻塞住的 goroutine 队列
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span> <span style="color:#a6e22e">lock</span> <span style="color:#a6e22e">mutex</span>
+</span></span><span style="display:flex;"><span> <span style="color:#f92672">...</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>channel 在进行读写数据时，会根据无缓冲、有缓冲设置进行对应的阻塞唤起动作，它们之间还是有区别的。下面我们来捋一下这些不同之处。</p>
 <h4 id="无缓冲-channel">无缓冲 channel</h4>
 <p>由于对 channel 的读写先后顺序不同，处理也会有所不同，所以，还得再进一步区分：</p>
 <h5 id="channel-先写再读">channel 先写再读</h5>
@@ -428,7 +428,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -488,7 +488,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

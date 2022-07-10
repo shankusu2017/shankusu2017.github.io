@@ -209,69 +209,68 @@
 程序是做了这样一件事情，给一个特定topic，要确定它在文档集中出现的频率。程序包含了不用版本的寻找算法，它们使用了不同的并发模式。这里我们只看freq，freqConcurrent和freqNumCPU这三种版本的算法。
 首先看freq，它是非并发顺序执行的程序版本，代码如下。
 L1</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#ae81ff">01</span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">freq</span>(<span style="color:#a6e22e">topic</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">docs</span> []<span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">int</span> {
-<span style="color:#ae81ff">02</span>     <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">found</span> <span style="color:#66d9ef">int</span>
-<span style="color:#ae81ff">03</span>
-<span style="color:#ae81ff">04</span>     <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">doc</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">docs</span> {
-<span style="color:#ae81ff">05</span>         <span style="color:#a6e22e">file</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%s.xml&#34;</span>, <span style="color:#a6e22e">doc</span>[:<span style="color:#ae81ff">8</span>])
-<span style="color:#ae81ff">06</span>         <span style="color:#a6e22e">f</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">OpenFile</span>(<span style="color:#a6e22e">file</span>, <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">O_RDONLY</span>, <span style="color:#ae81ff">0</span>)
-<span style="color:#ae81ff">07</span>         <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-<span style="color:#ae81ff">08</span>             <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Opening Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
-<span style="color:#ae81ff">09</span>             <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>
-<span style="color:#ae81ff">10</span>         }
-<span style="color:#ae81ff">11</span>         <span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">f</span>.<span style="color:#a6e22e">Close</span>()
-<span style="color:#ae81ff">12</span>
-<span style="color:#ae81ff">13</span>         <span style="color:#a6e22e">data</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ioutil</span>.<span style="color:#a6e22e">ReadAll</span>(<span style="color:#a6e22e">f</span>)
-<span style="color:#ae81ff">14</span>         <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-<span style="color:#ae81ff">15</span>             <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Reading Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
-<span style="color:#ae81ff">16</span>             <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>
-<span style="color:#ae81ff">17</span>         }
-<span style="color:#ae81ff">18</span>
-<span style="color:#ae81ff">19</span>         <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">d</span> <span style="color:#a6e22e">document</span>
-<span style="color:#ae81ff">20</span>         <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">xml</span>.<span style="color:#a6e22e">Unmarshal</span>(<span style="color:#a6e22e">data</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">d</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-<span style="color:#ae81ff">21</span>             <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Decoding Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
-<span style="color:#ae81ff">22</span>             <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>
-<span style="color:#ae81ff">23</span>         }
-<span style="color:#ae81ff">24</span>
-<span style="color:#ae81ff">25</span>         <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">item</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Channel</span>.<span style="color:#a6e22e">Items</span> {
-<span style="color:#ae81ff">26</span>             <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Contains</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">Title</span>, <span style="color:#a6e22e">topic</span>) {
-<span style="color:#ae81ff">27</span>                 <span style="color:#a6e22e">found</span><span style="color:#f92672">++</span>
-<span style="color:#ae81ff">28</span>                 <span style="color:#66d9ef">continue</span>
-<span style="color:#ae81ff">29</span>             }
-<span style="color:#ae81ff">30</span>
-<span style="color:#ae81ff">31</span>             <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Contains</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">Description</span>, <span style="color:#a6e22e">topic</span>) {
-<span style="color:#ae81ff">32</span>                 <span style="color:#a6e22e">found</span><span style="color:#f92672">++</span>
-<span style="color:#ae81ff">33</span>             }
-<span style="color:#ae81ff">34</span>        }
-<span style="color:#ae81ff">35</span>     }
-<span style="color:#ae81ff">36</span>
-<span style="color:#ae81ff">37</span>     <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">found</span>
-<span style="color:#ae81ff">38</span> }
-</code></pre></div><p>非并发版本代码会去遍历文件集合，并执行以下4中操作：打开，读文件，解码和search，每次只处理一个文件。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#ae81ff">01</span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">freq</span>(<span style="color:#a6e22e">topic</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">docs</span> []<span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">int</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">02</span>     <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">found</span> <span style="color:#66d9ef">int</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">03</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">04</span>     <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">doc</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">docs</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">05</span>         <span style="color:#a6e22e">file</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%s.xml&#34;</span>, <span style="color:#a6e22e">doc</span>[:<span style="color:#ae81ff">8</span>])
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">06</span>         <span style="color:#a6e22e">f</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">OpenFile</span>(<span style="color:#a6e22e">file</span>, <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">O_RDONLY</span>, <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">07</span>         <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">08</span>             <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Opening Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">09</span>             <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">10</span>         }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">11</span>         <span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">f</span>.<span style="color:#a6e22e">Close</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">12</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">13</span>         <span style="color:#a6e22e">data</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ioutil</span>.<span style="color:#a6e22e">ReadAll</span>(<span style="color:#a6e22e">f</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">14</span>         <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">15</span>             <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Reading Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">16</span>             <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">17</span>         }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">18</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">19</span>         <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">d</span> <span style="color:#a6e22e">document</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">20</span>         <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">xml</span>.<span style="color:#a6e22e">Unmarshal</span>(<span style="color:#a6e22e">data</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">d</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">21</span>             <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Decoding Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">22</span>             <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">23</span>         }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">24</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">25</span>         <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">item</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Channel</span>.<span style="color:#a6e22e">Items</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">26</span>             <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Contains</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">Title</span>, <span style="color:#a6e22e">topic</span>) {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">27</span>                 <span style="color:#a6e22e">found</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">28</span>                 <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">29</span>             }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">30</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">31</span>             <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Contains</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">Description</span>, <span style="color:#a6e22e">topic</span>) {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">32</span>                 <span style="color:#a6e22e">found</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">33</span>             }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">34</span>        }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">35</span>     }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">36</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">37</span>     <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">found</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">38</span> }
+</span></span></code></pre></div><p>非并发版本代码会去遍历文件集合，并执行以下4中操作：打开，读文件，解码和search，每次只处理一个文件。
 运行freq，得到如下信息。
 <strong>L2</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ time ./trace
-2019/07/02 13:40:49 Searching <span style="color:#ae81ff">4000</span> files, found president <span style="color:#ae81ff">28000</span> times.
-./trace  2.54s user 0.12s system 105% cpu 2.512 total
-</code></pre></div><p>复制代码可以看到程序处理4000个文件花费了大约2.5s的时间。如果能够看到gc的实际情况就更好了，你可以使用trace包来生成trace信息。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ time ./trace
+</span></span><span style="display:flex;"><span>2019/07/02 13:40:49 Searching <span style="color:#ae81ff">4000</span> files, found president <span style="color:#ae81ff">28000</span> times.
+</span></span><span style="display:flex;"><span>./trace  2.54s user 0.12s system 105% cpu 2.512 total
+</span></span></code></pre></div><p>复制代码可以看到程序处理4000个文件花费了大约2.5s的时间。如果能够看到gc的实际情况就更好了，你可以使用trace包来生成trace信息。
 L3</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#ae81ff">03</span> import <span style="color:#e6db74">&#34;runtime/trace&#34;</span>
-<span style="color:#ae81ff">04</span>
-<span style="color:#ae81ff">05</span> func main<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">06</span>     trace.Start<span style="color:#f92672">(</span>os.Stdout<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">07</span>     defer trace.Stop<span style="color:#f92672">()</span>
-
-</code></pre></div><p>L3中引入了runtime/trace包。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#ae81ff">03</span> import <span style="color:#e6db74">&#34;runtime/trace&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">04</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">05</span> func main<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">06</span>     trace.Start<span style="color:#f92672">(</span>os.Stdout<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">07</span>     defer trace.Stop<span style="color:#f92672">()</span>
+</span></span></code></pre></div><p>L3中引入了runtime/trace包。
 重新编译运行代码，不要忘记把标准输出重定向到文件里。
 <strong>L4</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ go build
-$ time ./trace &gt; t.out
-Searching <span style="color:#ae81ff">4000</span> files, found president <span style="color:#ae81ff">28000</span> times.
-./trace &gt; t.out  2.67s user 0.13s system 106% cpu 2.626 total
-</code></pre></div><p>复制代码正如我们预料的，运行时间增加了大概100ms。trace获取了每一次的方法调用的执行时间，达到微秒的级别。t.out包含了trace的数据。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go build
+</span></span><span style="display:flex;"><span>$ time ./trace &gt; t.out
+</span></span><span style="display:flex;"><span>Searching <span style="color:#ae81ff">4000</span> files, found president <span style="color:#ae81ff">28000</span> times.
+</span></span><span style="display:flex;"><span>./trace &gt; t.out  2.67s user 0.13s system 106% cpu 2.626 total
+</span></span></code></pre></div><p>复制代码正如我们预料的，运行时间增加了大概100ms。trace获取了每一次的方法调用的执行时间，达到微秒的级别。t.out包含了trace的数据。
 我们可以使用下面的命令来查看trace信息。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ go tool trace t.out
-</code></pre></div><p>运行命令后会自动开一个浏览器窗口，如下图所示
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go tool trace t.out
+</span></span></code></pre></div><p>运行命令后会自动开一个浏览器窗口，如下图所示
 图1.1
 <img src="https://user-gold-cdn.xitu.io/2019/7/30/16c42db227eca9ef?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 图1.1给了9个链接，现在我们只关心View trace。点击链接，看到如下图示：
@@ -290,66 +289,66 @@ Searching <span style="color:#ae81ff">4000</span> files, found president <span s
 图5中代表了图表中所有蓝线都在标记点15.911ms到2.596s之间。一共发生了232次回收，占用了64.524ms，平均每次回收时间是287.121微秒。了解到程序运行时间是2.626s，也就是说，垃圾回收占用了总时间的2%，基本上垃圾回收的代价对程序运行来说是微不足道的。
 下面来看一下使用算法的并发版，我们希望可以加速程序运行。
 <strong>L6</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#ae81ff">01</span> func freqConcurrent<span style="color:#f92672">(</span>topic string, docs <span style="color:#f92672">[]</span>string<span style="color:#f92672">)</span> int <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">02</span>     var found int32
-<span style="color:#ae81ff">03</span>
-<span style="color:#ae81ff">04</span>     g :<span style="color:#f92672">=</span> len<span style="color:#f92672">(</span>docs<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">05</span>     var wg sync.WaitGroup
-<span style="color:#ae81ff">06</span>     wg.Add<span style="color:#f92672">(</span>g<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">07</span>
-<span style="color:#ae81ff">08</span>     <span style="color:#66d9ef">for</span> _, doc :<span style="color:#f92672">=</span> range docs <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">09</span>         go func<span style="color:#f92672">(</span>doc string<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">10</span>             var lFound int32
-<span style="color:#ae81ff">11</span>             defer func<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">12</span>                 atomic.AddInt32<span style="color:#f92672">(</span>&amp;found, lFound<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">13</span>                 wg.Done<span style="color:#f92672">()</span>
-<span style="color:#ae81ff">14</span>             <span style="color:#f92672">}()</span>
-<span style="color:#ae81ff">15</span>
-<span style="color:#ae81ff">16</span>             file :<span style="color:#f92672">=</span> fmt.Sprintf<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;%s.xml&#34;</span>, doc<span style="color:#f92672">[</span>:8<span style="color:#f92672">])</span>
-<span style="color:#ae81ff">17</span>             f, err :<span style="color:#f92672">=</span> os.OpenFile<span style="color:#f92672">(</span>file, os.O_RDONLY, 0<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">18</span>             <span style="color:#66d9ef">if</span> err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">19</span>                 log.Printf<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Opening Document [%s] : ERROR : %v&#34;</span>, doc, err<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">20</span>                 <span style="color:#66d9ef">return</span>
-<span style="color:#ae81ff">21</span>             <span style="color:#f92672">}</span>
-<span style="color:#ae81ff">22</span>             defer f.Close<span style="color:#f92672">()</span>
-<span style="color:#ae81ff">23</span>
-<span style="color:#ae81ff">24</span>             data, err :<span style="color:#f92672">=</span> ioutil.ReadAll<span style="color:#f92672">(</span>f<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">25</span>             <span style="color:#66d9ef">if</span> err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">26</span>                 log.Printf<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Reading Document [%s] : ERROR : %v&#34;</span>, doc, err<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">27</span>                 <span style="color:#66d9ef">return</span>
-<span style="color:#ae81ff">28</span>             <span style="color:#f92672">}</span>
-<span style="color:#ae81ff">29</span>
-<span style="color:#ae81ff">30</span>             var d document
-<span style="color:#ae81ff">31</span>             <span style="color:#66d9ef">if</span> err :<span style="color:#f92672">=</span> xml.Unmarshal<span style="color:#f92672">(</span>data, &amp;d<span style="color:#f92672">)</span>; err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">32</span>                 log.Printf<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Decoding Document [%s] : ERROR : %v&#34;</span>, doc, err<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">33</span>                 <span style="color:#66d9ef">return</span>
-<span style="color:#ae81ff">34</span>             <span style="color:#f92672">}</span>
-<span style="color:#ae81ff">35</span>
-<span style="color:#ae81ff">36</span>             <span style="color:#66d9ef">for</span> _, item :<span style="color:#f92672">=</span> range d.Channel.Items <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">37</span>                 <span style="color:#66d9ef">if</span> strings.Contains<span style="color:#f92672">(</span>item.Title, topic<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">38</span>                     lFound++
-<span style="color:#ae81ff">39</span>                     <span style="color:#66d9ef">continue</span>
-<span style="color:#ae81ff">40</span>                 <span style="color:#f92672">}</span>
-<span style="color:#ae81ff">41</span>
-<span style="color:#ae81ff">42</span>                 <span style="color:#66d9ef">if</span> strings.Contains<span style="color:#f92672">(</span>item.Description, topic<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
-<span style="color:#ae81ff">43</span>                     lFound++
-<span style="color:#ae81ff">44</span>                 <span style="color:#f92672">}</span>
-<span style="color:#ae81ff">45</span>             <span style="color:#f92672">}</span>
-<span style="color:#ae81ff">46</span>         <span style="color:#f92672">}(</span>doc<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">47</span>     <span style="color:#f92672">}</span>
-<span style="color:#ae81ff">48</span>
-<span style="color:#ae81ff">49</span>     wg.Wait<span style="color:#f92672">()</span>
-<span style="color:#ae81ff">50</span>     <span style="color:#66d9ef">return</span> int<span style="color:#f92672">(</span>found<span style="color:#f92672">)</span>
-<span style="color:#ae81ff">51</span> <span style="color:#f92672">}</span>
-</code></pre></div><p>L6给出了freq算法的一个并发版。这个程序版本使用了扇出模式。每个一个docs列出的文件，都去创建一个goroutine去出里。如果有4000个文档，那么就要去创建4000个goroutine。这个版本的好处是，最简单的方式使用了并发。每个goroutine处理一个文件。我们可以使用WaitGroup和原子操作来保持计数器的同步处理。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#ae81ff">01</span> func freqConcurrent<span style="color:#f92672">(</span>topic string, docs <span style="color:#f92672">[]</span>string<span style="color:#f92672">)</span> int <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">02</span>     var found int32
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">03</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">04</span>     g :<span style="color:#f92672">=</span> len<span style="color:#f92672">(</span>docs<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">05</span>     var wg sync.WaitGroup
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">06</span>     wg.Add<span style="color:#f92672">(</span>g<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">07</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">08</span>     <span style="color:#66d9ef">for</span> _, doc :<span style="color:#f92672">=</span> range docs <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">09</span>         go func<span style="color:#f92672">(</span>doc string<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">10</span>             var lFound int32
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">11</span>             defer func<span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">12</span>                 atomic.AddInt32<span style="color:#f92672">(</span>&amp;found, lFound<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">13</span>                 wg.Done<span style="color:#f92672">()</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">14</span>             <span style="color:#f92672">}()</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">15</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">16</span>             file :<span style="color:#f92672">=</span> fmt.Sprintf<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;%s.xml&#34;</span>, doc<span style="color:#f92672">[</span>:8<span style="color:#f92672">])</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">17</span>             f, err :<span style="color:#f92672">=</span> os.OpenFile<span style="color:#f92672">(</span>file, os.O_RDONLY, 0<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">18</span>             <span style="color:#66d9ef">if</span> err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">19</span>                 log.Printf<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Opening Document [%s] : ERROR : %v&#34;</span>, doc, err<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">20</span>                 <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">21</span>             <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">22</span>             defer f.Close<span style="color:#f92672">()</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">23</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">24</span>             data, err :<span style="color:#f92672">=</span> ioutil.ReadAll<span style="color:#f92672">(</span>f<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">25</span>             <span style="color:#66d9ef">if</span> err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">26</span>                 log.Printf<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Reading Document [%s] : ERROR : %v&#34;</span>, doc, err<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">27</span>                 <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">28</span>             <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">29</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">30</span>             var d document
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">31</span>             <span style="color:#66d9ef">if</span> err :<span style="color:#f92672">=</span> xml.Unmarshal<span style="color:#f92672">(</span>data, &amp;d<span style="color:#f92672">)</span>; err !<span style="color:#f92672">=</span> nil <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">32</span>                 log.Printf<span style="color:#f92672">(</span><span style="color:#e6db74">&#34;Decoding Document [%s] : ERROR : %v&#34;</span>, doc, err<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">33</span>                 <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">34</span>             <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">35</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">36</span>             <span style="color:#66d9ef">for</span> _, item :<span style="color:#f92672">=</span> range d.Channel.Items <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">37</span>                 <span style="color:#66d9ef">if</span> strings.Contains<span style="color:#f92672">(</span>item.Title, topic<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">38</span>                     lFound++
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">39</span>                     <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">40</span>                 <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">41</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">42</span>                 <span style="color:#66d9ef">if</span> strings.Contains<span style="color:#f92672">(</span>item.Description, topic<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">43</span>                     lFound++
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">44</span>                 <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">45</span>             <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">46</span>         <span style="color:#f92672">}(</span>doc<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">47</span>     <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">48</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">49</span>     wg.Wait<span style="color:#f92672">()</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">50</span>     <span style="color:#66d9ef">return</span> int<span style="color:#f92672">(</span>found<span style="color:#f92672">)</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">51</span> <span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>L6给出了freq算法的一个并发版。这个程序版本使用了扇出模式。每个一个docs列出的文件，都去创建一个goroutine去出里。如果有4000个文档，那么就要去创建4000个goroutine。这个版本的好处是，最简单的方式使用了并发。每个goroutine处理一个文件。我们可以使用WaitGroup和原子操作来保持计数器的同步处理。
 在程序运行早期，所有goroutines都会分配时间去运行，也就是说程序会快速消耗大量的内存。在12行found增加这里，也会产生cache一致性的问题。由于每个虚拟内核共享这个变量的相同cache行，这会导致程序内存抖动，如果文件数或者内核数增加话，这种问题会更加严重。
 我们重新编译代码然后再次运行
 <strong>L7</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ go build
-$ time ./trace &gt; t.out
-Searching <span style="color:#ae81ff">4000</span> files, found president <span style="color:#ae81ff">28000</span> times.
-./trace &gt; t.out  6.49s user 2.46s system 941% cpu 0.951 total
-</code></pre></div><p>L7中可以看到，程序现在处理4000个文件的时间是951ms，大概是64%的性能提升，来看一下trace信息。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go build
+</span></span><span style="display:flex;"><span>$ time ./trace &gt; t.out
+</span></span><span style="display:flex;"><span>Searching <span style="color:#ae81ff">4000</span> files, found president <span style="color:#ae81ff">28000</span> times.
+</span></span><span style="display:flex;"><span>./trace &gt; t.out  6.49s user 2.46s system 941% cpu 0.951 total
+</span></span></code></pre></div><p>L7中可以看到，程序现在处理4000个文件的时间是951ms，大概是64%的性能提升，来看一下trace信息。
 图1.6
 <img src="https://user-gold-cdn.xitu.io/2019/7/30/16c42ddad4b371ac?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 程序开始的时候，图中会有很多密集的线。这是因为所有goroutines都被创建了，他们运行并且尝试进行堆内存分配。只要第一个4MB内存分配了之后，就会开始GC。在GC期间，每个Goroutine都会去运行，并且当它们在堆上请求内存时，大多数都会进入等待状态。GC结束时，至少有9个goroutines还在继续运行，并且堆内存涨到了大约26MB。
@@ -363,75 +362,75 @@ Searching <span style="color:#ae81ff">4000</span> files, found president <span s
 可以对比出程序性能和GC时间的不同。运行更多goroutines确实让程序运行速度提升了64%。但是代价就是需要更多的机器资源，如果在同一时间，一下子达到了200MB in-use堆内存这个峰值的话就会很糟糕。
 在并发版本的基础上，下面的并发版本，我们来更有效率更合理的来利用资源。
 <strong>L8</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#ae81ff">01</span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">freqNumCPU</span>(<span style="color:#a6e22e">topic</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">docs</span> []<span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">int</span> {
-<span style="color:#ae81ff">02</span>     <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">found</span> <span style="color:#66d9ef">int32</span>
-<span style="color:#ae81ff">03</span>
-<span style="color:#ae81ff">04</span>     <span style="color:#a6e22e">g</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">NumCPU</span>()
-<span style="color:#ae81ff">05</span>     <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">wg</span> <span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">WaitGroup</span>
-<span style="color:#ae81ff">06</span>     <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#a6e22e">g</span>)
-<span style="color:#ae81ff">07</span>
-<span style="color:#ae81ff">08</span>     <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">g</span>)
-<span style="color:#ae81ff">09</span>
-<span style="color:#ae81ff">10</span>     <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#a6e22e">g</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
-<span style="color:#ae81ff">11</span>         <span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>() {
-<span style="color:#ae81ff">12</span>             <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">lFound</span> <span style="color:#66d9ef">int32</span>
-<span style="color:#ae81ff">13</span>             <span style="color:#66d9ef">defer</span> <span style="color:#66d9ef">func</span>() {
-<span style="color:#ae81ff">14</span>                 <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">AddInt32</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">found</span>, <span style="color:#a6e22e">lFound</span>)
-<span style="color:#ae81ff">15</span>                 <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Done</span>()
-<span style="color:#ae81ff">16</span>             }()
-<span style="color:#ae81ff">17</span>
-<span style="color:#ae81ff">18</span>             <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">doc</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">ch</span> {
-<span style="color:#ae81ff">19</span>                 <span style="color:#a6e22e">file</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%s.xml&#34;</span>, <span style="color:#a6e22e">doc</span>[:<span style="color:#ae81ff">8</span>])
-<span style="color:#ae81ff">20</span>                 <span style="color:#a6e22e">f</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">OpenFile</span>(<span style="color:#a6e22e">file</span>, <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">O_RDONLY</span>, <span style="color:#ae81ff">0</span>)
-<span style="color:#ae81ff">21</span>                 <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-<span style="color:#ae81ff">22</span>                     <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Opening Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
-<span style="color:#ae81ff">23</span>                     <span style="color:#66d9ef">return</span>
-<span style="color:#ae81ff">24</span>                 }
-<span style="color:#ae81ff">25</span>
-<span style="color:#ae81ff">26</span>                 <span style="color:#a6e22e">data</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ioutil</span>.<span style="color:#a6e22e">ReadAll</span>(<span style="color:#a6e22e">f</span>)
-<span style="color:#ae81ff">27</span>                 <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-<span style="color:#ae81ff">28</span>                     <span style="color:#a6e22e">f</span>.<span style="color:#a6e22e">Close</span>()
-<span style="color:#ae81ff">29</span>                     <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Reading Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
-<span style="color:#ae81ff">23</span>                     <span style="color:#66d9ef">return</span>
-<span style="color:#ae81ff">24</span>                 }
-<span style="color:#ae81ff">25</span>                 <span style="color:#a6e22e">f</span>.<span style="color:#a6e22e">Close</span>()
-<span style="color:#ae81ff">26</span>
-<span style="color:#ae81ff">27</span>                 <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">d</span> <span style="color:#a6e22e">document</span>
-<span style="color:#ae81ff">28</span>                 <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">xml</span>.<span style="color:#a6e22e">Unmarshal</span>(<span style="color:#a6e22e">data</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">d</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-<span style="color:#ae81ff">29</span>                     <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Decoding Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
-<span style="color:#ae81ff">30</span>                     <span style="color:#66d9ef">return</span>
-<span style="color:#ae81ff">31</span>                 }
-<span style="color:#ae81ff">32</span>
-<span style="color:#ae81ff">33</span>                 <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">item</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Channel</span>.<span style="color:#a6e22e">Items</span> {
-<span style="color:#ae81ff">34</span>                     <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Contains</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">Title</span>, <span style="color:#a6e22e">topic</span>) {
-<span style="color:#ae81ff">35</span>                         <span style="color:#a6e22e">lFound</span><span style="color:#f92672">++</span>
-<span style="color:#ae81ff">36</span>                         <span style="color:#66d9ef">continue</span>
-<span style="color:#ae81ff">37</span>                     }
-<span style="color:#ae81ff">38</span>
-<span style="color:#ae81ff">39</span>                     <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Contains</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">Description</span>, <span style="color:#a6e22e">topic</span>) {
-<span style="color:#ae81ff">40</span>                         <span style="color:#a6e22e">lFound</span><span style="color:#f92672">++</span>
-<span style="color:#ae81ff">41</span>                     }
-<span style="color:#ae81ff">42</span>                 }
-<span style="color:#ae81ff">43</span>             }
-<span style="color:#ae81ff">44</span>         }()
-<span style="color:#ae81ff">45</span>     }
-<span style="color:#ae81ff">46</span>
-<span style="color:#ae81ff">47</span>     <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">doc</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">docs</span> {
-<span style="color:#ae81ff">48</span>         <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">doc</span>
-<span style="color:#ae81ff">49</span>     }
-<span style="color:#ae81ff">50</span>     close(<span style="color:#a6e22e">ch</span>)
-<span style="color:#ae81ff">51</span>
-<span style="color:#ae81ff">52</span>     <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Wait</span>()
-<span style="color:#ae81ff">53</span>     <span style="color:#66d9ef">return</span> int(<span style="color:#a6e22e">found</span>)
-<span style="color:#ae81ff">54</span> }
-</code></pre></div><p>L8中给出了freqNumCPU版本的代码。这个设计模式的核心就是使用了池化模式。我们使用基于逻辑处理器数的goroutines池子，去处理所有的文件。如果是12个逻辑处理器，那么就是12个goroutines。这种方式的好处是，它会从开始到结束持续地让资源被使用。在任何时间，只有12个goroutines去申请内存。这也解决了由于cache一致性导致的内存抖动。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#ae81ff">01</span> <span style="color:#66d9ef">func</span> <span style="color:#a6e22e">freqNumCPU</span>(<span style="color:#a6e22e">topic</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">docs</span> []<span style="color:#66d9ef">string</span>) <span style="color:#66d9ef">int</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">02</span>     <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">found</span> <span style="color:#66d9ef">int32</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">03</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">04</span>     <span style="color:#a6e22e">g</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">NumCPU</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">05</span>     <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">wg</span> <span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">WaitGroup</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">06</span>     <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#a6e22e">g</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">07</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">08</span>     <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> make(<span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">g</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">09</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">10</span>     <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#a6e22e">g</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">11</span>         <span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>() {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">12</span>             <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">lFound</span> <span style="color:#66d9ef">int32</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">13</span>             <span style="color:#66d9ef">defer</span> <span style="color:#66d9ef">func</span>() {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">14</span>                 <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">AddInt32</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">found</span>, <span style="color:#a6e22e">lFound</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">15</span>                 <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Done</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">16</span>             }()
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">17</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">18</span>             <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">doc</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">ch</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">19</span>                 <span style="color:#a6e22e">file</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%s.xml&#34;</span>, <span style="color:#a6e22e">doc</span>[:<span style="color:#ae81ff">8</span>])
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">20</span>                 <span style="color:#a6e22e">f</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">OpenFile</span>(<span style="color:#a6e22e">file</span>, <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">O_RDONLY</span>, <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">21</span>                 <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">22</span>                     <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Opening Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">23</span>                     <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">24</span>                 }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">25</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">26</span>                 <span style="color:#a6e22e">data</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ioutil</span>.<span style="color:#a6e22e">ReadAll</span>(<span style="color:#a6e22e">f</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">27</span>                 <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">28</span>                     <span style="color:#a6e22e">f</span>.<span style="color:#a6e22e">Close</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">29</span>                     <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Reading Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">23</span>                     <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">24</span>                 }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">25</span>                 <span style="color:#a6e22e">f</span>.<span style="color:#a6e22e">Close</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">26</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">27</span>                 <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">d</span> <span style="color:#a6e22e">document</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">28</span>                 <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">xml</span>.<span style="color:#a6e22e">Unmarshal</span>(<span style="color:#a6e22e">data</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">d</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">29</span>                     <span style="color:#a6e22e">log</span>.<span style="color:#a6e22e">Printf</span>(<span style="color:#e6db74">&#34;Decoding Document [%s] : ERROR : %v&#34;</span>, <span style="color:#a6e22e">doc</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">30</span>                     <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">31</span>                 }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">32</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">33</span>                 <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">item</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">d</span>.<span style="color:#a6e22e">Channel</span>.<span style="color:#a6e22e">Items</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">34</span>                     <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Contains</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">Title</span>, <span style="color:#a6e22e">topic</span>) {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">35</span>                         <span style="color:#a6e22e">lFound</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">36</span>                         <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">37</span>                     }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">38</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">39</span>                     <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Contains</span>(<span style="color:#a6e22e">item</span>.<span style="color:#a6e22e">Description</span>, <span style="color:#a6e22e">topic</span>) {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">40</span>                         <span style="color:#a6e22e">lFound</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">41</span>                     }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">42</span>                 }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">43</span>             }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">44</span>         }()
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">45</span>     }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">46</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">47</span>     <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">doc</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">docs</span> {
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">48</span>         <span style="color:#a6e22e">ch</span> <span style="color:#f92672">&lt;-</span> <span style="color:#a6e22e">doc</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">49</span>     }
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">50</span>     close(<span style="color:#a6e22e">ch</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">51</span>
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">52</span>     <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Wait</span>()
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">53</span>     <span style="color:#66d9ef">return</span> int(<span style="color:#a6e22e">found</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ae81ff">54</span> }
+</span></span></code></pre></div><p>L8中给出了freqNumCPU版本的代码。这个设计模式的核心就是使用了池化模式。我们使用基于逻辑处理器数的goroutines池子，去处理所有的文件。如果是12个逻辑处理器，那么就是12个goroutines。这种方式的好处是，它会从开始到结束持续地让资源被使用。在任何时间，只有12个goroutines去申请内存。这也解决了由于cache一致性导致的内存抖动。
 重新编译程序，再次运行。
 <strong>L9</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ go build
-$ time ./trace &gt; t.out
-Searching <span style="color:#ae81ff">4000</span> files, found president <span style="color:#ae81ff">28000</span> times.
-./trace &gt; t.out  6.22s user 0.64s system 909% cpu 0.754 total
-</code></pre></div><p>可以看到L9中，同样4000个文件，花费了754ms。相比上个程序块了200ms，下面看下trace
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go build
+</span></span><span style="display:flex;"><span>$ time ./trace &gt; t.out
+</span></span><span style="display:flex;"><span>Searching <span style="color:#ae81ff">4000</span> files, found president <span style="color:#ae81ff">28000</span> times.
+</span></span><span style="display:flex;"><span>./trace &gt; t.out  6.22s user 0.64s system 909% cpu 0.754 total
+</span></span></code></pre></div><p>可以看到L9中，同样4000个文件，花费了754ms。相比上个程序块了200ms，下面看下trace
 <strong>图1.9</strong>
 <img src="https://user-gold-cdn.xitu.io/2019/7/30/16c42de26a1f57e0?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 图1.9里，可以看到全部CPU容量都被使用，仔细观察可以看到，这个版本代码和顺序版本类似，GC比较有规律。
@@ -446,12 +445,12 @@ Searching <span style="color:#ae81ff">4000</span> files, found president <span s
 <strong>结论</strong>
 我们主要关注的就是不同版本代码的GC情况。总的内存分配其实每个版本都是一样的，不同只是如何去分配。
 当只有一个goroutine，4MB的内存基本够用了。当程序一次性把所有work都扔过来，GC会让触发GC的in-used堆内存增加，减少GC次数但同时增加了GC时间。当程序控制每次并发处理file的数量的时候，GC会采取使用保持小堆的方式，增加了GC次数但是减少了每次GC时间。每种方式GC都会尽力让其对程序产生的影响最小。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">| Algorithm  | Program | GC Time  | % Of GC | <span style="color:#75715e"># of GC’s | Avg GC   | Max Heap |</span>
-|------------|---------|----------|---------|-----------|----------|----------|
-| freq       | <span style="color:#ae81ff">2626</span> ms |  64.5 ms |     ~2% |       <span style="color:#ae81ff">232</span> |   <span style="color:#ae81ff">278</span> μs |    <span style="color:#ae81ff">4</span> meg |
-| concurrent |  <span style="color:#ae81ff">951</span> ms | 284.4 ms |    ~34% |        <span style="color:#ae81ff">23</span> |  12.3 ms |  <span style="color:#ae81ff">200</span> meg |
-| numCPU     |  <span style="color:#ae81ff">754</span> ms | 177.7 ms |    ~25% |       <span style="color:#ae81ff">467</span> | 380.5 μs |    <span style="color:#ae81ff">4</span> meg |
-</code></pre></div><p>复制代码freqNumCPU 版本会更好的处理cache一致性上的问题，这很有用。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>| Algorithm  | Program | GC Time  | % Of GC | <span style="color:#75715e"># of GC’s | Avg GC   | Max Heap |</span>
+</span></span><span style="display:flex;"><span>|------------|---------|----------|---------|-----------|----------|----------|
+</span></span><span style="display:flex;"><span>| freq       | <span style="color:#ae81ff">2626</span> ms |  64.5 ms |     ~2% |       <span style="color:#ae81ff">232</span> |   <span style="color:#ae81ff">278</span> μs |    <span style="color:#ae81ff">4</span> meg |
+</span></span><span style="display:flex;"><span>| concurrent |  <span style="color:#ae81ff">951</span> ms | 284.4 ms |    ~34% |        <span style="color:#ae81ff">23</span> |  12.3 ms |  <span style="color:#ae81ff">200</span> meg |
+</span></span><span style="display:flex;"><span>| numCPU     |  <span style="color:#ae81ff">754</span> ms | 177.7 ms |    ~25% |       <span style="color:#ae81ff">467</span> | 380.5 μs |    <span style="color:#ae81ff">4</span> meg |
+</span></span></code></pre></div><p>复制代码freqNumCPU 版本会更好的处理cache一致性上的问题，这很有用。
 综上，程序运行时候我们还是可以把一堆work扔过去处理。例如一个web服务使用50k的goroutines，本质上就是类似于第一种并发算法的扇出模式。GC会考虑workload然后找到最优的步调去进行。但是一些情况下也需要考虑相应的代价。
 原文链接：<a href="https://www.ardanlabs.com/blog/2019/07/garbage-collection-in-go-part3-gcpacing.html">www.ardanlabs.com/blog/2019/0…</a></p>
 
@@ -531,7 +530,7 @@ Searching <span style="color:#ae81ff">4000</span> files, found president <span s
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -591,7 +590,7 @@ Searching <span style="color:#ae81ff">4000</span> files, found president <span s
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

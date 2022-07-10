@@ -212,277 +212,277 @@
 <p>Let&rsquo;s execute the command <code>get users:1234</code> on Redis.</p>
 <h2 id="preparing">Preparing</h2>
 <p>If you inspect certain variables under <code>gdb</code>, you might not get what you want. Instead you see a message like &ldquo;.&rdquo; This is because the compiler has optimized the machine code in such a fashion that the portion of memory you wanted to look at that was never used, at least for the variable under inspection. To make stepping through the code and inspecting a little easier, we make sure that Redis is not compiled with optimizations. You can do this by either building Redis with the following invocation:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">make noopt
-</code></pre></div><p>or by setting an environment variable:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">OPTIMIZATION= make
-</code></pre></div><h2 id="sending-the-command-from-the-client">Sending the command from the client</h2>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>make noopt
+</span></span></code></pre></div><p>or by setting an environment variable:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>OPTIMIZATION= make
+</span></span></code></pre></div><h2 id="sending-the-command-from-the-client">Sending the command from the client</h2>
 <p>If we look at the <code>repl</code> loop of redis-cli, we see that it uses the <code>linenoise</code> library to split the arguments of the command. It dispatches on the first argument. The loop checks for client commands that aren&rsquo;t processed as a command by the Redis server, like <code>exit</code>/<code>quit</code>, <code>clear</code> (to clear the screen), and <code>connect</code> (which is a way to connect to a specified Redis server on host port, instead of the default host of 127.0.0.1 and port of 6379.</p>
 <p>Any other argument is considered the name of a command to send to the server. The remaining arguments are the arugments for that command.</p>
 <p>We&rsquo;re trying to get the on-the-wire representation of the <code>get users:1234</code> command. redis-cli uses a <code>redisContext</code> struct to encapsulate the state of the connection to the server, as well as the output buffer where the command in the form of the Redis protocol is written for sending to the server. We know from reading the source of hiredis (the Redis C client library that the redis-cli program is built on) that the <code>obuf</code> field is where the raw command is stored:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># hiredis.h:107
-/* Context for a connection to Redis */
-typedef struct redisContext {
-    int fd;
-    int flags;
-    char *obuf; /* Write buffer */
-    int err; /* Error flags, 0 when there is no error */
-    char *errstr; /* String representation of error when applicable */
-
-    /* Function set for reply buildup and reply reader */
-    redisReplyObjectFunctions *fn;
-    void *reader;
-} redisContext;
-</code></pre></div><p>If we set a breakpoint on <code>cliReadReply</code>, we can inspect the output buffer and see exactly how the command looks as a bytestring bound for the server.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">client $ gdb src/redis-cli
-(gdb) b cliReadReply
-(gdb) run
-Starting program: /home/paul/src/redis-2.2.0-RC2/src/redis-cli 
-Reading symbols for shared libraries +. done
-redis&gt; get users:1234
-
-Breakpoint 1, cliReadReply (output_raw_strings=0) at redis-cli.c:421
-421         if (redisGetReply(context,&amp;_reply) != REDIS_OK) {
-(gdb) p context-&gt;obuf 
-$1 = 0x100102428 &#34;*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n&#34;
-</code></pre></div><p>We see that the Redis command <code>get users:1234</code> as entered in our client is translated to <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code>. Any Redis client is going to convert our command expressed in its respective syntax to the same on-the-wire format. So in Python:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">&gt;&gt;&gt; redis_client.get(&#39;users:1234&#39;)
-</code></pre></div><p>will send the same <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code> bytestring to the server.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># hiredis.h:107
+</span></span><span style="display:flex;"><span>/* Context for a connection to Redis */
+</span></span><span style="display:flex;"><span>typedef struct redisContext {
+</span></span><span style="display:flex;"><span>    int fd;
+</span></span><span style="display:flex;"><span>    int flags;
+</span></span><span style="display:flex;"><span>    char *obuf; /* Write buffer */
+</span></span><span style="display:flex;"><span>    int err; /* Error flags, 0 when there is no error */
+</span></span><span style="display:flex;"><span>    char *errstr; /* String representation of error when applicable */
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    /* Function set for reply buildup and reply reader */
+</span></span><span style="display:flex;"><span>    redisReplyObjectFunctions *fn;
+</span></span><span style="display:flex;"><span>    void *reader;
+</span></span><span style="display:flex;"><span>} redisContext;
+</span></span></code></pre></div><p>If we set a breakpoint on <code>cliReadReply</code>, we can inspect the output buffer and see exactly how the command looks as a bytestring bound for the server.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>client $ gdb src/redis-cli
+</span></span><span style="display:flex;"><span>(gdb) b cliReadReply
+</span></span><span style="display:flex;"><span>(gdb) run
+</span></span><span style="display:flex;"><span>Starting program: /home/paul/src/redis-2.2.0-RC2/src/redis-cli 
+</span></span><span style="display:flex;"><span>Reading symbols for shared libraries +. done
+</span></span><span style="display:flex;"><span>redis&gt; get users:1234
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Breakpoint 1, cliReadReply (output_raw_strings=0) at redis-cli.c:421
+</span></span><span style="display:flex;"><span>421         if (redisGetReply(context,&amp;_reply) != REDIS_OK) {
+</span></span><span style="display:flex;"><span>(gdb) p context-&gt;obuf 
+</span></span><span style="display:flex;"><span>$1 = 0x100102428 &#34;*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n&#34;
+</span></span></code></pre></div><p>We see that the Redis command <code>get users:1234</code> as entered in our client is translated to <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code>. Any Redis client is going to convert our command expressed in its respective syntax to the same on-the-wire format. So in Python:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>&gt;&gt;&gt; redis_client.get(&#39;users:1234&#39;)
+</span></span></code></pre></div><p>will send the same <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code> bytestring to the server.</p>
 <p>Let&rsquo;s print that bytestring to screen and render those `\r\n&rsquo;s as line feeds so we can see an expanded view and get a better look at the protocol.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">*2
-$3
-get
-$10
-users:1234
-</code></pre></div><p>The first bit is <code>*2</code>, which tells us that the arity of the command, including the command name, is 2. That is, the server should expect two arguments to follow.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>*2
+</span></span><span style="display:flex;"><span>$3
+</span></span><span style="display:flex;"><span>get
+</span></span><span style="display:flex;"><span>$10
+</span></span><span style="display:flex;"><span>users:1234
+</span></span></code></pre></div><p>The first bit is <code>*2</code>, which tells us that the arity of the command, including the command name, is 2. That is, the server should expect two arguments to follow.</p>
 <p>The next bit is <code>$3</code>, which means that the length of the first argument in bytes is 3. The argument itself follows, our command name, <code>get</code>.</p>
 <p>The next bit after that is <code>$10</code>, so the length in bytes of the second argument is 10. Our one and only argument to the command is next, <code>users:1234</code>, the key we are trying to <code>get</code>.</p>
 <h2 id="receiving-the-command-on-the-server">Receiving the command on the server</h2>
 <p>If you remember from the last article, <code>readQueryFromClient</code> is a good place to set a breakpoint in your debugger on the server side for inspecting an inbound client command.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">server $ gdb src/redis-server
-(gdb) b readQueryFromClient
-Breakpoint 1 at 0x100011445: file networking.c, line 882.
-(gdb) run redis.conf
-Starting program: /home/paul/src/redis-2.2.0-RC2/src/redis-server redis.conf
-Reading symbols for shared libraries +. done
-[63700] 01 Mar 11:04:40 * Server started, Redis version 2.2.1
-[63700] 01 Mar 11:04:40 * The server is now ready to accept connections on port 6379
-</code></pre></div><p>Now back in the terminal with the client running in the debugger, continue to send the command to the server, which will stop at the breakpoint we set.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># client
-(gdb) c
-Continuing.
-
-# server
-Breakpoint 1, readQueryFromClient (el=0x100200000, fd=5, privdata=0x100804e00, mask=1) at networking.c:801
-801     void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
-</code></pre></div><p>Let&rsquo;s step to the following line:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># src/networking.c:808
-nread = read(fd, buf, REDIS_IOBUF_LEN);
-</code></pre></div><p>If we step to here in our debugger, we see that the server read 30 bytes. If you count the number of bytes in our Redis protocol-encoded command, <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code>, you&rsquo;ll see it&rsquo;s 30. Just for good measure, let&rsquo;s look at the 30 bytes beginning at the memory location pointed to by <code>buf</code>:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">(gdb) p nread
-30
-(gdb) x/30cb buf
-0x7fff5fbfeaf0: 42 &#39;*&#39;  50 &#39;2&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  51 &#39;3&#39;  13 &#39;\r&#39; 10 &#39;\n&#39;
-0x7fff5fbfeaf8: 71 &#39;G&#39;  69 &#39;E&#39;  84 &#39;T&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  49 &#39;1&#39;  48 &#39;0&#39;
-0x7fff5fbfeb00: 13 &#39;\r&#39; 10 &#39;\n&#39; 117 &#39;u&#39; 115 &#39;s&#39; 101 &#39;e&#39; 114 &#39;r&#39; 115 &#39;s&#39; 58 &#39;:&#39;
-0x7fff5fbfeb08: 49 &#39;1&#39;  50 &#39;2&#39;  51 &#39;3&#39;  52 &#39;4&#39;  13 &#39;\r&#39; 10 &#39;\n&#39;
-</code></pre></div><p>And we can see our whole command bytestring is there, byte by byte.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>server $ gdb src/redis-server
+</span></span><span style="display:flex;"><span>(gdb) b readQueryFromClient
+</span></span><span style="display:flex;"><span>Breakpoint 1 at 0x100011445: file networking.c, line 882.
+</span></span><span style="display:flex;"><span>(gdb) run redis.conf
+</span></span><span style="display:flex;"><span>Starting program: /home/paul/src/redis-2.2.0-RC2/src/redis-server redis.conf
+</span></span><span style="display:flex;"><span>Reading symbols for shared libraries +. done
+</span></span><span style="display:flex;"><span>[63700] 01 Mar 11:04:40 * Server started, Redis version 2.2.1
+</span></span><span style="display:flex;"><span>[63700] 01 Mar 11:04:40 * The server is now ready to accept connections on port 6379
+</span></span></code></pre></div><p>Now back in the terminal with the client running in the debugger, continue to send the command to the server, which will stop at the breakpoint we set.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># client
+</span></span><span style="display:flex;"><span>(gdb) c
+</span></span><span style="display:flex;"><span>Continuing.
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># server
+</span></span><span style="display:flex;"><span>Breakpoint 1, readQueryFromClient (el=0x100200000, fd=5, privdata=0x100804e00, mask=1) at networking.c:801
+</span></span><span style="display:flex;"><span>801     void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
+</span></span></code></pre></div><p>Let&rsquo;s step to the following line:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># src/networking.c:808
+</span></span><span style="display:flex;"><span>nread = read(fd, buf, REDIS_IOBUF_LEN);
+</span></span></code></pre></div><p>If we step to here in our debugger, we see that the server read 30 bytes. If you count the number of bytes in our Redis protocol-encoded command, <code>*2\r\n$3\r\nget\r\n$10\r\nusers:1234\r\n</code>, you&rsquo;ll see it&rsquo;s 30. Just for good measure, let&rsquo;s look at the 30 bytes beginning at the memory location pointed to by <code>buf</code>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>(gdb) p nread
+</span></span><span style="display:flex;"><span>30
+</span></span><span style="display:flex;"><span>(gdb) x/30cb buf
+</span></span><span style="display:flex;"><span>0x7fff5fbfeaf0: 42 &#39;*&#39;  50 &#39;2&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  51 &#39;3&#39;  13 &#39;\r&#39; 10 &#39;\n&#39;
+</span></span><span style="display:flex;"><span>0x7fff5fbfeaf8: 71 &#39;G&#39;  69 &#39;E&#39;  84 &#39;T&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  49 &#39;1&#39;  48 &#39;0&#39;
+</span></span><span style="display:flex;"><span>0x7fff5fbfeb00: 13 &#39;\r&#39; 10 &#39;\n&#39; 117 &#39;u&#39; 115 &#39;s&#39; 101 &#39;e&#39; 114 &#39;r&#39; 115 &#39;s&#39; 58 &#39;:&#39;
+</span></span><span style="display:flex;"><span>0x7fff5fbfeb08: 49 &#39;1&#39;  50 &#39;2&#39;  51 &#39;3&#39;  52 &#39;4&#39;  13 &#39;\r&#39; 10 &#39;\n&#39;
+</span></span></code></pre></div><p>And we can see our whole command bytestring is there, byte by byte.</p>
 <p>The server has now read in the entirety of our command in one step. (Because we had a relatively short command, one that fits inside a kernel buffer, and we are the only client on a loopback network device, this is the case, but it need not be. Since Redis is event-driven, this function, <code>readQueryFromClient</code>, is called whenever there are bytes from buffers to be read. If our command was particularly long, or there was a lot of network contention, the command may take more than one I/O event before it is fully read. For this reason, Redis builds up a buffer per client and appends bytes to it on each call to this function. It only proceeds with processing the command when it has been fully read. But we don&rsquo;t need to consider this in our simple example, so we will proceed.)</p>
 <p>We&rsquo;re going to elide the processing of the input buffer. This is the point where the server takes the Redis protocol-encoded bytestring of our request and unpacks it into arguments on the client struct object. If you are interested in the details of that parsing, examine the function <code>processMultibulkBuffer</code> in <code>networking.c</code>. All we are interested in at this point is that the <code>argc</code> member of the client object is the number of command arguments (counting the command name itself) and <code>argv</code> is a pointer to the list of arguments.</p>
 <p>The bit of code we care at this point is <code>processCommand</code>. The first thing the server does is look up the command in its command table (see &ldquo;Setting up command table&rdquo; in the previous article, but note that this lookup is now O(1), see the HN thread linked above). Assuming the command is found (which our <code>get</code> will be), the server will double-check that the arity of the command as defined in the command table matches the number of arguments received from the client (<code>c-&gt;argc</code>).</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># redis.c:998
-cmd = lookupCommand(c-&gt;argv[0]-&gt;ptr);
-if (!cmd) {
-    addReplyErrorFormat(c,&#34;unknown command &#39;%s&#39;&#34;,
-        (char*)c-&gt;argv[0]-&gt;ptr);
-    return REDIS_OK;
-} else if ((cmd-&gt;arity &gt; 0 &amp;&amp; cmd-&gt;arity != c-&gt;argc) ||
-           (c-&gt;argc &lt; -cmd-&gt;arity)) {
-    addReplyErrorFormat(c,&#34;wrong number of arguments for &#39;%s&#39; command&#34;,
-        cmd-&gt;name);
-    return REDIS_OK;
-}
-</code></pre></div><p>Skip down to the end of <code>processCommand</code>. Because our humble <code>get</code> is not a &ldquo;multi&rdquo; command like <code>mget</code>, <code>mset</code>, etc., it doesn&rsquo;t require queue-like processing of the underlying multiple commands, so we go right to <code>call</code>, which is where our command is dispatched.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># redis.c:953
-void call(redisClient *c, struct redisCommand *cmd) {
-    long long dirty;
-
-    dirty = server.dirty;
-    cmd-&gt;proc(c);
-    dirty = server.dirty-dirty;
-
-    if (server.appendonly &amp;&amp; dirty)
-        feedAppendOnlyFile(cmd,c-&gt;db-&gt;id,c-&gt;argv,c-&gt;argc);
-    if ((dirty || cmd-&gt;flags &amp; REDIS_CMD_FORCE_REPLICATION) &amp;&amp;
-        listLength(server.slaves))
-        replicationFeedSlaves(server.slaves,c-&gt;db-&gt;id,c-&gt;argv,c-&gt;argc);
-    if (listLength(server.monitors))
-        replicationFeedMonitors(server.monitors,c-&gt;db-&gt;id,c-&gt;argv,c-&gt;argc);
-    server.stat_numcommands++;
-}
-</code></pre></div><p>Let&rsquo;s focus on line 952, <code>cmd-&gt;proc(c);</code>. This is Redis&rsquo;s dynamic dispatching of command function calling. Redis makes this clean and simple by encapsulating commands and giving all the actual underlying command functions the same function signature, taking our client object, which carries the payload of our command&rsquo;s arguments. So we&rsquo;re interested in looking into the details of the Redis command object and the actual function that will handle our <code>get</code>.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># redis.h:504
-struct redisCommand {
-    char *name;
-    redisCommandProc *proc;
-    int arity;
-    int flags;
-    /* Use a function to determine which keys need to be loaded
-     * in the background prior to executing this command. Takes precedence
-     * over vm_firstkey and others, ignored when NULL */
-    redisVmPreloadProc *vm_preload_proc;
-    /* What keys should be loaded in background when calling this command? */
-    int vm_firstkey; /* The first argument that&#39;s a key (0 = no keys) */
-    int vm_lastkey;  /* THe last argument that&#39;s a key */
-    int vm_keystep;  /* The step between first and last key */
-};
-</code></pre></div><p>If we pop up to the top of <code>redis.c</code>, we see the definition of the Redis command table, and our <code>get</code> is the first entry.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># redis.c:71
-struct redisCommand readonlyCommandTable[] = {
-    {&#34;get&#34;,getCommand,2,0,NULL,1,1,1},
-</code></pre></div><p><code>getCommand</code> is the function that does the actual work for our command. It&rsquo;s a thin wrapper for <code>getGenericCommand</code>.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># t_string.c:62
-int getGenericCommand(redisClient *c) {
-    robj *o;
-
-    if ((o = lookupKeyReadOrReply(c,c-&gt;argv[1],shared.nullbulk)) == NULL)
-        return REDIS_OK;
-
-    if (o-&gt;type != REDIS_STRING) {
-        addReply(c,shared.wrongtypeerr);
-        return REDIS_ERR;
-    } else {
-        addReplyBulk(c,o);
-        return REDIS_OK;
-    }
-}
-
-void getCommand(redisClient *c) {
-    getGenericCommand(c);
-}
-</code></pre></div><p>The arguments to <code>lookupKeyReadOrReply</code> are the client object, the key <code>users:1234</code> we&rsquo;re trying to look up, and an object, <code>shared.nullbulk</code> that will be the default reply to the client if the key is not found.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># db.c:58
-robj *lookupKeyReadOrReply(redisClient *c, robj *key, robj *reply) {
-    robj *o = lookupKeyRead(c-&gt;db, key);
-    if (!o) addReply(c,reply);
-    return o;
-}
-</code></pre></div><p><code>lookupKeyRead</code> is a thin wrapper for <code>lookupKey</code> that handles removing keys that have been set to expire.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># redis.c:998
+</span></span><span style="display:flex;"><span>cmd = lookupCommand(c-&gt;argv[0]-&gt;ptr);
+</span></span><span style="display:flex;"><span>if (!cmd) {
+</span></span><span style="display:flex;"><span>    addReplyErrorFormat(c,&#34;unknown command &#39;%s&#39;&#34;,
+</span></span><span style="display:flex;"><span>        (char*)c-&gt;argv[0]-&gt;ptr);
+</span></span><span style="display:flex;"><span>    return REDIS_OK;
+</span></span><span style="display:flex;"><span>} else if ((cmd-&gt;arity &gt; 0 &amp;&amp; cmd-&gt;arity != c-&gt;argc) ||
+</span></span><span style="display:flex;"><span>           (c-&gt;argc &lt; -cmd-&gt;arity)) {
+</span></span><span style="display:flex;"><span>    addReplyErrorFormat(c,&#34;wrong number of arguments for &#39;%s&#39; command&#34;,
+</span></span><span style="display:flex;"><span>        cmd-&gt;name);
+</span></span><span style="display:flex;"><span>    return REDIS_OK;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Skip down to the end of <code>processCommand</code>. Because our humble <code>get</code> is not a &ldquo;multi&rdquo; command like <code>mget</code>, <code>mset</code>, etc., it doesn&rsquo;t require queue-like processing of the underlying multiple commands, so we go right to <code>call</code>, which is where our command is dispatched.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># redis.c:953
+</span></span><span style="display:flex;"><span>void call(redisClient *c, struct redisCommand *cmd) {
+</span></span><span style="display:flex;"><span>    long long dirty;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    dirty = server.dirty;
+</span></span><span style="display:flex;"><span>    cmd-&gt;proc(c);
+</span></span><span style="display:flex;"><span>    dirty = server.dirty-dirty;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    if (server.appendonly &amp;&amp; dirty)
+</span></span><span style="display:flex;"><span>        feedAppendOnlyFile(cmd,c-&gt;db-&gt;id,c-&gt;argv,c-&gt;argc);
+</span></span><span style="display:flex;"><span>    if ((dirty || cmd-&gt;flags &amp; REDIS_CMD_FORCE_REPLICATION) &amp;&amp;
+</span></span><span style="display:flex;"><span>        listLength(server.slaves))
+</span></span><span style="display:flex;"><span>        replicationFeedSlaves(server.slaves,c-&gt;db-&gt;id,c-&gt;argv,c-&gt;argc);
+</span></span><span style="display:flex;"><span>    if (listLength(server.monitors))
+</span></span><span style="display:flex;"><span>        replicationFeedMonitors(server.monitors,c-&gt;db-&gt;id,c-&gt;argv,c-&gt;argc);
+</span></span><span style="display:flex;"><span>    server.stat_numcommands++;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Let&rsquo;s focus on line 952, <code>cmd-&gt;proc(c);</code>. This is Redis&rsquo;s dynamic dispatching of command function calling. Redis makes this clean and simple by encapsulating commands and giving all the actual underlying command functions the same function signature, taking our client object, which carries the payload of our command&rsquo;s arguments. So we&rsquo;re interested in looking into the details of the Redis command object and the actual function that will handle our <code>get</code>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># redis.h:504
+</span></span><span style="display:flex;"><span>struct redisCommand {
+</span></span><span style="display:flex;"><span>    char *name;
+</span></span><span style="display:flex;"><span>    redisCommandProc *proc;
+</span></span><span style="display:flex;"><span>    int arity;
+</span></span><span style="display:flex;"><span>    int flags;
+</span></span><span style="display:flex;"><span>    /* Use a function to determine which keys need to be loaded
+</span></span><span style="display:flex;"><span>     * in the background prior to executing this command. Takes precedence
+</span></span><span style="display:flex;"><span>     * over vm_firstkey and others, ignored when NULL */
+</span></span><span style="display:flex;"><span>    redisVmPreloadProc *vm_preload_proc;
+</span></span><span style="display:flex;"><span>    /* What keys should be loaded in background when calling this command? */
+</span></span><span style="display:flex;"><span>    int vm_firstkey; /* The first argument that&#39;s a key (0 = no keys) */
+</span></span><span style="display:flex;"><span>    int vm_lastkey;  /* THe last argument that&#39;s a key */
+</span></span><span style="display:flex;"><span>    int vm_keystep;  /* The step between first and last key */
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>If we pop up to the top of <code>redis.c</code>, we see the definition of the Redis command table, and our <code>get</code> is the first entry.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># redis.c:71
+</span></span><span style="display:flex;"><span>struct redisCommand readonlyCommandTable[] = {
+</span></span><span style="display:flex;"><span>    {&#34;get&#34;,getCommand,2,0,NULL,1,1,1},
+</span></span></code></pre></div><p><code>getCommand</code> is the function that does the actual work for our command. It&rsquo;s a thin wrapper for <code>getGenericCommand</code>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># t_string.c:62
+</span></span><span style="display:flex;"><span>int getGenericCommand(redisClient *c) {
+</span></span><span style="display:flex;"><span>    robj *o;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    if ((o = lookupKeyReadOrReply(c,c-&gt;argv[1],shared.nullbulk)) == NULL)
+</span></span><span style="display:flex;"><span>        return REDIS_OK;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    if (o-&gt;type != REDIS_STRING) {
+</span></span><span style="display:flex;"><span>        addReply(c,shared.wrongtypeerr);
+</span></span><span style="display:flex;"><span>        return REDIS_ERR;
+</span></span><span style="display:flex;"><span>    } else {
+</span></span><span style="display:flex;"><span>        addReplyBulk(c,o);
+</span></span><span style="display:flex;"><span>        return REDIS_OK;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>void getCommand(redisClient *c) {
+</span></span><span style="display:flex;"><span>    getGenericCommand(c);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>The arguments to <code>lookupKeyReadOrReply</code> are the client object, the key <code>users:1234</code> we&rsquo;re trying to look up, and an object, <code>shared.nullbulk</code> that will be the default reply to the client if the key is not found.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># db.c:58
+</span></span><span style="display:flex;"><span>robj *lookupKeyReadOrReply(redisClient *c, robj *key, robj *reply) {
+</span></span><span style="display:flex;"><span>    robj *o = lookupKeyRead(c-&gt;db, key);
+</span></span><span style="display:flex;"><span>    if (!o) addReply(c,reply);
+</span></span><span style="display:flex;"><span>    return o;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>lookupKeyRead</code> is a thin wrapper for <code>lookupKey</code> that handles removing keys that have been set to expire.</p>
 <p>Now we get to the heart of the <code>get</code> command &ndash; looking up the key in the database.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># db.c:9
-robj *lookupKey(redisDb *db, robj *key) {
-    dictEntry *de = dictFind(db-&gt;dict,key-&gt;ptr);
-    if (de) {
-        robj *val = dictGetEntryVal(de);
-
-        /* Update the access time for the aging algorithm.
-         * Don&#39;t do it if we have a saving child, as this will trigger
-         * a copy on write madness. */
-        if (server.bgsavechildpid == -1 &amp;&amp; server.bgrewritechildpid == -1)
-            val-&gt;lru = server.lruclock;
-
-        if (server.vm_enabled) {
-            if (val-&gt;storage == REDIS_VM_MEMORY ||
-                val-&gt;storage == REDIS_VM_SWAPPING)
-            {
-                /* If we were swapping the object out, cancel the operation */
-                if (val-&gt;storage == REDIS_VM_SWAPPING)
-                    vmCancelThreadedIOJob(val);
-            } else {
-                int notify = (val-&gt;storage == REDIS_VM_LOADING);
-
-                /* Our value was swapped on disk. Bring it at home. */
-                redisAssert(val-&gt;type == REDIS_VMPOINTER);
-                val = vmLoadObject(val);
-                dictGetEntryVal(de) = val;
-
-                /* Clients blocked by the VM subsystem may be waiting for
-                 * this key... */
-                if (notify) handleClientsBlockedOnSwappedKey(db,key);
-            }
-        }
-        server.stat_keyspace_hits++;
-        return val;
-    } else {
-        server.stat_keyspace_misses++;
-        return NULL;
-    }
-}
-</code></pre></div><p>Redis uses its own hash table implementation to store keys and their values in memory. Inside the <code>db</code> object, the field <code>dict</code> is a pointer to the hash value for the current Redis database (remember there can be up to 16 separate databases in a single Redis server instance, indexed by number).</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># db.c:9
+</span></span><span style="display:flex;"><span>robj *lookupKey(redisDb *db, robj *key) {
+</span></span><span style="display:flex;"><span>    dictEntry *de = dictFind(db-&gt;dict,key-&gt;ptr);
+</span></span><span style="display:flex;"><span>    if (de) {
+</span></span><span style="display:flex;"><span>        robj *val = dictGetEntryVal(de);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        /* Update the access time for the aging algorithm.
+</span></span><span style="display:flex;"><span>         * Don&#39;t do it if we have a saving child, as this will trigger
+</span></span><span style="display:flex;"><span>         * a copy on write madness. */
+</span></span><span style="display:flex;"><span>        if (server.bgsavechildpid == -1 &amp;&amp; server.bgrewritechildpid == -1)
+</span></span><span style="display:flex;"><span>            val-&gt;lru = server.lruclock;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        if (server.vm_enabled) {
+</span></span><span style="display:flex;"><span>            if (val-&gt;storage == REDIS_VM_MEMORY ||
+</span></span><span style="display:flex;"><span>                val-&gt;storage == REDIS_VM_SWAPPING)
+</span></span><span style="display:flex;"><span>            {
+</span></span><span style="display:flex;"><span>                /* If we were swapping the object out, cancel the operation */
+</span></span><span style="display:flex;"><span>                if (val-&gt;storage == REDIS_VM_SWAPPING)
+</span></span><span style="display:flex;"><span>                    vmCancelThreadedIOJob(val);
+</span></span><span style="display:flex;"><span>            } else {
+</span></span><span style="display:flex;"><span>                int notify = (val-&gt;storage == REDIS_VM_LOADING);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                /* Our value was swapped on disk. Bring it at home. */
+</span></span><span style="display:flex;"><span>                redisAssert(val-&gt;type == REDIS_VMPOINTER);
+</span></span><span style="display:flex;"><span>                val = vmLoadObject(val);
+</span></span><span style="display:flex;"><span>                dictGetEntryVal(de) = val;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                /* Clients blocked by the VM subsystem may be waiting for
+</span></span><span style="display:flex;"><span>                 * this key... */
+</span></span><span style="display:flex;"><span>                if (notify) handleClientsBlockedOnSwappedKey(db,key);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        server.stat_keyspace_hits++;
+</span></span><span style="display:flex;"><span>        return val;
+</span></span><span style="display:flex;"><span>    } else {
+</span></span><span style="display:flex;"><span>        server.stat_keyspace_misses++;
+</span></span><span style="display:flex;"><span>        return NULL;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Redis uses its own hash table implementation to store keys and their values in memory. Inside the <code>db</code> object, the field <code>dict</code> is a pointer to the hash value for the current Redis database (remember there can be up to 16 separate databases in a single Redis server instance, indexed by number).</p>
 <p>First, Redis calls <code>dictFind</code> with the database&rsquo;s hash table and a pointer to the key&rsquo;s bytestring. <code>dictFind</code> looks up the hash of the key in the table, using a standard algorithm that should be familiar to anyone who&rsquo;s implemented a hash table (check out <code>dict.c</code> starting at line 391 if you&rsquo;re interested, the table is an array with linked lists for colliding hashes).</p>
 <p>If the key is found in the table, <code>dictFind</code> returns a pointer to the entry in the table. Otherwise, it returns <code>NULL</code>. Back in <code>lookupKey</code>, if the entry is not null, Redis retrieves the value (i.e., the Redis object our key references) from the hash table via <code>dictGetEntryVal</code> and takes care of a bit of bookkeeping for expiry and VM, if the key was found, and stats in either case (hits and misses). If the entry was <code>NULL</code>, then <code>lookupKey</code> also returns <code>NULL</code>; we&rsquo;ll see how this is handled by Redis for a reply to the client when the key is not found, which is the case for us at this stage.</p>
 <p>With the value of <code>lookupKey</code>, we&rsquo;ll go back up the stack to our callers. Back to <code>lookupKeyReadOrReply</code>, we look at line 60:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># t_string.c:60
-        if (!o) addReply(c,reply);
-</code></pre></div><p>Since we got <code>NULL</code> from <code>lookupKey</code> this time, we call <code>addReply</code>. The value of <code>reply</code> here comes from the call in <code>getGenericCommand</code>, and it is <code>shared.nullbulk</code>. This field in the global struct object <code>shared</code> is initialize thusly:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># redis.c:712
-shared.nullbulk = createObject(REDIS_STRING,sdsnew(&#34;$-1\r\n&#34;));
-</code></pre></div><p>We can see that it is a Redis string object who&rsquo;s on-the-wire value is <code>$-1\r\n</code>, meaning a length of -1, Redis&rsquo;s way of indicating null to a client, according to the protocol.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># t_string.c:60
+</span></span><span style="display:flex;"><span>        if (!o) addReply(c,reply);
+</span></span></code></pre></div><p>Since we got <code>NULL</code> from <code>lookupKey</code> this time, we call <code>addReply</code>. The value of <code>reply</code> here comes from the call in <code>getGenericCommand</code>, and it is <code>shared.nullbulk</code>. This field in the global struct object <code>shared</code> is initialize thusly:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># redis.c:712
+</span></span><span style="display:flex;"><span>shared.nullbulk = createObject(REDIS_STRING,sdsnew(&#34;$-1\r\n&#34;));
+</span></span></code></pre></div><p>We can see that it is a Redis string object who&rsquo;s on-the-wire value is <code>$-1\r\n</code>, meaning a length of -1, Redis&rsquo;s way of indicating null to a client, according to the protocol.</p>
 <p><code>addReply</code> builds the reply to the client. It does this by first setting up a write event on the main event loop listener with <code>_installWriteEvent</code>. This makes sure that the reply is written out to the client connection when there are bytes present in the buffer. Next, Redis adds the reply to the client&rsquo;s buffer. If the reply object were an non-string value like an integer, or a list, or a set, Redis would first decode it to a bytestring that can be serialized to, for example, on a socket. Redis string objects are encoded &ldquo;raw,&rdquo; or as-is. The <code>nullbulk</code> object is technically a string object, so no decoding is necessary in our case. In any case, the reply bytestring is copied to the client&rsquo;s reply buffer with <code>_addReplyToBuffer</code>, which for all intents and purposes completes the execution of our <code>get</code> command on the server.</p>
 <p>The client will read the on-the-wire reply of <code>$-1\r\n</code> and know that it is a string reply of length -1, and therefore is the null (or &ldquo;nil,&rdquo; in the context of <code>redis-cli</code>) object, and to convert that into the appropriate object for the language of the client. Back to our <code>redis-cli</code> client patiently waiting for a reply from our breakpointed server, which we continue from, that looks like:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">(nil)
-redis&gt;
-</code></pre></div><h1 id="set">SET</h1>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>(nil)
+</span></span><span style="display:flex;"><span>redis&gt;
+</span></span></code></pre></div><h1 id="set">SET</h1>
 <p>The <code>set</code> command proceeds much the same way as the <code>get</code>, up to the point of command dispatching on the server.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># client
-redis&gt; set users:1234 &#34;Paul Smith&#34;
-
-# server
-Breakpoint 1, readQueryFromClient (el=0x100400000, fd=6, privdata=0x100805e00, mask=1) at networking.c:801
-801     void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
-(gdb) n
-802         redisClient *c = (redisClient*) privdata;
-(gdb) n
-808         nread = read(fd, buf, REDIS_IOBUF_LEN);
-(gdb) n
-809         if (nread == -1) {
-(gdb) print nread
-$1 = 47
-(gdb) x/47cb buf
-0x7fff5fbfeba0: 42 &#39;*&#39;  51 &#39;3&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  51 &#39;3&#39;  13 &#39;\r&#39; 10 &#39;\n&#39;
-0x7fff5fbfeba8: 115 &#39;s&#39; 101 &#39;e&#39; 116 &#39;t&#39; 13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  49 &#39;1&#39;  48 &#39;0&#39;
-0x7fff5fbfebb0: 13 &#39;\r&#39; 10 &#39;\n&#39; 117 &#39;u&#39; 115 &#39;s&#39; 101 &#39;e&#39; 114 &#39;r&#39; 115 &#39;s&#39; 58 &#39;:&#39;
-0x7fff5fbfebb8: 49 &#39;1&#39;  50 &#39;2&#39;  51 &#39;3&#39;  52 &#39;4&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  49 &#39;1&#39;
-0x7fff5fbfebc0: 48 &#39;0&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 80 &#39;P&#39;  97 &#39;a&#39;  117 &#39;u&#39; 108 &#39;l&#39; 32 &#39; &#39;
-0x7fff5fbfebc8: 83 &#39;S&#39;  109 &#39;m&#39; 105 &#39;i&#39; 116 &#39;t&#39; 104 &#39;h&#39; 13 &#39;\r&#39; 10 &#39;\n&#39;
-(gdb) print (char *)buf
-$2 = 0x7fff5fbfeba0 &#34;*3\r\n$3\r\nset\r\n$10\r\nusers:1234\r\n$10\r\nPaul Smith\r\n&#34;
-</code></pre></div><p>This time, our protocol-encoded bytestring is 47 bytes long, owing to the extra argument &ldquo;Paul Smith&rdquo; and the length tag it requires. Also notice the leading <code>*3</code> indicates there are three arguments: <code>set</code>, <code>users:1234</code>, <code>Paul Smith</code>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># client
+</span></span><span style="display:flex;"><span>redis&gt; set users:1234 &#34;Paul Smith&#34;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># server
+</span></span><span style="display:flex;"><span>Breakpoint 1, readQueryFromClient (el=0x100400000, fd=6, privdata=0x100805e00, mask=1) at networking.c:801
+</span></span><span style="display:flex;"><span>801     void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
+</span></span><span style="display:flex;"><span>(gdb) n
+</span></span><span style="display:flex;"><span>802         redisClient *c = (redisClient*) privdata;
+</span></span><span style="display:flex;"><span>(gdb) n
+</span></span><span style="display:flex;"><span>808         nread = read(fd, buf, REDIS_IOBUF_LEN);
+</span></span><span style="display:flex;"><span>(gdb) n
+</span></span><span style="display:flex;"><span>809         if (nread == -1) {
+</span></span><span style="display:flex;"><span>(gdb) print nread
+</span></span><span style="display:flex;"><span>$1 = 47
+</span></span><span style="display:flex;"><span>(gdb) x/47cb buf
+</span></span><span style="display:flex;"><span>0x7fff5fbfeba0: 42 &#39;*&#39;  51 &#39;3&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  51 &#39;3&#39;  13 &#39;\r&#39; 10 &#39;\n&#39;
+</span></span><span style="display:flex;"><span>0x7fff5fbfeba8: 115 &#39;s&#39; 101 &#39;e&#39; 116 &#39;t&#39; 13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  49 &#39;1&#39;  48 &#39;0&#39;
+</span></span><span style="display:flex;"><span>0x7fff5fbfebb0: 13 &#39;\r&#39; 10 &#39;\n&#39; 117 &#39;u&#39; 115 &#39;s&#39; 101 &#39;e&#39; 114 &#39;r&#39; 115 &#39;s&#39; 58 &#39;:&#39;
+</span></span><span style="display:flex;"><span>0x7fff5fbfebb8: 49 &#39;1&#39;  50 &#39;2&#39;  51 &#39;3&#39;  52 &#39;4&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 36 &#39;$&#39;  49 &#39;1&#39;
+</span></span><span style="display:flex;"><span>0x7fff5fbfebc0: 48 &#39;0&#39;  13 &#39;\r&#39; 10 &#39;\n&#39; 80 &#39;P&#39;  97 &#39;a&#39;  117 &#39;u&#39; 108 &#39;l&#39; 32 &#39; &#39;
+</span></span><span style="display:flex;"><span>0x7fff5fbfebc8: 83 &#39;S&#39;  109 &#39;m&#39; 105 &#39;i&#39; 116 &#39;t&#39; 104 &#39;h&#39; 13 &#39;\r&#39; 10 &#39;\n&#39;
+</span></span><span style="display:flex;"><span>(gdb) print (char *)buf
+</span></span><span style="display:flex;"><span>$2 = 0x7fff5fbfeba0 &#34;*3\r\n$3\r\nset\r\n$10\r\nusers:1234\r\n$10\r\nPaul Smith\r\n&#34;
+</span></span></code></pre></div><p>This time, our protocol-encoded bytestring is 47 bytes long, owing to the extra argument &ldquo;Paul Smith&rdquo; and the length tag it requires. Also notice the leading <code>*3</code> indicates there are three arguments: <code>set</code>, <code>users:1234</code>, <code>Paul Smith</code>.</p>
 <p>Let&rsquo;s skip ahead now to the point in <code>call</code> in <code>redis.c</code>, after the command has been looked-up in the command table and the server is about ready to call the underlying <code>proc</code> function with the client object argument. The <code>set</code> command, in the form of a <code>redisCommand</code> struct, looks like this:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># redis.c:73
-{&#34;set&#34;,setCommand,3,REDIS_CMD_DENYOOM,NULL,0,0,0},
-</code></pre></div><p>Notice that the arity of the command is 3, which includes the leading command name, plus key and value, and matches what we expect from the client. The <code>set</code> command has a flag that <code>get</code> did not: the constant <code>REDIS_CMD_DENYOOM</code> means that, in out-of-memory situations where Redis can&rsquo;t allocate any more memory, the execution of the command should be denied. (The absence of this flag means that Redis can continue to serve client &ldquo;read&rdquo; requests like <code>get</code> even when the server can no longer write any new data.)</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># redis.c:73
+</span></span><span style="display:flex;"><span>{&#34;set&#34;,setCommand,3,REDIS_CMD_DENYOOM,NULL,0,0,0},
+</span></span></code></pre></div><p>Notice that the arity of the command is 3, which includes the leading command name, plus key and value, and matches what we expect from the client. The <code>set</code> command has a flag that <code>get</code> did not: the constant <code>REDIS_CMD_DENYOOM</code> means that, in out-of-memory situations where Redis can&rsquo;t allocate any more memory, the execution of the command should be denied. (The absence of this flag means that Redis can continue to serve client &ldquo;read&rdquo; requests like <code>get</code> even when the server can no longer write any new data.)</p>
 <p>I set a breakpoint on <code>setCommand</code> and let the server continue running until that point:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># server
-(gdb) b setCommand
-Breakpoint 2 at 0x10001a6e2: file t_string.c, line 48.
-(gdb) c
-Continuing.
-Breakpoint 2, setCommand (c=0x100805e00) at t_string.c:48
-48          c-&gt;argv[2] = tryObjectEncoding(c-&gt;argv[2]);
-</code></pre></div><p>Incidentally, you can inspect the values of the client&rsquo;s command arguments at any time, with a simple <code>gdb</code> invocation. The arguments are of type <code>robj</code>, which has a field <code>ptr</code> that is a pointer to the actual value in memory. Since in our <code>set</code> case these are strings, we can inspect them by typecasting to <code>char *</code> like so:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">(gdb) p (char *)c-&gt;argv[0]-&gt;ptr
-$10 = 0x10032ae78 &#34;set&#34;
-(gdb) p (char *)c-&gt;argv[1]-&gt;ptr
-$11 = 0x10032b068 &#34;users:1234&#34;
-(gdb) p (char *)c-&gt;argv[2]-&gt;ptr
-$12 = 0x10032b098 &#34;Paul Smith&#34;
-</code></pre></div><p>The first thing the server does in <code>setCommand</code> is encode the value being set with <code>tryObjectEncoding</code>. It will try to create an efficient encoding if the bytestring can be interpreted as an integer, for example. This can save space especially in the case where many numbers are being stored. Additionally, Redis will try to reuse shared integers as values instead of allocating resources for new ones &ndash; see the previous article for more on the creation and use of shared integers.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># server
+</span></span><span style="display:flex;"><span>(gdb) b setCommand
+</span></span><span style="display:flex;"><span>Breakpoint 2 at 0x10001a6e2: file t_string.c, line 48.
+</span></span><span style="display:flex;"><span>(gdb) c
+</span></span><span style="display:flex;"><span>Continuing.
+</span></span><span style="display:flex;"><span>Breakpoint 2, setCommand (c=0x100805e00) at t_string.c:48
+</span></span><span style="display:flex;"><span>48          c-&gt;argv[2] = tryObjectEncoding(c-&gt;argv[2]);
+</span></span></code></pre></div><p>Incidentally, you can inspect the values of the client&rsquo;s command arguments at any time, with a simple <code>gdb</code> invocation. The arguments are of type <code>robj</code>, which has a field <code>ptr</code> that is a pointer to the actual value in memory. Since in our <code>set</code> case these are strings, we can inspect them by typecasting to <code>char *</code> like so:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>(gdb) p (char *)c-&gt;argv[0]-&gt;ptr
+</span></span><span style="display:flex;"><span>$10 = 0x10032ae78 &#34;set&#34;
+</span></span><span style="display:flex;"><span>(gdb) p (char *)c-&gt;argv[1]-&gt;ptr
+</span></span><span style="display:flex;"><span>$11 = 0x10032b068 &#34;users:1234&#34;
+</span></span><span style="display:flex;"><span>(gdb) p (char *)c-&gt;argv[2]-&gt;ptr
+</span></span><span style="display:flex;"><span>$12 = 0x10032b098 &#34;Paul Smith&#34;
+</span></span></code></pre></div><p>The first thing the server does in <code>setCommand</code> is encode the value being set with <code>tryObjectEncoding</code>. It will try to create an efficient encoding if the bytestring can be interpreted as an integer, for example. This can save space especially in the case where many numbers are being stored. Additionally, Redis will try to reuse shared integers as values instead of allocating resources for new ones &ndash; see the previous article for more on the creation and use of shared integers.</p>
 <p>Once the value being set has been encoded, <code>setGenericCommand</code> is called (<code>set</code> shares <code>setGenericCommand</code> with the <code>setnx</code> and <code>setex</code> commands). From here, <code>dbAdd</code> is called, with the client, key, and value as arguments. <code>dbAdd</code> will only add the value to the database&rsquo;s hash table if the key does not already exist. In our case, since the key <code>users:1234</code> does not exist, the value of <code>dictFind</code> is null, and the function proceeds to add the value with <code>dictAdd</code>.</p>
 <p><code>dictAdd</code> takes the dictionary hash table, key, and value as arguments. It uses <code>_dictKeyIndex</code> to find the index of a free slot in the hash table for our new entry. See the implementation in <code>dict.c</code> and <code>dict.h</code> for the details of key hashing, and the structure of the dictionary and its component hash tables (each Redis dictionary contains two hash tables in order to provide incremental rehashing as the dictionary grows). <code>dictAdd</code> allocates memory for the new entry and stores it in the new index.</p>
 <p>The server returns back up the stack from <code>dictAdd</code> and <code>dbAdd</code> to <code>setGenericCommand</code>, where it increments the reference count on our new value. Redis uses reference counting in order to free memory used by values that have been deleted or have expired. It then &ldquo;touches&rdquo; the key so that if any clients are <code>watch</code>ing the key, the next <code>exec</code> command will fail. It also increments the server&rsquo;s <code>dirty</code> flag, which it uses to determine when to write out the dump file to disk. Finally, it writes out the reply to the client, which is a shared object, <code>shared.ok</code>. This is special Redis string object in the protocol that consists of the bytestring &ldquo;+OK\r\n&rdquo;. Clients will typically convert this into the equivalent &ldquo;true&rdquo; value for their language.</p>
 <h1 id="get-redux">GET redux</h1>
 <p>Our key is now set, so we can try the <code>get users:1234</code> command again and see how it differs for a found key.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># db.c:9
-robj *lookupKey(redisDb *db, robj *key) {
-    dictEntry *de = dictFind(db-&gt;dict,key-&gt;ptr);
-    if (de) {
-        robj *val = dictGetEntryVal(de);
-
-        // ... skipping the lru &amp; vm parts ... 
-
-        server.stat_keyspace_hits++;
-        return val;
-</code></pre></div><p>The point where a <code>get</code> on an existing key and a <code>get</code> on a non-existent key differ is line 11, where the <code>de</code> entry in the database&rsquo;s dictionary is found. <code>dictGetEntryVal</code> is a simple macro for accessing the field in the <code>de</code> struct that carries the value associated with the key. Redis updates its statistics to indicate a key hit and returns the value object.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># db.c:9
+</span></span><span style="display:flex;"><span>robj *lookupKey(redisDb *db, robj *key) {
+</span></span><span style="display:flex;"><span>    dictEntry *de = dictFind(db-&gt;dict,key-&gt;ptr);
+</span></span><span style="display:flex;"><span>    if (de) {
+</span></span><span style="display:flex;"><span>        robj *val = dictGetEntryVal(de);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        // ... skipping the lru &amp; vm parts ... 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        server.stat_keyspace_hits++;
+</span></span><span style="display:flex;"><span>        return val;
+</span></span></code></pre></div><p>The point where a <code>get</code> on an existing key and a <code>get</code> on a non-existent key differ is line 11, where the <code>de</code> entry in the database&rsquo;s dictionary is found. <code>dictGetEntryVal</code> is a simple macro for accessing the field in the <code>de</code> struct that carries the value associated with the key. Redis updates its statistics to indicate a key hit and returns the value object.</p>
 <p>Again, as with the key miss from above (remember the null value is a Redis object, too), the value is decoded into the Redis bytestring protocol. This is the response to the client, and we have concluded our <code>GET</code>/<code>SET</code>/<code>GET</code> dance.</p>
 <h4 id="recent-posts">Recent posts</h4>
 <ul>
@@ -576,7 +576,7 @@ robj *lookupKey(redisDb *db, robj *key) {
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -636,7 +636,7 @@ robj *lookupKey(redisDb *db, robj *key) {
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

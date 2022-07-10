@@ -205,37 +205,37 @@
 <p>Go语言提供的协程goroutine可以让我们很容易地写出多线程程序，但是，如何让这些并发执行的goroutine得到有效地控制，这是我们需要探讨的问题。正如小菜刀在<a href="http://mp.weixin.qq.com/s?__biz=MzkyMzIyNjIxMQ==&amp;mid=2247484551&amp;idx=1&amp;sn=8e9e48659b06aa510ef935183e0e2d98&amp;chksm=c1e91d8bf69e949d3e8de373d341a9c880d07076804f491f60acba691071dd8a542df643c20c&amp;scene=21#wechat_redirect">《Golang并发控制简述》</a>中所述，Go标准库为我们提供的同步原语中，锁与原子操作注重控制goroutine之间的数据安全，WaitGroup、channel与Context控制的是它们的并发行为。关于<a href="http://mp.weixin.qq.com/s?__biz=MzkyMzIyNjIxMQ==&amp;mid=2247484581&amp;idx=1&amp;sn=90aa7d00490fa9e3dd3f8d061e927bba&amp;chksm=c1e91da9f69e94bfb46c76d9d8b587a837425fd7fcae3773ed5b573d5e856373210ac9011e45&amp;scene=21#wechat_redirect">锁</a>、<a href="http://mp.weixin.qq.com/s?__biz=MzkyMzIyNjIxMQ==&amp;mid=2247484580&amp;idx=1&amp;sn=08c7add8b5cc005bc796ab807168293a&amp;chksm=c1e91da8f69e94be310035348b358e0319a99a1fba0e680f779e860676d355f4780f436b9181&amp;scene=21#wechat_redirect">原子操作</a>、<a href="http://mp.weixin.qq.com/s?__biz=MzkyMzIyNjIxMQ==&amp;mid=2247484573&amp;idx=1&amp;sn=805f9cd855fc55b53ddb8500a93a401f&amp;chksm=c1e91d91f69e94872a0525a35c36ace458ce907796b4bdc91944e87594e7a18c1075a2225a57&amp;scene=21#wechat_redirect">channel</a> 的实现原理小菜刀均有详细地解析过。因此本文，我们将重点放在WaitGroup上。</p>
 <p><strong>初识WaitGroup</strong></p>
 <p>WaitGroup是sync包下的内容，用于控制协程间的同步。WaitGroup使用场景同名字的含义一样，当我们需要等待一组协程都执行完成以后，才能做后续的处理时，就可以考虑使用。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func main() {
- 2    var wg sync.WaitGroup
- 3
- 4    wg.Add(2) //worker number 2
- 5
- 6    go func() {
- 7        // worker 1 do something
- 8        fmt.Println(&#34;goroutine 1 done！&#34;)
- 9        wg.Done()
-10    }()
-11
-12    go func() {
-13        // worker 2 do something
-14        fmt.Println(&#34;goroutine 2 done！&#34;)
-15        wg.Done()
-16    }()
-17
-18    wg.Wait() // wait all waiter done
-19    fmt.Println(&#34;all work done！&#34;)
-20}
-21
-22// output
-23goroutine 2 done！
-24goroutine 1 done！
-25all work done！
-</code></pre></div><p>可以看到WaitGroup的使用非常简单，它提供了三个方法。虽然goroutine之间并不存在类似于父子关系，但是为了方便理解，本文会将调用Wait函数的goroutine称为主goroutine，调用Done函数的goroutine称呼为子goroutine。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func (wg *WaitGroup) Add(delta int)  // 增加WaitGroup中的子goroutine计数值
-2func (wg *WaitGroup) Done()          // 当子goroutine任务完成，将计数值减1
-3func (wg *WaitGroup) Wait()          // 阻塞调用此方法的goroutine，直到计数值为0
-4
-</code></pre></div><p>那么它是如何实现的呢？在源码<code>src/sync/waitgroup.go</code>中，我们可以看到它的核心源码只有100行不到，十分地精练，非常值得学习。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func main() {
+</span></span><span style="display:flex;"><span> 2    var wg sync.WaitGroup
+</span></span><span style="display:flex;"><span> 3
+</span></span><span style="display:flex;"><span> 4    wg.Add(2) //worker number 2
+</span></span><span style="display:flex;"><span> 5
+</span></span><span style="display:flex;"><span> 6    go func() {
+</span></span><span style="display:flex;"><span> 7        // worker 1 do something
+</span></span><span style="display:flex;"><span> 8        fmt.Println(&#34;goroutine 1 done！&#34;)
+</span></span><span style="display:flex;"><span> 9        wg.Done()
+</span></span><span style="display:flex;"><span>10    }()
+</span></span><span style="display:flex;"><span>11
+</span></span><span style="display:flex;"><span>12    go func() {
+</span></span><span style="display:flex;"><span>13        // worker 2 do something
+</span></span><span style="display:flex;"><span>14        fmt.Println(&#34;goroutine 2 done！&#34;)
+</span></span><span style="display:flex;"><span>15        wg.Done()
+</span></span><span style="display:flex;"><span>16    }()
+</span></span><span style="display:flex;"><span>17
+</span></span><span style="display:flex;"><span>18    wg.Wait() // wait all waiter done
+</span></span><span style="display:flex;"><span>19    fmt.Println(&#34;all work done！&#34;)
+</span></span><span style="display:flex;"><span>20}
+</span></span><span style="display:flex;"><span>21
+</span></span><span style="display:flex;"><span>22// output
+</span></span><span style="display:flex;"><span>23goroutine 2 done！
+</span></span><span style="display:flex;"><span>24goroutine 1 done！
+</span></span><span style="display:flex;"><span>25all work done！
+</span></span></code></pre></div><p>可以看到WaitGroup的使用非常简单，它提供了三个方法。虽然goroutine之间并不存在类似于父子关系，但是为了方便理解，本文会将调用Wait函数的goroutine称为主goroutine，调用Done函数的goroutine称呼为子goroutine。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func (wg *WaitGroup) Add(delta int)  // 增加WaitGroup中的子goroutine计数值
+</span></span><span style="display:flex;"><span>2func (wg *WaitGroup) Done()          // 当子goroutine任务完成，将计数值减1
+</span></span><span style="display:flex;"><span>3func (wg *WaitGroup) Wait()          // 阻塞调用此方法的goroutine，直到计数值为0
+</span></span><span style="display:flex;"><span>4
+</span></span></code></pre></div><p>那么它是如何实现的呢？在源码<code>src/sync/waitgroup.go</code>中，我们可以看到它的核心源码只有100行不到，十分地精练，非常值得学习。</p>
 <p><strong>前置知识</strong></p>
 <p>代码少，不代表就实现简单，易于理解。相反，如果读者没有下述中的前置知识，想要真正理解WaitGroup的实现是会比较费力的。在解析源码之前，我们先过一遍这些知识（如果你都已经掌握，那就可以直接跳到后文的源码解析部分）。</p>
 <h5 id="信号量">信号量</h5>
@@ -252,20 +252,20 @@
 <p>这两个信号量函数不止在WaitGroup中会用上，在<a href="http://mp.weixin.qq.com/s?__biz=MzkyMzIyNjIxMQ==&amp;mid=2247484581&amp;idx=1&amp;sn=90aa7d00490fa9e3dd3f8d061e927bba&amp;chksm=c1e91da9f69e94bfb46c76d9d8b587a837425fd7fcae3773ed5b573d5e856373210ac9011e45&amp;scene=21#wechat_redirect">《Go精妙的互斥锁设计》</a>一文中，我们发现Go在设计互斥锁的时候也少不了信号量的参与。</p>
 <h5 id="内存对齐">内存对齐</h5>
 <p>对于以下的结构体，你能回答出它占用的内存是多少吗</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1type Ins struct {
- 2    x bool  // 1个字节
- 3    y int32 // 4个字节
- 4    z byte  // 1个字节
- 5}
- 6
- 7func main() {
- 8    ins := Ins{}
- 9    fmt.Printf(&#34;ins size: %d, align: %d\n&#34;, unsafe.Sizeof(ins), unsafe.Alignof(ins))
-10}
-11
-12//output
-13ins size: 12, align: 4
-</code></pre></div><p>按照结构体中字段的大小而言，<code>ins</code>对象占用内存应该是 1+4+1=6 个字节，但是实际上确实12个字节，这就是内存对齐所致。从<a href="http://mp.weixin.qq.com/s?__biz=MzkyMzIyNjIxMQ==&amp;mid=2247484577&amp;idx=1&amp;sn=7ea807b67fc11e94cf5c3ec963716a71&amp;chksm=c1e91dadf69e94bb1497b21c59c36b3d14a2693fde89fbf4913f1ce5cd949414baa71fe750f6&amp;scene=21#wechat_redirect">《CPU缓存体系对Go程序的影响》</a>一文中，我们知道CPU的内存读取并不是一个字节一个字节地读取的，而是一块一块的。因此，在类型的值在内存中对齐的情况下，计算机的加载或者写入会很高效。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1type Ins struct {
+</span></span><span style="display:flex;"><span> 2    x bool  // 1个字节
+</span></span><span style="display:flex;"><span> 3    y int32 // 4个字节
+</span></span><span style="display:flex;"><span> 4    z byte  // 1个字节
+</span></span><span style="display:flex;"><span> 5}
+</span></span><span style="display:flex;"><span> 6
+</span></span><span style="display:flex;"><span> 7func main() {
+</span></span><span style="display:flex;"><span> 8    ins := Ins{}
+</span></span><span style="display:flex;"><span> 9    fmt.Printf(&#34;ins size: %d, align: %d\n&#34;, unsafe.Sizeof(ins), unsafe.Alignof(ins))
+</span></span><span style="display:flex;"><span>10}
+</span></span><span style="display:flex;"><span>11
+</span></span><span style="display:flex;"><span>12//output
+</span></span><span style="display:flex;"><span>13ins size: 12, align: 4
+</span></span></code></pre></div><p>按照结构体中字段的大小而言，<code>ins</code>对象占用内存应该是 1+4+1=6 个字节，但是实际上确实12个字节，这就是内存对齐所致。从<a href="http://mp.weixin.qq.com/s?__biz=MzkyMzIyNjIxMQ==&amp;mid=2247484577&amp;idx=1&amp;sn=7ea807b67fc11e94cf5c3ec963716a71&amp;chksm=c1e91dadf69e94bb1497b21c59c36b3d14a2693fde89fbf4913f1ce5cd949414baa71fe750f6&amp;scene=21#wechat_redirect">《CPU缓存体系对Go程序的影响》</a>一文中，我们知道CPU的内存读取并不是一个字节一个字节地读取的，而是一块一块的。因此，在类型的值在内存中对齐的情况下，计算机的加载或者写入会很高效。</p>
 <p>在聚合类型（结构体或数组）的内存所占长度或许会比它元素所占内存之和更大。编译器会添加未使用的内存地址用于填充内存空隙，以确保连续的成员或元素相当于结构体或数组的起始地址是对齐的。</p>
 <p><img src="http://shanks.link/img/GoWaitGroup/1.png" alt="img"></p>
 <p>因此，在我们设计结构体时，当结构体成员的类型不同时，将相同类型的成员定义在相邻位置可以更节省内存空间。</p>
@@ -289,27 +289,27 @@
 <p>本文基于Go源码1.15.7版本</p>
 <h5 id="结构体">结构体</h5>
 <p>sync.WaitGroup的结构体定义如下，它包括了一个 <code>noCopy</code> 的辅助字段，和一个具有复合意义的<code>state1</code>字段。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1type WaitGroup struct {
- 2    noCopy noCopy
- 3
- 4    // 64-bit value: high 32 bits are counter, low 32 bits are waiter count.
- 5    // 64-bit atomic operations require 64-bit alignment, but 32-bit
- 6    // compilers do not ensure it. So we allocate 12 bytes and then use
- 7    // the aligned 8 bytes in them as state, and the other 4 as storage
- 8    // for the sema.
- 9    state1 [3]uint32
-10}
-11
-12// state returns pointers to the state and sema fields stored within wg.state1.
-13func (wg *WaitGroup) state() (statep *uint64, semap *uint32) {
-14  // 64位编译器地址能被8整除，由此可判断是否为64位对齐
-15    if uintptr(unsafe.Pointer(&amp;wg.state1))%8 == 0 {
-16        return (*uint64)(unsafe.Pointer(&amp;wg.state1)), &amp;wg.state1[2]
-17    } else {
-18        return (*uint64)(unsafe.Pointer(&amp;wg.state1[1])), &amp;wg.state1[0]
-19    }
-20}
-</code></pre></div><p>其中，<code>noCopy</code>字段是空结构体，它并不会占用内存，编译器也不会对其进行字节填充。它主要是为了通过go vet工具来做静态编译检查，防止开发者在使用WaitGroup过程中对其进行了复制，从而导致的安全隐患。关于这部分内容，可以阅读《no copy机制》详细了解。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1type WaitGroup struct {
+</span></span><span style="display:flex;"><span> 2    noCopy noCopy
+</span></span><span style="display:flex;"><span> 3
+</span></span><span style="display:flex;"><span> 4    // 64-bit value: high 32 bits are counter, low 32 bits are waiter count.
+</span></span><span style="display:flex;"><span> 5    // 64-bit atomic operations require 64-bit alignment, but 32-bit
+</span></span><span style="display:flex;"><span> 6    // compilers do not ensure it. So we allocate 12 bytes and then use
+</span></span><span style="display:flex;"><span> 7    // the aligned 8 bytes in them as state, and the other 4 as storage
+</span></span><span style="display:flex;"><span> 8    // for the sema.
+</span></span><span style="display:flex;"><span> 9    state1 [3]uint32
+</span></span><span style="display:flex;"><span>10}
+</span></span><span style="display:flex;"><span>11
+</span></span><span style="display:flex;"><span>12// state returns pointers to the state and sema fields stored within wg.state1.
+</span></span><span style="display:flex;"><span>13func (wg *WaitGroup) state() (statep *uint64, semap *uint32) {
+</span></span><span style="display:flex;"><span>14  // 64位编译器地址能被8整除，由此可判断是否为64位对齐
+</span></span><span style="display:flex;"><span>15    if uintptr(unsafe.Pointer(&amp;wg.state1))%8 == 0 {
+</span></span><span style="display:flex;"><span>16        return (*uint64)(unsafe.Pointer(&amp;wg.state1)), &amp;wg.state1[2]
+</span></span><span style="display:flex;"><span>17    } else {
+</span></span><span style="display:flex;"><span>18        return (*uint64)(unsafe.Pointer(&amp;wg.state1[1])), &amp;wg.state1[0]
+</span></span><span style="display:flex;"><span>19    }
+</span></span><span style="display:flex;"><span>20}
+</span></span></code></pre></div><p>其中，<code>noCopy</code>字段是空结构体，它并不会占用内存，编译器也不会对其进行字节填充。它主要是为了通过go vet工具来做静态编译检查，防止开发者在使用WaitGroup过程中对其进行了复制，从而导致的安全隐患。关于这部分内容，可以阅读《no copy机制》详细了解。</p>
 <p><code>state1</code>字段是一个长度为3的<code>uint32</code>数组。它用于表示三部分内容：1. 通过<code>Add()</code>设置的子goroutine的计数值counter；2. 通过<code>Wait()</code>陷入阻塞的waiter数；3. 信号量semap。</p>
 <p>由于后续是对 <code>uint64</code> 类型的<code>statep</code>进行操作，而64位整数的原子操作需要64位对齐，32位的编译器并不能保证这一点。因此，在64位与32位的环境下，<code>state1</code>字段的组成含义是不相同的。</p>
 <p><img src="http://shanks.link/img/GoWaitGroup/3.png" alt="img"></p>
@@ -317,109 +317,109 @@
 <h5 id="add函数">Add函数</h5>
 <p><code>Add()</code>函数的入参是一个整型，它可正可负，是对counter数值的更改。如果counter数值变为0，那么所有阻塞在<code>Wait()</code>函数的waiter将会被唤醒；如果counter数值为负值，将引起panic。</p>
 <p>我们将竞态检测部分的代码去掉，<code>Add()</code>函数的实现源码如下</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func (wg *WaitGroup) Add(delta int) {
- 2  // 获取包含counter与waiter的复合状态statep，表示信号量值的semap
- 3    statep, semap := wg.state()
- 4    state := atomic.AddUint64(statep, uint64(delta)&lt;&lt;32)
- 5    v := int32(state &gt;&gt; 32)
- 6    w := uint32(state)
- 7
- 8    if v &lt; 0 {
- 9        panic(&#34;sync: negative WaitGroup counter&#34;)
-10    }
-11
-12    if w != 0 &amp;&amp; delta &gt; 0 &amp;&amp; v == int32(delta) {
-13        panic(&#34;sync: WaitGroup misuse: Add called concurrently with Wait&#34;)
-14    }
-15
-16    if v &gt; 0 || w == 0 {
-17        return
-18    }
-19
-20    if *statep != state {
-21        panic(&#34;sync: WaitGroup misuse: Add called concurrently with Wait&#34;)
-22    }
-23
-24  // 如果执行到这，一定是 counter=0，waiter&gt;0
-25  // 能执行到这，一定是执行了Add(-x)的goroutine
-26  // 它的执行，代表所有子goroutine已经完成了任务
-27  // 因此，我们需要将复合状态全部归0，并释放掉waiter个数的信号量
-28    *statep = 0
-29    for ; w != 0; w-- {
-30    // 释放信号量，执行一次就将唤醒一个阻塞的waiter
-31        runtime_Semrelease(semap, false, 0)
-32    }
-33}
-</code></pre></div><p>代码非常精简，我们接下来对关键部分进行剖析。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1     state := atomic.AddUint64(statep, uint64(delta)&lt;&lt;32)  // 新增counter数值delta
-2    v := int32(state &gt;&gt; 32)   // 获取counter值
-3    w := uint32(state)        // 获取waiter值
-</code></pre></div><p>此时的<code>statep</code>是一个<code>uint64</code>数值，如果此时<code>statep</code>中包含的counter数为2，waiter为1，输入delta为1，那么这三行代码的逻辑过程如下图所示。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func (wg *WaitGroup) Add(delta int) {
+</span></span><span style="display:flex;"><span> 2  // 获取包含counter与waiter的复合状态statep，表示信号量值的semap
+</span></span><span style="display:flex;"><span> 3    statep, semap := wg.state()
+</span></span><span style="display:flex;"><span> 4    state := atomic.AddUint64(statep, uint64(delta)&lt;&lt;32)
+</span></span><span style="display:flex;"><span> 5    v := int32(state &gt;&gt; 32)
+</span></span><span style="display:flex;"><span> 6    w := uint32(state)
+</span></span><span style="display:flex;"><span> 7
+</span></span><span style="display:flex;"><span> 8    if v &lt; 0 {
+</span></span><span style="display:flex;"><span> 9        panic(&#34;sync: negative WaitGroup counter&#34;)
+</span></span><span style="display:flex;"><span>10    }
+</span></span><span style="display:flex;"><span>11
+</span></span><span style="display:flex;"><span>12    if w != 0 &amp;&amp; delta &gt; 0 &amp;&amp; v == int32(delta) {
+</span></span><span style="display:flex;"><span>13        panic(&#34;sync: WaitGroup misuse: Add called concurrently with Wait&#34;)
+</span></span><span style="display:flex;"><span>14    }
+</span></span><span style="display:flex;"><span>15
+</span></span><span style="display:flex;"><span>16    if v &gt; 0 || w == 0 {
+</span></span><span style="display:flex;"><span>17        return
+</span></span><span style="display:flex;"><span>18    }
+</span></span><span style="display:flex;"><span>19
+</span></span><span style="display:flex;"><span>20    if *statep != state {
+</span></span><span style="display:flex;"><span>21        panic(&#34;sync: WaitGroup misuse: Add called concurrently with Wait&#34;)
+</span></span><span style="display:flex;"><span>22    }
+</span></span><span style="display:flex;"><span>23
+</span></span><span style="display:flex;"><span>24  // 如果执行到这，一定是 counter=0，waiter&gt;0
+</span></span><span style="display:flex;"><span>25  // 能执行到这，一定是执行了Add(-x)的goroutine
+</span></span><span style="display:flex;"><span>26  // 它的执行，代表所有子goroutine已经完成了任务
+</span></span><span style="display:flex;"><span>27  // 因此，我们需要将复合状态全部归0，并释放掉waiter个数的信号量
+</span></span><span style="display:flex;"><span>28    *statep = 0
+</span></span><span style="display:flex;"><span>29    for ; w != 0; w-- {
+</span></span><span style="display:flex;"><span>30    // 释放信号量，执行一次就将唤醒一个阻塞的waiter
+</span></span><span style="display:flex;"><span>31        runtime_Semrelease(semap, false, 0)
+</span></span><span style="display:flex;"><span>32    }
+</span></span><span style="display:flex;"><span>33}
+</span></span></code></pre></div><p>代码非常精简，我们接下来对关键部分进行剖析。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1     state := atomic.AddUint64(statep, uint64(delta)&lt;&lt;32)  // 新增counter数值delta
+</span></span><span style="display:flex;"><span>2    v := int32(state &gt;&gt; 32)   // 获取counter值
+</span></span><span style="display:flex;"><span>3    w := uint32(state)        // 获取waiter值
+</span></span></code></pre></div><p>此时的<code>statep</code>是一个<code>uint64</code>数值，如果此时<code>statep</code>中包含的counter数为2，waiter为1，输入delta为1，那么这三行代码的逻辑过程如下图所示。</p>
 <p><img src="http://shanks.link/img/GoWaitGroup/4.png" alt="img"></p>
 <p>在得到当前counter数v与waiter数w后，会对它们的值进行判断，分几种情况。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1    // 情况1：这是很低级的错误，counter值不能为负
- 2  if v &lt; 0 {
- 3        panic(&#34;sync: negative WaitGroup counter&#34;)
- 4    }
- 5
- 6  // 情况2：misuse引起panic 
- 7  // 因为wg其实是可以用复用的，但是下一次复用的基础是需要将所有的状态重置为0才可以
- 8    if w != 0 &amp;&amp; delta &gt; 0 &amp;&amp; v == int32(delta) {
- 9        panic(&#34;sync: WaitGroup misuse: Add called concurrently with Wait&#34;)
-10    }
-11
-12  // 情况3：本次Add操作只负责增加counter值，直接返回即可。
-13  // 如果此时counter值大于0，唤醒的操作留给之后的Add调用者（执行Add(negative int)）
-14  // 如果waiter值为0，代表此时还没有阻塞的waiter
-15    if v &gt; 0 || w == 0 {
-16        return
-17    }
-18
-19  // 情况4: misuse引起的panic
-20    if *statep != state {
-21        panic(&#34;sync: WaitGroup misuse: Add called concurrently with Wait&#34;)
-22    }
-</code></pre></div><p>关于 misuse 和 reused 引发 panic 的情况，如果没有示例错误代码，其实是比较难解释的。值得高兴的是，在Go源码中给出了错误使用示范，这些例子位于<code>src/sync/waitgroup_test.go</code>文件下，想深入了解的读者可以去看以下三个测试函数中的示例。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func TestWaitGroupMisuse(t *testing.T)
-2func TestWaitGroupMisuse2(t *testing.T)
-3func TestWaitGroupMisuse3(t *testing.T)
-4
-</code></pre></div><h5 id="done函数">Done函数</h5>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    // 情况1：这是很低级的错误，counter值不能为负
+</span></span><span style="display:flex;"><span> 2  if v &lt; 0 {
+</span></span><span style="display:flex;"><span> 3        panic(&#34;sync: negative WaitGroup counter&#34;)
+</span></span><span style="display:flex;"><span> 4    }
+</span></span><span style="display:flex;"><span> 5
+</span></span><span style="display:flex;"><span> 6  // 情况2：misuse引起panic 
+</span></span><span style="display:flex;"><span> 7  // 因为wg其实是可以用复用的，但是下一次复用的基础是需要将所有的状态重置为0才可以
+</span></span><span style="display:flex;"><span> 8    if w != 0 &amp;&amp; delta &gt; 0 &amp;&amp; v == int32(delta) {
+</span></span><span style="display:flex;"><span> 9        panic(&#34;sync: WaitGroup misuse: Add called concurrently with Wait&#34;)
+</span></span><span style="display:flex;"><span>10    }
+</span></span><span style="display:flex;"><span>11
+</span></span><span style="display:flex;"><span>12  // 情况3：本次Add操作只负责增加counter值，直接返回即可。
+</span></span><span style="display:flex;"><span>13  // 如果此时counter值大于0，唤醒的操作留给之后的Add调用者（执行Add(negative int)）
+</span></span><span style="display:flex;"><span>14  // 如果waiter值为0，代表此时还没有阻塞的waiter
+</span></span><span style="display:flex;"><span>15    if v &gt; 0 || w == 0 {
+</span></span><span style="display:flex;"><span>16        return
+</span></span><span style="display:flex;"><span>17    }
+</span></span><span style="display:flex;"><span>18
+</span></span><span style="display:flex;"><span>19  // 情况4: misuse引起的panic
+</span></span><span style="display:flex;"><span>20    if *statep != state {
+</span></span><span style="display:flex;"><span>21        panic(&#34;sync: WaitGroup misuse: Add called concurrently with Wait&#34;)
+</span></span><span style="display:flex;"><span>22    }
+</span></span></code></pre></div><p>关于 misuse 和 reused 引发 panic 的情况，如果没有示例错误代码，其实是比较难解释的。值得高兴的是，在Go源码中给出了错误使用示范，这些例子位于<code>src/sync/waitgroup_test.go</code>文件下，想深入了解的读者可以去看以下三个测试函数中的示例。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func TestWaitGroupMisuse(t *testing.T)
+</span></span><span style="display:flex;"><span>2func TestWaitGroupMisuse2(t *testing.T)
+</span></span><span style="display:flex;"><span>3func TestWaitGroupMisuse3(t *testing.T)
+</span></span><span style="display:flex;"><span>4
+</span></span></code></pre></div><h5 id="done函数">Done函数</h5>
 <p><code>Done()</code>函数比较简单，就是调用<code>Add(-1)</code>。在实际使用时，当子goroutine任务完成之后，就应该调用<code>Done()</code>函数。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func (wg *WaitGroup) Done() {
-2    wg.Add(-1)
-3}
-</code></pre></div><h5 id="wait函数">Wait函数</h5>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func (wg *WaitGroup) Done() {
+</span></span><span style="display:flex;"><span>2    wg.Add(-1)
+</span></span><span style="display:flex;"><span>3}
+</span></span></code></pre></div><h5 id="wait函数">Wait函数</h5>
 <p>如果WaitGroup中的counter值大于0，那么执行<code>Wait()</code>函数的主goroutine会将waiter值加1，并阻塞等待该值为0，才能继续执行后续代码。</p>
 <p>我们将竞态检测部分的代码去掉，<code>Wait()</code>函数的实现源码如下</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func (wg *WaitGroup) Wait() {
- 2    statep, semap := wg.state()
- 3    for {
- 4        state := atomic.LoadUint64(statep) // 原子读取复合状态statep
- 5        v := int32(state &gt;&gt; 32)            // 获取counter值
- 6        w := uint32(state)                 // 获取waiter值
- 7    // 如果此时v==0,证明已经没有待执行任务的子goroutine，直接退出即可。
- 8        if v == 0 {
- 9            return
-10        }
-11        // 如果在执行CAS原子操作和读取复合状态之间，没有其他goroutine更改了复合状态
-12    // 那么就将waiter值+1，否则：进入下一轮循环，重新读取复合状态
-13        if atomic.CompareAndSwapUint64(statep, state, state+1) {
-14      // 对waiter值累加成功后
-15      // 等待Add函数中调用 runtime_Semrelease 唤醒自己
-16            runtime_Semacquire(semap)
-17      // reused 引发panic
-18      // 在当前goroutine被唤醒时，由于唤醒自己的goroutine通过调用Add方法时
-19      // 已经通过 *statep = 0 语句做了重置操作
-20      // 此时的复合状态位不为0，就是因为还未等Waiter执行完Wait，WaitGroup就已经发生了复用
-21            if *statep != 0 {
-22                panic(&#34;sync: WaitGroup is reused before previous Wait has returned&#34;)
-23            }
-24            return
-25        }
-26    }
-27}
-</code></pre></div><p><strong>总结</strong></p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func (wg *WaitGroup) Wait() {
+</span></span><span style="display:flex;"><span> 2    statep, semap := wg.state()
+</span></span><span style="display:flex;"><span> 3    for {
+</span></span><span style="display:flex;"><span> 4        state := atomic.LoadUint64(statep) // 原子读取复合状态statep
+</span></span><span style="display:flex;"><span> 5        v := int32(state &gt;&gt; 32)            // 获取counter值
+</span></span><span style="display:flex;"><span> 6        w := uint32(state)                 // 获取waiter值
+</span></span><span style="display:flex;"><span> 7    // 如果此时v==0,证明已经没有待执行任务的子goroutine，直接退出即可。
+</span></span><span style="display:flex;"><span> 8        if v == 0 {
+</span></span><span style="display:flex;"><span> 9            return
+</span></span><span style="display:flex;"><span>10        }
+</span></span><span style="display:flex;"><span>11        // 如果在执行CAS原子操作和读取复合状态之间，没有其他goroutine更改了复合状态
+</span></span><span style="display:flex;"><span>12    // 那么就将waiter值+1，否则：进入下一轮循环，重新读取复合状态
+</span></span><span style="display:flex;"><span>13        if atomic.CompareAndSwapUint64(statep, state, state+1) {
+</span></span><span style="display:flex;"><span>14      // 对waiter值累加成功后
+</span></span><span style="display:flex;"><span>15      // 等待Add函数中调用 runtime_Semrelease 唤醒自己
+</span></span><span style="display:flex;"><span>16            runtime_Semacquire(semap)
+</span></span><span style="display:flex;"><span>17      // reused 引发panic
+</span></span><span style="display:flex;"><span>18      // 在当前goroutine被唤醒时，由于唤醒自己的goroutine通过调用Add方法时
+</span></span><span style="display:flex;"><span>19      // 已经通过 *statep = 0 语句做了重置操作
+</span></span><span style="display:flex;"><span>20      // 此时的复合状态位不为0，就是因为还未等Waiter执行完Wait，WaitGroup就已经发生了复用
+</span></span><span style="display:flex;"><span>21            if *statep != 0 {
+</span></span><span style="display:flex;"><span>22                panic(&#34;sync: WaitGroup is reused before previous Wait has returned&#34;)
+</span></span><span style="display:flex;"><span>23            }
+</span></span><span style="display:flex;"><span>24            return
+</span></span><span style="display:flex;"><span>25        }
+</span></span><span style="display:flex;"><span>26    }
+</span></span><span style="display:flex;"><span>27}
+</span></span></code></pre></div><p><strong>总结</strong></p>
 <p>要看懂WaitGroup的源码实现，我们需要有一些前置知识，例如信号量、内存对齐、原子操作、移位运算和指针转换等。</p>
 <p>但其实WaitGroup的实现思路还是蛮简单的，通过结构体字段<code>state1</code>维护了两个计数器和一个信号量，计数器分别是通过<code>Add()</code>添加的子goroutine的计数值counter，通过<code>Wait()</code>陷入阻塞的waiter数，信号量用于阻塞与唤醒Waiter。当执行<code>Add(positive n)</code>时，counter +=n，表明新增n个子goroutine执行任务。每个子goroutine完成任务之后，需要调用<code>Done()</code>函数将counter值减1，当最后一个子goroutine完成时，counter值会是0，此时就需要唤醒阻塞在<code>Wait()</code>调用中的Waiter。</p>
 <p>但是，在使用WaitGroup时，有几点需要注意</p>
@@ -513,7 +513,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -573,7 +573,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

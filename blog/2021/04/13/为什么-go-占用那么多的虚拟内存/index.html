@@ -205,9 +205,9 @@
 <p>前段时间，某同学说某服务的容器因为超出内存限制，不断地重启，问我们是不是有内存泄露，赶紧排查，然后解决掉，省的出问题。</p>
 <p>我们大为震惊，赶紧查看监控+报警系统和性能分析，发现应用指标压根就不高，不像有泄露的样子。</p>
 <p>问题到底是出在哪里了呢，我们进入某个容器里查看了 <code>top</code> 的系统指标：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">PID       VSZ    RSS   ... COMMAND
-67459     2007m  136m  ... ./eddycjy-server
-</code></pre></div><p>看上去也没什么大开销的东西，就一个 Go 进程？就这？</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>PID       VSZ    RSS   ... COMMAND
+</span></span><span style="display:flex;"><span>67459     2007m  136m  ... ./eddycjy-server
+</span></span></code></pre></div><p>看上去也没什么大开销的东西，就一个 Go 进程？就这？</p>
 <p><img src="http://shanks.link/img/go%E4%B9%8B%E8%99%9A%E6%8B%9F%E5%86%85%E5%AD%98%E5%8D%A0%E7%94%A8/1.gif" alt="图片"></p>
 <p>再定眼一看，某同学就说 VSZ 那么高，而某云上的容器内存指标居然恰好和 VSZ 的值相接近，因此就怀疑是不是 VSZ 所导致的，觉得存在一定的关联关系。</p>
 <p>这个猜测的结果到底是否正确呢？</p>
@@ -252,37 +252,37 @@
 <p>在了解了基础知识后，我们正式开始排查问题，第一步我们先编写一个测试程序，看看没有什么业务逻辑的 Go 程序，它初始的 VSZ 是怎么样的。</p>
 <h3 id="测试">测试</h3>
 <p>应用代码：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func main() {
- r := gin.Default()
- r.GET(&#34;/ping&#34;, func(c *gin.Context) {
-  c.JSON(200, gin.H{
-   &#34;message&#34;: &#34;pong&#34;,
-  })
- })
- r.Run(&#34;:8001&#34;)
-}
-</code></pre></div><p>查看进程情况：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">$ ps aux 67459
-USER      PID  %CPU %MEM      VSZ    RSS   ...
-eddycjy 67459   0.0  0.0  4297048    960   ...
-</code></pre></div><p>从结果上来看，VSZ 为 4297048K，也就是 4G 左右，咋一眼看过去还是挺吓人的，明明没有什么业务逻辑，但是为什么那么高呢，真是令人感到好奇。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func main() {
+</span></span><span style="display:flex;"><span> r := gin.Default()
+</span></span><span style="display:flex;"><span> r.GET(&#34;/ping&#34;, func(c *gin.Context) {
+</span></span><span style="display:flex;"><span>  c.JSON(200, gin.H{
+</span></span><span style="display:flex;"><span>   &#34;message&#34;: &#34;pong&#34;,
+</span></span><span style="display:flex;"><span>  })
+</span></span><span style="display:flex;"><span> })
+</span></span><span style="display:flex;"><span> r.Run(&#34;:8001&#34;)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>查看进程情况：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ ps aux 67459
+</span></span><span style="display:flex;"><span>USER      PID  %CPU %MEM      VSZ    RSS   ...
+</span></span><span style="display:flex;"><span>eddycjy 67459   0.0  0.0  4297048    960   ...
+</span></span></code></pre></div><p>从结果上来看，VSZ 为 4297048K，也就是 4G 左右，咋一眼看过去还是挺吓人的，明明没有什么业务逻辑，但是为什么那么高呢，真是令人感到好奇。</p>
 <h3 id="确认有没有泄露">确认有没有泄露</h3>
 <p>在未知的情况下，我们可以首先看下 <code>runtime.MemStats</code> 和 <code>pprof</code>，确定应用到底有没有泄露。不过我们这块是演示程序，什么业务逻辑都没有，因此可以确定和应用没有直接关系。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"># runtime.MemStats
-# Alloc = 1298568
-# TotalAlloc = 1298568
-# Sys = 71893240
-# Lookups = 0
-# Mallocs = 10013
-# Frees = 834
-# HeapAlloc = 1298568
-# HeapSys = 66551808
-# HeapIdle = 64012288
-# HeapInuse = 2539520
-# HeapReleased = 64012288
-# HeapObjects = 9179
-...
-</code></pre></div><h3 id="go-faq">Go FAQ</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># runtime.MemStats
+</span></span><span style="display:flex;"><span># Alloc = 1298568
+</span></span><span style="display:flex;"><span># TotalAlloc = 1298568
+</span></span><span style="display:flex;"><span># Sys = 71893240
+</span></span><span style="display:flex;"><span># Lookups = 0
+</span></span><span style="display:flex;"><span># Mallocs = 10013
+</span></span><span style="display:flex;"><span># Frees = 834
+</span></span><span style="display:flex;"><span># HeapAlloc = 1298568
+</span></span><span style="display:flex;"><span># HeapSys = 66551808
+</span></span><span style="display:flex;"><span># HeapIdle = 64012288
+</span></span><span style="display:flex;"><span># HeapInuse = 2539520
+</span></span><span style="display:flex;"><span># HeapReleased = 64012288
+</span></span><span style="display:flex;"><span># HeapObjects = 9179
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><h3 id="go-faq">Go FAQ</h3>
 <p>接着我第一反应是去翻了 Go FAQ（因为看到过，有印象），其问题为 &ldquo;Why does my Go process use so much virtual memory?&quot;，回答如下：</p>
 <blockquote>
 <p>The Go memory allocator reserves a large region of virtual memory as an arena for allocations. This virtual memory is local to the specific Go process; the reservation does not deprive other processes of memory.</p>
@@ -291,47 +291,47 @@ eddycjy 67459   0.0  0.0  4297048    960   ...
 <p>这个 FAQ 是在 2012 年 10 月 提交 的，这么多年了也没有更进一步的说明，再翻了 issues 和 forum，一些关闭掉的 issue 都指向了 FAQ，这显然无法满足我的求知欲，因此我继续往下探索，看看里面到底都摆了些什么。</p>
 <h3 id="查看内存映射">查看内存映射</h3>
 <p>在上图中，我们有提到进程虚拟内存，主要包含了你的代码、数据、堆、栈段和共享库，那初步怀疑是不是进程做了什么内存映射，导致了大量的内存空间被保留呢，为了确定这一点，我们通过如下命令去排查：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">$ vmmap --wide 67459
-...
-==== Non-writable regions for process 67459
-REGION TYPE                      START - END             [ VSIZE  RSDNT  DIRTY   SWAP] PRT/MAX SHRMOD PURGE    REGION DETAIL
-__TEXT                 00000001065ff000-000000010667b000 [  496K   492K     0K     0K] r-x/rwx SM=COW          /bin/zsh
-__LINKEDIT             0000000106687000-0000000106699000 [   72K    44K     0K     0K] r--/rwx SM=COW          /bin/zsh
-MALLOC metadata        000000010669b000-000000010669c000 [    4K     4K     4K     0K] r--/rwx SM=COW          DefaultMallocZone_0x10669b000 zone structure
-...
-__TEXT                 00007fff76c31000-00007fff76c5f000 [  184K   168K     0K     0K] r-x/r-x SM=COW          /usr/lib/system/libxpc.dylib
-__LINKEDIT             00007fffe7232000-00007ffff32cb000 [192.6M  17.4M     0K     0K] r--/r-- SM=COW          dyld shared cache combined __LINKEDIT
-...        
-
-==== Writable regions for process 67459
-REGION TYPE                      START - END             [ VSIZE  RSDNT  DIRTY   SWAP] PRT/MAX SHRMOD PURGE    REGION DETAIL
-__DATA                 000000010667b000-0000000106682000 [   28K    28K    28K     0K] rw-/rwx SM=COW          /bin/zsh
-...   
-__DATA                 0000000106716000-000000010671e000 [   32K    28K    28K     4K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/zle.so
-__DATA                 000000010671e000-000000010671f000 [    4K     4K     4K     0K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/zle.so
-__DATA                 0000000106745000-0000000106747000 [    8K     8K     8K     0K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/complete.so
-__DATA                 000000010675a000-000000010675b000 [    4K     4K     4K     0K] rw-
-...
-</code></pre></div><p>这块主要是利用 macOS 的 <code>vmmap</code> 命令去查看内存映射情况，这样就可以知道这个进程的内存映射情况，从输出分析来看，<strong>这些关联共享库占用的空间并不大，导致 VSZ 过高的根本原因不在共享库和二进制文件上，但是并没有发现大量保留内存空间的行为，这是一个问题点</strong>。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ vmmap --wide 67459
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>==== Non-writable regions for process 67459
+</span></span><span style="display:flex;"><span>REGION TYPE                      START - END             [ VSIZE  RSDNT  DIRTY   SWAP] PRT/MAX SHRMOD PURGE    REGION DETAIL
+</span></span><span style="display:flex;"><span>__TEXT                 00000001065ff000-000000010667b000 [  496K   492K     0K     0K] r-x/rwx SM=COW          /bin/zsh
+</span></span><span style="display:flex;"><span>__LINKEDIT             0000000106687000-0000000106699000 [   72K    44K     0K     0K] r--/rwx SM=COW          /bin/zsh
+</span></span><span style="display:flex;"><span>MALLOC metadata        000000010669b000-000000010669c000 [    4K     4K     4K     0K] r--/rwx SM=COW          DefaultMallocZone_0x10669b000 zone structure
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>__TEXT                 00007fff76c31000-00007fff76c5f000 [  184K   168K     0K     0K] r-x/r-x SM=COW          /usr/lib/system/libxpc.dylib
+</span></span><span style="display:flex;"><span>__LINKEDIT             00007fffe7232000-00007ffff32cb000 [192.6M  17.4M     0K     0K] r--/r-- SM=COW          dyld shared cache combined __LINKEDIT
+</span></span><span style="display:flex;"><span>...        
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>==== Writable regions for process 67459
+</span></span><span style="display:flex;"><span>REGION TYPE                      START - END             [ VSIZE  RSDNT  DIRTY   SWAP] PRT/MAX SHRMOD PURGE    REGION DETAIL
+</span></span><span style="display:flex;"><span>__DATA                 000000010667b000-0000000106682000 [   28K    28K    28K     0K] rw-/rwx SM=COW          /bin/zsh
+</span></span><span style="display:flex;"><span>...   
+</span></span><span style="display:flex;"><span>__DATA                 0000000106716000-000000010671e000 [   32K    28K    28K     4K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/zle.so
+</span></span><span style="display:flex;"><span>__DATA                 000000010671e000-000000010671f000 [    4K     4K     4K     0K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/zle.so
+</span></span><span style="display:flex;"><span>__DATA                 0000000106745000-0000000106747000 [    8K     8K     8K     0K] rw-/rwx SM=COW          /usr/lib/zsh/5.3/zsh/complete.so
+</span></span><span style="display:flex;"><span>__DATA                 000000010675a000-000000010675b000 [    4K     4K     4K     0K] rw-
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><p>这块主要是利用 macOS 的 <code>vmmap</code> 命令去查看内存映射情况，这样就可以知道这个进程的内存映射情况，从输出分析来看，<strong>这些关联共享库占用的空间并不大，导致 VSZ 过高的根本原因不在共享库和二进制文件上，但是并没有发现大量保留内存空间的行为，这是一个问题点</strong>。</p>
 <p>注：若是 Linux 系统，可使用 <code>cat /proc/PID/maps</code> 或 <code>cat /proc/PID/smaps</code> 查看。</p>
 <h3 id="查看系统调用">查看系统调用</h3>
 <p>既然在内存映射中，我们没有明确的看到保留内存空间的行为，那我们接下来看看该进程的系统调用，确定一下它是否存在内存操作的行为，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">$ sudo dtruss -a ./awesomeProject
-...
- 4374/0x206a2:     15620       6      3 mprotect(0x1BC4000, 0x1000, 0x0)   = 0 0
-...
- 4374/0x206a2:     15781       9      4 sysctl([CTL_HW, 3, 0, 0, 0, 0] (2), 0x7FFEEFBFFA64, 0x7FFEEFBFFA68, 0x0, 0x0)   = 0 0
- 4374/0x206a2:     15783       3      1 sysctl([CTL_HW, 7, 0, 0, 0, 0] (2), 0x7FFEEFBFFA64, 0x7FFEEFBFFA68, 0x0, 0x0)   = 0 0
- 4374/0x206a2:     15899       7      2 mmap(0x0, 0x40000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x4000000 0
- 4374/0x206a2:     15930       3      1 mmap(0xC000000000, 0x4000000, 0x0, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0xC000000000 0
- 4374/0x206a2:     15934       4      2 mmap(0xC000000000, 0x4000000, 0x3, 0x1012, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0xC000000000 0
- 4374/0x206a2:     15936       2      0 mmap(0x0, 0x2000000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x59B7000 0
- 4374/0x206a2:     15942       2      0 mmap(0x0, 0x210800, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x4040000 0
- 4374/0x206a2:     15947       2      0 mmap(0x0, 0x10000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x1BD0000 0
- 4374/0x206a2:     15993       3      0 madvise(0xC000000000, 0x2000, 0x8)   = 0 0
- 4374/0x206a2:     16004       2      0 mmap(0x0, 0x10000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x1BE0000 0
-...
-</code></pre></div><p>在这小节中，我们通过 macOS 的 <code>dtruss</code> 命令监听并查看了运行这个程序所进行的所有系统调用，发现了与内存管理有一定关系的方法如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ sudo dtruss -a ./awesomeProject
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15620       6      3 mprotect(0x1BC4000, 0x1000, 0x0)   = 0 0
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15781       9      4 sysctl([CTL_HW, 3, 0, 0, 0, 0] (2), 0x7FFEEFBFFA64, 0x7FFEEFBFFA68, 0x0, 0x0)   = 0 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15783       3      1 sysctl([CTL_HW, 7, 0, 0, 0, 0] (2), 0x7FFEEFBFFA64, 0x7FFEEFBFFA68, 0x0, 0x0)   = 0 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15899       7      2 mmap(0x0, 0x40000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x4000000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15930       3      1 mmap(0xC000000000, 0x4000000, 0x0, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0xC000000000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15934       4      2 mmap(0xC000000000, 0x4000000, 0x3, 0x1012, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0xC000000000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15936       2      0 mmap(0x0, 0x2000000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x59B7000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15942       2      0 mmap(0x0, 0x210800, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x4040000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15947       2      0 mmap(0x0, 0x10000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x1BD0000 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     15993       3      0 madvise(0xC000000000, 0x2000, 0x8)   = 0 0
+</span></span><span style="display:flex;"><span> 4374/0x206a2:     16004       2      0 mmap(0x0, 0x10000, 0x3, 0x1002, 0xFFFFFFFFFFFFFFFF, 0x0)   = 0x1BE0000 0
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><p>在这小节中，我们通过 macOS 的 <code>dtruss</code> 命令监听并查看了运行这个程序所进行的所有系统调用，发现了与内存管理有一定关系的方法如下：</p>
 <ul>
 <li>mmap：创建一个新的虚拟内存区域，但这里需要注意，<strong>就是当系统调用 mmap 时，它只是从虚拟内存中申请了一段空间出来，并不会去分配和映射真实的物理内存，而当你访问这段空间的时候，才会在当前时间真正的去分配物理内存</strong>。那么对应到我们实际应用的进程中，那就是 VSZ 的增长后，而该内存空间又未正式使用的话，物理内存是不会有增长的。</li>
 <li>madvise：提供有关使用内存的建议，例如：MADV_NORMAL、MADV_RANDOM、MADV_SEQUENTIAL、MADV_WILLNEED、MADV_DONTNEED 等等。</li>
@@ -346,16 +346,16 @@ __DATA                 000000010675a000-000000010675b000 [    4K     4K     4K  
 <p>通过上述的分析，我们可以知道在 Go 程序启动的时候 VSZ 就已经不低了，并且确定不是共享库等的原因，且程序在启动时系统调用确实存在 <code>mmap</code> 等方法的调用。</p>
 <p>那么我们可以充分怀疑 Go 在初始化阶段就保留了该内存空间。那我们第一步要做的就是查看一下 Go 的引导启动流程，看看是在哪里申请的。</p>
 <p>引导过程如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">graph TD
-A(rt0_darwin_amd64.s:8&lt;br/&gt;_rt0_amd64_darwin) --&gt;|JMP| B(asm_amd64.s:15&lt;br/&gt;_rt0_amd64)
-B --&gt; |JMP|C(asm_amd64.s:87&lt;br/&gt;runtime-rt0_go)
-C --&gt; D(runtime1.go:60&lt;br/&gt;runtime-args)
-D --&gt; E(os_darwin.go:50&lt;br/&gt;runtime-osinit)
-E --&gt; F(proc.go:472&lt;br/&gt;runtime-schedinit)
-F --&gt; G(proc.go:3236&lt;br/&gt;runtime-newproc)
-G --&gt; H(proc.go:1170&lt;br/&gt;runtime-mstart)
-H --&gt; I(在新创建的 p 和 m 上运行 runtime-main)
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>graph TD
+</span></span><span style="display:flex;"><span>A(rt0_darwin_amd64.s:8&lt;br/&gt;_rt0_amd64_darwin) --&gt;|JMP| B(asm_amd64.s:15&lt;br/&gt;_rt0_amd64)
+</span></span><span style="display:flex;"><span>B --&gt; |JMP|C(asm_amd64.s:87&lt;br/&gt;runtime-rt0_go)
+</span></span><span style="display:flex;"><span>C --&gt; D(runtime1.go:60&lt;br/&gt;runtime-args)
+</span></span><span style="display:flex;"><span>D --&gt; E(os_darwin.go:50&lt;br/&gt;runtime-osinit)
+</span></span><span style="display:flex;"><span>E --&gt; F(proc.go:472&lt;br/&gt;runtime-schedinit)
+</span></span><span style="display:flex;"><span>F --&gt; G(proc.go:3236&lt;br/&gt;runtime-newproc)
+</span></span><span style="display:flex;"><span>G --&gt; H(proc.go:1170&lt;br/&gt;runtime-mstart)
+</span></span><span style="display:flex;"><span>H --&gt; I(在新创建的 p 和 m 上运行 runtime-main)
+</span></span></code></pre></div><ul>
 <li>runtime-osinit：获取 CPU 核心数。</li>
 <li>runtime-schedinit：初始化程序运行环境（包括栈、内存分配器、垃圾回收、P等）。</li>
 <li>runtime-newproc：创建一个新的 G 和 绑定 runtime.main。</li>
@@ -364,71 +364,71 @@ H --&gt; I(在新创建的 p 和 m 上运行 runtime-main)
 <p>注：来自@曹大的 《Go 程序的启动流程》和@全成的 《Go 程序是怎样跑起来的》，推荐大家阅读。</p>
 <h4 id="初始化运行环境">初始化运行环境</h4>
 <p>显然，我们要研究的是 runtime 里的 <code>schedinit</code> 方法，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func schedinit() {
- ...
- stackinit()
- mallocinit()
- mcommoninit(_g_.m)
- cpuinit()       // must run before alginit
- alginit()       // maps must not be used before this call
- modulesinit()   // provides activeModules
- typelinksinit() // uses maps, activeModules
- itabsinit()     // uses activeModules
-
- msigsave(_g_.m)
- initSigmask = _g_.m.sigmask
-
- goargs()
- goenvs()
- parsedebugvars()
- gcinit()
-  ...
-}
-</code></pre></div><p>从用途来看，非常明显， <code>mallocinit</code> 方法会进行内存分配器的初始化，我们继续往下看。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func schedinit() {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> stackinit()
+</span></span><span style="display:flex;"><span> mallocinit()
+</span></span><span style="display:flex;"><span> mcommoninit(_g_.m)
+</span></span><span style="display:flex;"><span> cpuinit()       // must run before alginit
+</span></span><span style="display:flex;"><span> alginit()       // maps must not be used before this call
+</span></span><span style="display:flex;"><span> modulesinit()   // provides activeModules
+</span></span><span style="display:flex;"><span> typelinksinit() // uses maps, activeModules
+</span></span><span style="display:flex;"><span> itabsinit()     // uses activeModules
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> msigsave(_g_.m)
+</span></span><span style="display:flex;"><span> initSigmask = _g_.m.sigmask
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> goargs()
+</span></span><span style="display:flex;"><span> goenvs()
+</span></span><span style="display:flex;"><span> parsedebugvars()
+</span></span><span style="display:flex;"><span> gcinit()
+</span></span><span style="display:flex;"><span>  ...
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>从用途来看，非常明显， <code>mallocinit</code> 方法会进行内存分配器的初始化，我们继续往下看。</p>
 <h4 id="初始化内存分配器">初始化内存分配器</h4>
 <h5 id="mallocinit">mallocinit</h5>
 <p>接下来我们正式的分析一下 <code>mallocinit</code> 方法，在引导流程中， <code>mallocinit</code> 主要承担 Go 程序的内存分配器的初始化动作，而今天主要是针对虚拟内存地址这块进行拆解，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func mallocinit() {
- ...
- if sys.PtrSize == 8 {
-  for i := 0x7f; i &gt;= 0; i-- {
-   var p uintptr
-   switch {
-   case GOARCH == &#34;arm64&#34; &amp;&amp; GOOS == &#34;darwin&#34;:
-    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x0013&lt;&lt;28)
-   case GOARCH == &#34;arm64&#34;:
-    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x0040&lt;&lt;32)
-   case GOOS == &#34;aix&#34;:
-    if i == 0 {
-     continue
-    }
-    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0xa0&lt;&lt;52)
-   case raceenabled:
-    ...
-   default:
-    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x00c0&lt;&lt;32)
-   }
-   hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
-   hint.addr = p
-   hint.next, mheap_.arenaHints = mheap_.arenaHints, hint
-  }
- } else {
-      ...
- }
-}
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func mallocinit() {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> if sys.PtrSize == 8 {
+</span></span><span style="display:flex;"><span>  for i := 0x7f; i &gt;= 0; i-- {
+</span></span><span style="display:flex;"><span>   var p uintptr
+</span></span><span style="display:flex;"><span>   switch {
+</span></span><span style="display:flex;"><span>   case GOARCH == &#34;arm64&#34; &amp;&amp; GOOS == &#34;darwin&#34;:
+</span></span><span style="display:flex;"><span>    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x0013&lt;&lt;28)
+</span></span><span style="display:flex;"><span>   case GOARCH == &#34;arm64&#34;:
+</span></span><span style="display:flex;"><span>    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x0040&lt;&lt;32)
+</span></span><span style="display:flex;"><span>   case GOOS == &#34;aix&#34;:
+</span></span><span style="display:flex;"><span>    if i == 0 {
+</span></span><span style="display:flex;"><span>     continue
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0xa0&lt;&lt;52)
+</span></span><span style="display:flex;"><span>   case raceenabled:
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>   default:
+</span></span><span style="display:flex;"><span>    p = uintptr(i)&lt;&lt;40 | uintptrMask&amp;(0x00c0&lt;&lt;32)
+</span></span><span style="display:flex;"><span>   }
+</span></span><span style="display:flex;"><span>   hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
+</span></span><span style="display:flex;"><span>   hint.addr = p
+</span></span><span style="display:flex;"><span>   hint.next, mheap_.arenaHints = mheap_.arenaHints, hint
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span> } else {
+</span></span><span style="display:flex;"><span>      ...
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
 <li>判断当前是 64 位还是 32 位的系统。</li>
 <li>从 0x7fc000000000~0x1c000000000 开始设置保留地址。</li>
 <li>判断当前 <code>GOARCH</code>、<code>GOOS</code> 或是否开启了竞态检查，根据不同的情况申请不同大小的连续内存地址，而这里的 <code>p</code> 是即将要要申请的连续内存地址的开始地址。</li>
 <li>保存刚刚计算的 arena 的信息到 <code>arenaHint</code> 中。</li>
 </ul>
 <p>可能会有小伙伴问，为什么要判断是 32 位还是 64 位的系统，这是因为不同位数的虚拟内存的寻址范围是不同的，因此要进行区分，否则会出现高位的虚拟内存映射问题。而在申请保留空间时，我们会经常提到 <code>arenaHint</code> 结构体，它是 <code>arenaHints</code>链表里的一个节点，结构如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">type arenaHint struct {
- addr uintptr
- down bool
- next *arenaHint
-}
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>type arenaHint struct {
+</span></span><span style="display:flex;"><span> addr uintptr
+</span></span><span style="display:flex;"><span> down bool
+</span></span><span style="display:flex;"><span> next *arenaHint
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
 <li>addr：<code>arena</code> 的起始地址</li>
 <li>down：是否最后一个 <code>arena</code></li>
 <li>next：下一个 <code>arenaHint</code> 的指针地址</li>
@@ -443,58 +443,58 @@ H --&gt; I(在新创建的 p 和 m 上运行 runtime-main)
 <p>在这里的话，你需要理解 arean 区域在 Go 内存里的作用就可以了。</p>
 <h5 id="mmap">mmap</h5>
 <p>我们刚刚通过上述的分析，已经知道 <code>mallocinit</code> 的用途了，但是你可能还是会有疑惑，就是我们之前所看到的 <code>mmap</code> 系统调用，和它又有什么关系呢，怎么就关联到一起了，接下来我们先一起来看看更下层的代码，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
- p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
- ...
- mSysStatInc(sysStat, n)
- return p
-}
-
-func sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer {
- p, err := mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
- ...
-}
-
-func sysMap(v unsafe.Pointer, n uintptr, sysStat *uint64) {
- ...
- munmap(v, n)
- p, err := mmap(v, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_FIXED|_MAP_PRIVATE, -1, 0)
-  ...
-}
-</code></pre></div><p>在 Go Runtime 中存在着一系列的系统级内存调用方法，本文涉及的主要如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
+</span></span><span style="display:flex;"><span> p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> mSysStatInc(sysStat, n)
+</span></span><span style="display:flex;"><span> return p
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>func sysReserve(v unsafe.Pointer, n uintptr) unsafe.Pointer {
+</span></span><span style="display:flex;"><span> p, err := mmap(v, n, _PROT_NONE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>func sysMap(v unsafe.Pointer, n uintptr, sysStat *uint64) {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> munmap(v, n)
+</span></span><span style="display:flex;"><span> p, err := mmap(v, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_FIXED|_MAP_PRIVATE, -1, 0)
+</span></span><span style="display:flex;"><span>  ...
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在 Go Runtime 中存在着一系列的系统级内存调用方法，本文涉及的主要如下：</p>
 <ul>
 <li>sysAlloc：从 OS 系统上申请清零后的内存空间，调用参数是 <code>_PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE</code>，得到的结果需进行内存对齐。</li>
 <li>sysReserve：从 OS 系统中保留内存的地址空间，这时候还没有分配物理内存，调用参数是 <code>_PROT_NONE, _MAP_ANON|_MAP_PRIVATE</code>，得到的结果需进行内存对齐。</li>
 <li>sysMap：通知 OS 系统我们要使用已经保留了的内存空间，调用参数是 <code>_PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_FIXED|_MAP_PRIVATE</code>。</li>
 </ul>
 <p>看上去好像很有道理的样子，但是 <code>mallocinit</code> 方法在初始化时，到底是在哪里涉及了 <code>mmap</code> 方法呢，表面看不出来，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">for i := 0x7f; i &gt;= 0; i-- {
- ...
- hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
- hint.addr = p
- hint.next, mheap_.arenaHints = mheap_.arenaHints, hint
-}
-</code></pre></div><p>实际上在调用 <code>mheap_.arenaHintAlloc.alloc()</code> 时，调用的是 <code>mheap</code> 下的 <code>sysAlloc</code> 方法，而 <code>sysAlloc</code> 又会与 <code>mmap</code> 方法产生调用关系，并且这个方法与常规的 <code>sysAlloc</code> 还不大一样，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">var mheap_ mheap
-...
-func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
- ...
- for h.arenaHints != nil {
-  hint := h.arenaHints
-  p := hint.addr
-  if hint.down {
-   p -= n
-  }
-  if p+n &lt; p {
-   v = nil
-  } else if arenaIndex(p+n-1) &gt;= 1&lt;&lt;arenaBits {
-   v = nil
-  } else {
-   v = sysReserve(unsafe.Pointer(p), n)
-  }
-  ...
-}
-</code></pre></div><p>你可以惊喜的发现 <code>mheap.sysAlloc</code> 里其实有调用 <code>sysReserve</code> 方法，而 <code>sysReserve</code> 方法又正正是从 OS 系统中保留内存的地址空间的特定方法，是不是很惊喜，一切似乎都串起来了。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>for i := 0x7f; i &gt;= 0; i-- {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
+</span></span><span style="display:flex;"><span> hint.addr = p
+</span></span><span style="display:flex;"><span> hint.next, mheap_.arenaHints = mheap_.arenaHints, hint
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>实际上在调用 <code>mheap_.arenaHintAlloc.alloc()</code> 时，调用的是 <code>mheap</code> 下的 <code>sysAlloc</code> 方法，而 <code>sysAlloc</code> 又会与 <code>mmap</code> 方法产生调用关系，并且这个方法与常规的 <code>sysAlloc</code> 还不大一样，如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>var mheap_ mheap
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> for h.arenaHints != nil {
+</span></span><span style="display:flex;"><span>  hint := h.arenaHints
+</span></span><span style="display:flex;"><span>  p := hint.addr
+</span></span><span style="display:flex;"><span>  if hint.down {
+</span></span><span style="display:flex;"><span>   p -= n
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  if p+n &lt; p {
+</span></span><span style="display:flex;"><span>   v = nil
+</span></span><span style="display:flex;"><span>  } else if arenaIndex(p+n-1) &gt;= 1&lt;&lt;arenaBits {
+</span></span><span style="display:flex;"><span>   v = nil
+</span></span><span style="display:flex;"><span>  } else {
+</span></span><span style="display:flex;"><span>   v = sysReserve(unsafe.Pointer(p), n)
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  ...
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>你可以惊喜的发现 <code>mheap.sysAlloc</code> 里其实有调用 <code>sysReserve</code> 方法，而 <code>sysReserve</code> 方法又正正是从 OS 系统中保留内存的地址空间的特定方法，是不是很惊喜，一切似乎都串起来了。</p>
 <h4 id="小结-1">小结</h4>
 <p>在本节中，我们先写了一个测试程序，然后根据非常规的排查思路进行了一步步的跟踪怀疑，整体流程如下：</p>
 <ul>
@@ -609,7 +609,7 @@ func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">420</span>
+        <span class="site-state-item-count">421</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -669,7 +669,7 @@ func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
