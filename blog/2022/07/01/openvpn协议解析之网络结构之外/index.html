@@ -178,34 +178,34 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">6994 字 ~14分钟</span>
+<span class="leancloud-visitors-count">6928 字 ~14分钟</span>
 </span>
       </div>
     </header>
     <div class="post-body" itemprop="articleBody">
     <p>​	前面写了不少关于OpenVPN的文章，那些文章大多数都是侧重于网络的，要么就是源码解析。其实OpenVPN还有更深的可挖掘的东西。只可惜我们很难搜到中文的，因此本文就增添几笔。实际上，很多人都很看好OpenVPN，虽然它看起来是很简陋，然而确实有很多值得挖掘的。</p>
-<h4 id="1openvpn的基本框架答疑">1.OpenVPN的基本框架答疑</h4>
+<h3 id="openvpn的基本框架答疑">OpenVPN的基本框架答疑</h3>
 <p>​		如果用过OpenVPN并且了解过其实现，我们知道OpenVPN是一个巧妙构思的成果，网络通路部分使用了虚拟网卡构建一个虚拟的网络，这正合“虚拟专用网”之含义，而数据认证/加密则使用了SSL。然而如果我们真的去深究的话，事情又不是那么简单。</p>
-<h4 id="11问题一tcp隧道的问题">1.1.问题一：TCP隧道的问题</h4>
+<h4 id="问题一tcp隧道的问题">问题一：TCP隧道的问题</h4>
 <p>​		首先请阅读《TCP封装的隧道对于拥塞控制的意义》一文，内中叙述了TCP封装隧道的问题，那就是在有大量背景流量的情况下，TCP隧道的性能将严重下降，最终导致网络不可用。OpenVPN需要一个隧道封装，且是从用户态开始的封装，因此它需要要么使用TCP，要么使用UDP。CIPE的作者经过实测已经得到了TCP隧道将导致问题结论，由于站在巨人的肩上，OpenVPN首先选择了UDP(当然它还是支持TCP的)。</p>
-<h4 id="12问题二ssl协议的问题">1.2.问题二：SSL协议的问题</h4>
+<h4 id="问题二ssl协议的问题">问题二：SSL协议的问题</h4>
 <p>​		SSL分为握手协议和记录协议，而记录协议最开始在TCP上开发，因为SSL记录协议要求下层链路的可靠性。然而又不是非用TCP不可，使用TCP只是用其两个特性：其一是有连接-这可以很方便的实现SSL握手协议，其二是可靠传输-这可以方便实现SSL记录协议。TCP的其它特性，诸如拥塞控制之类的，和SSL没有任何关系，只会限制其被广泛使用。最终，DTLS产生，在UDP上实现一个有连接且可靠传输的层，然后将SSL/TLS布置于其上，这样SSL/TLS就可以在TCP和UDP上跑了，实际上在某些场合是直接替代了TCP和UDP，成了名副其实的传输层协议。但是，这是2006年以后的事了，此时OpenVPN已经上路了。</p>
-<h4 id="13问题三综合的事实因素">1.3.问题三：综合的事实因素</h4>
+<h4 id="问题三综合的事实因素">问题三：综合的事实因素</h4>
 <p>​		SSL首先选择了TCP，而OpenVPN首先选择了UDP，那时DTLS还没有出生，这意味着OpenVPN不能直接使用SSL记录协议。然而OpenVPN确实需要SSL握手协议这个良好的，简单的，经过实战的协议，因此从历史和设计的角度，OpenVPN需要重新设计一套自己的协议，平滑适配这一系列的矛盾！</p>
-<h3 id="2openvpn的协议设计思想">2.OpenVPN的协议设计思想</h3>
+<h3 id="openvpn的协议设计思想">OpenVPN的协议设计思想</h3>
 <p>​		一个绝对的真理就是：增加一个层！由于OpenVPN需要SSL握手协议，不一定需要SSL记录协议，因此需要将SSL握手协议和自己的记录协议适配在一起。</p>
-<h4 id="21到底为何需要ssl握手协议">2.1.到底为何需要SSL握手协议</h4>
+<h4 id="到底为何需要ssl握手协议">到底为何需要SSL握手协议</h4>
 <p>​		OpenVPN到底为何需要SSL握手协议？是需要其认证功能，还是需要其最终协商好的那个对称密钥。我们可以说，是前者。那么很显然就可以在SSL握手协议最终协商好的安全通道上协商新的OpenVPN的密钥。事实上，由于OpenVPN不想使用SSL记录协议，因此它也就不便使用SSL握手协议最终协商的那个对称密钥。</p>
-<h4 id="22ipsec的经验">2.2.IPSec的经验</h4>
+<h4 id="ipsec的经验">IPSec的经验</h4>
 <p>​		IPSec使用IKE来协商密钥，我们知道，它分为两个阶段，第一阶段实行认证功能，最终协商好一条安全加密通道，接下来第二阶段在这个安全加密通道上协商真正的数据通道的加密密钥。这个经验十分有用，因为它实际上将认证和对称密钥的协商之间的耦合解除了，这样就可以实现各种灵活的密钥协商方式，并且可以将认证和密钥协商使用各自的策略各自进行互不影响。最显然的，需要重新协商密钥的时候，不需要再次进行认证。</p>
-<h4 id="23两阶段协商对openvpn的影响">2.3.两阶段协商对OpenVPN的影响</h4>
+<h4 id="两阶段协商对openvpn的影响">两阶段协商对OpenVPN的影响</h4>
 <p>​		IKE两阶段的协商几乎很肯定的对OpenVPN产生了影响。OpenVPN需要自己的记录协议，而能将握手认证和记录协议分开的方式就是将通道分离。首先我们先看看这种OpenVPN实现的记录协议需要什么特征。由于OpenVPN记录协议只是作用于一个隧道，且它封装的是一个IP数据报，因此OpenVPN的协议只需要加密和HMAC即可，完全不需要可靠传输。</p>
-<h4 id="24openvpn的记录协议和ssl记录协议的区别">2.4.OpenVPN的记录协议和SSL记录协议的区别</h4>
+<h4 id="openvpn的记录协议和ssl记录协议的区别">OpenVPN的记录协议和SSL记录协议的区别</h4>
 <p>​		SSL直接接于传输层协议之上，它在保证安全的同时一定不能更改应用的语义，比如http是tcp的，那么https也需要是tcp的，SSL原本就是设计用于加密应用数据而不是构建三层隧道的。而OpenVPN的记录协议保护的只是一个IP数据报的再封装，最终的端系统应用才负责传输层语义，因此OpenVPN不需要可靠传输。</p>
-<h4 id="25如何将ssl握手协议和openvpn的记录协议封装在一个协议中">2.5.如何将SSL握手协议和OpenVPN的记录协议封装在一个协议中</h4>
+<h4 id="如何将ssl握手协议和openvpn的记录协议封装在一个协议中">如何将SSL握手协议和OpenVPN的记录协议封装在一个协议中</h4>
 <p>​		还是那句话：增加一个层！实际上就是增加一个“多路解复用码”，通过对该字段的解析，识别协议包是握手包还是记录包。这只是第一点，还有一点必须要实现的就是将SSL握手消息封装在OpenVPN协议中，由于OpenVPN使用了OpenSSL，这一点是通过BIO实现的。</p>
-<h3 id="3openvpn协议">3.OpenVPN协议</h3>
-<h4 id="31openvpn协议总揽">3.1.OpenVPN协议总揽</h4>
+<h3 id="openvpn协议">OpenVPN协议</h3>
+<h4 id="openvpn协议总揽">OpenVPN协议总揽</h4>
 <p>​		OpenVPN协议的封装格式如下图所示：</p>
 <p><img src="http://www.uml.org.cn/xjs/images/2013122751.jpg" alt="img"></p>
 <p>​		注意，正是OVPN头封装了OpenVPN的握手协议和记录协议，它起到了复用和解复用的功能，按信道划分，OpenVPN的信道有两类，一类是控制信道，另一类是数据信道，其中的操作码在该层协议上有“地址”的含义，正是操作码区分了控制信道和数据信道-换句话说就是控制协议和记录协议，其中控制协议分为握手协议和密钥协议，类似IP协议的IP地址，TCP/UDP的端口。操作码的含义如下：</p>
@@ -216,18 +216,18 @@
 </span></span><span style="display:flex;"><span>P_CONTROL_HARD_RESET_CLIENT_V2<span style="color:#960050;background-color:#1e0010">：</span>Key method <span style="color:#ae81ff">2</span>, initial key from client, forget previous state.
 </span></span><span style="display:flex;"><span>P_CONTROL_HARD_RESET_SERVER_V2<span style="color:#960050;background-color:#1e0010">：</span>Key method <span style="color:#ae81ff">2</span>, initial key from server, forget previous state.
 </span></span></code></pre></div><p>​		我们可以将上述的每一个操作码看做是一个子协议。KEY ID的作用很有意思，它表示一个key集合，OpenVPN中一共有3个key集合，想了解其中要旨需要再稍等片刻。</p>
-<h4 id="32openvpn记录协议">3.2.OpenVPN记录协议</h4>
+<h4 id="openvpn记录协议">OpenVPN记录协议</h4>
 <h6 id="openvpn记录格式如下图所示">OpenVPN记录格式如下图所示：</h6>
 <p><img src="http://www.uml.org.cn/xjs/images/2013122752.jpg" alt="img"></p>
 <p>​		其中HMAC用于认证包的完整性，IV用于CBC解密，Packet ID用于防止重放，OpenVPN记录协议包含了一个非常简易的滑动窗口机制用于防止重放。通过和SSL记录协议做对比，我们发现它们真的很像，只不过SSL记录协议的下面是复杂的TCP协议，而OpenVPN记录协议下面首选的却是UDP协议。可以看到，OpenVPN记录协议并不是ACK的相关信息，因此它封装的是一个“尽力而为”的网络。</p>
-<h4 id="33openvpn控制协议">3.3.OpenVPN控制协议</h4>
+<h4 id="openvpn控制协议">OpenVPN控制协议</h4>
 <p>​		这个协议包含了两个部分，第一部分是握手协议，第二部分是密钥协议。由于OpenVPN使用SSL握手协议，为何不使用SSL握手协议最终协商出来的那个对称密钥，这是一个值得思考的问题。这里给出一些思路：</p>
 <p>​		a.IPSec所使用的IKE两阶段模式无疑对所有VPN几乎都有很大的影响，第一阶段构建的安全通道用于第二阶段的密钥协商而不是最终的数据传输；</p>
 <p>​		b.SSL握手最终协商的那个密钥和SSL握手过程是分不开的，而OpenVPN最终的设计是希望将握手过程和数据传输过程完全分离，从而独立的实现单一的密钥重协商；</p>
 <p>​		c.这样实现的OpenVPN协议更加简洁。我们看一下OpenVPN的控制协议</p>
 <p>：<img src="http://www.uml.org.cn/xjs/images/2013122753.jpg" alt="img"></p>
 <p>​		这里面最重要的恐怕要算ACK buffer了，由于SSL握手协议需要一个可靠的下层，因此需要确认机制，值得注意的是，不要一说确认就是TCP，UDP也可以实现的，只是这里的UDP实现的重传机制很简陋，确认机制也很简陋。另外还有一点值得注意，那就是OpenVPN只在控制协议中使用可靠机制的协议，在记录协议中是不使用的。没有必要浪费太多的时间在OpenVPN的握手协议上，它仅仅是对SSL握手的一个封装而已，最终协商出一个加密的安全通道，密钥协议将运行于其上，实际上密钥协议的载荷也是封装在OpenVPN的控制协议头里面的。接下来，我们来看一下OpenVPN的密钥交换/协商/管理协议</p>
-<h4 id="34openvpn控制协议之-密钥协议">3.4.OpenVPN控制协议之-密钥协议</h4>
+<h4 id="openvpn控制协议之-密钥协议">OpenVPN控制协议之-密钥协议</h4>
 <p>​		OpenVPN自己实现了密钥管理，密钥交换，密钥重协商等，需要注意的是，它并不使用SSL握手最终确定的那些密钥，OpenVPN使用SSL握手仅仅是完成了连接者身份认证以及为后续的密钥管理，密钥交换，密钥交换以及控制信道构建一个安全的加密通道，完全类似于IKE的第一阶段协商。</p>
 <p>​		值得说明的是，虽然不断开SSL连接就可以重新协商密钥，也就是仅进行第二阶段，然而当前的OpenVPN实现中，reneg选项实现的是两个阶段同时重新协商，也就是说SSL握手也要重新进行。由于SSL的BIO直接接于一个内存BIO上，因此断开SSL连接并不意味着底层的传输层连接断开，OpenVPN实现了数据通道和控制通道的复用，因此任何通道都不是真正的物理通道，都是虚拟的，重新协商任何参数都不需要断开连接。在重新协商安全参数的时候，丝毫不影响数据通道的正常传输。</p>
 <p>​		目前OpenVPN实现了两类密钥交换的方法，第一类比较简单，相当于直接告诉对方解密密钥了，虽然这样，依然很安全，因为这里的“告诉”并不是明文告知，而是在SSL握手后的加密通道中告知的，它的消息格式如下：</p>
@@ -237,19 +237,19 @@
 <p><img src="http://www.uml.org.cn/xjs/images/2013122755.jpg" alt="img"></p>
 <p>​		最终，一个密钥导出函数计算出最终的密钥，关于密钥导出函数的细节，请google，或者Email给我，要是我不知道，我们一起学习。从第二类方式的消息格式中可以看出，pre-master的使用方式和标准的SSL握手中最终的密钥协商的方式一样，只不过SSL握手中这个pre-master是用server端的公钥加密的，而这里的pre-master直接使用SSL握手确定的对称密钥加密。第一类方式很像IPSec的SA，第二类方式很像SSL握手中的密钥协商，可见OpenVPN真的站在了巨人肩上啊。</p>
 <p>​		最后，有个KEY ID十分奇妙，它的作用就是密钥更新时的平滑过渡。OpenVPN一共定义了3组密钥集合，其中只有一组是当前活动的，然而在新的活动密钥没有生效之前，还是可以用老的。值得再次强调的是，重新协商并不断开任何连接，虽然重新初始化了SSL，但是记住，SSL只是一个过滤，和Socket没有关系的，它可以用于任何管道性质的文件描述符之间的安全通道协商，在OpenVPN的场景下，重新协商SSL时，底层的UDP连接仍然没有断开(这里所说的UDP连接，是因为UDP之上实现了一个Reliability Layer)，只要OpenVPN客户端连上服务器，它就不会再因为重新协商而主动断开，除非协商失败，比如证书已经被吊销等。</p>
-<h4 id="35openvpn协议总结">3.5.OpenVPN协议总结</h4>
+<h4 id="openvpn协议总结">OpenVPN协议总结</h4>
 <p>​		现在总结一下OpenVPN的协议。它真的很复杂，我们先看一幅可以表示OpenVPN协议总体设计的图，我并没有按照传统的网络协议按照控制面和用户面来画图，那样太抽象，我选择的方式是直接的方式：<img src="http://www.uml.org.cn/xjs/images/2013122756.jpg" alt="img"></p>
 <p>​		通过这幅图我们再来温习一下OpenVPN协议的设计。如图所示，虽然协议分了好几部分，每一个部分又分若干层次，然而它们在横向上是有联系的。从设计上说，首先是安全认证和第一阶段的握手，这和IKE一致，第一阶段握手为第二阶段密钥协商提供了安全通道，然后第二阶段最终协商出了加密/MAC密钥。从此记录协议和控制协议分离，直到再次协商。这是OpenVPN协议的第一个要点：分层次，分阶段。</p>
 <p>​		OpenVPN协议的第二个要点就是多路复用到UDP。这样就不必为SSL协商之类的控制面专门设置一个通道，OpenVPN巧妙使用OpenSSL的BIO机制劫持了SSL握手包，实现了对其的封装，这样所有的协议都可以复用了一个UDP“连接”上，因此重新协商密钥的时候，数据传输不会停止。</p>
 <p>​		OpenVPN的第三个要素有点历史原因，OpenVPN完全可以使用SSL记录协议来完成最终的数据加密，然而却面对着TCP重传叠加的问题，当时DTLS还没有出现，然而SSL握手实在太好了，因此OpenVPN做出了一个漂亮的折中，实现了协议的重新封装，保留了SSL握手，重新实现了“尽力而为”的记录协议。这样做的结果是，OpenVPN可以在本来已经很安全的SSL握手协商上又做了一层封装，可以实现比如tls-auth的功能，对TLS/SSL握手消息本身进行完整性验证，这样就预防了Dos攻击，消耗掉服务器的资源(SSL连接的处理很消耗资源，即使不消耗什么内存，消耗CPU是巨大的)&hellip;同时，大量显式的SSL连接也不复存在，再者，由于密钥交换和SSL握手彻底分离，这样可以实现更多的选择，比如可以配置cipher为none，然而SSL握手还是安全的，或者说仅仅提供数据的HMAC验证，此时SSL握手以及后面的HMAC密钥协商依然是安全的&hellip;要知道，SSL握手的结果永远都是协商出一条安全加密的通道，你在这通道上作甚，你自己配置，这就是分离的好处。</p>
-<h4 id="36使用bio封装ssl握手消息">3.6.使用BIO封装SSL握手消息</h4>
+<h4 id="使用bio封装ssl握手消息">使用BIO封装SSL握手消息</h4>
 <p>​		这一点实际上并不是特别的重要，因为它是实现相关的，要不是OpenVPN使用了OpenSSL这个开源的SSL库或者OpenSSL中没有BIO，那OpenVPN还真得费点周折去思索如何得到SSL握手消息然后再封装成OpenVPN自己的控制消息。</p>
 <p>​		BIO在这里我就不再深入介绍了，它很简单，就是一个堆栈式的IO部件，每一层都有一定的功能，比方说过滤，十分类似于Windows的IRP的概念，如果实在不懂，要么google，要么直接看OpenSSL的实现，但是千万别百度。为了说明如何使用BIO封装SSL握手消息，给出一幅图：</p>
 <p><img src="http://www.uml.org.cn/xjs/images/2013122757.jpg" alt="img"></p>
-<h3 id="4openvpn连接建立">4.OpenVPN连接建立</h3>
+<h3 id="openvpn连接建立">OpenVPN连接建立</h3>
 <p>​		OpenVPN连接的建立显得很诡异，不过本文看到此处，你就不觉得什么诡异了。如果不了解OpenVPN的协议设计，仅仅知道它使用了SSL握手的话，你会感到很费解，因为你用ssldump或者tcpdump抓取不到任何SSL握手的消息。实际上这很好解释，那就是SSL握手消息被OpenVPN的协议给封装了，上一小节讲述了如何封装SSL握手消息，使用OpenSSL的BIO可以很方便的做到这一点，实际上，OpenSSL本身将SSL类型的BIO设计成一个过滤型BIO，这才是精妙所在，这样SSL消息可以直接发往任何类型的IO实体了，而不一定必须是网络套接字了。</p>
 <p>​		OpenVPN连接的建立大致分为4个阶段，每一个阶段完成不同的事情，如下图所示：<img src="http://www.uml.org.cn/xjs/images/2013122758.jpg" alt="img"></p>
-<p>5.OpenVPN实现略！</p>
+<h3 id="openvpn实现略">OpenVPN实现略！</h3>
 <p>​		最终，还是贴上OpenVPN源码中关于协议实现的注释：</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>OpenVPN Protocol, taken from ssl.h in OpenVPN source code. 
 </span></span><span style="display:flex;"><span>TCP<span style="color:#f92672">/</span>UDP Packet:  This represents the top<span style="color:#f92672">-</span>level encapsulation. 
