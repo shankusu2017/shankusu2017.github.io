@@ -196,24 +196,23 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">7288 字 ~15分钟</span>
+<span class="leancloud-visitors-count">7225 字 ~15分钟</span>
 </span>
       </div>
     </header>
     <div class="post-body" itemprop="articleBody">
     <h1 id="第一部分-vpn要解决的问题以及方案">第一部分 VPN要解决的问题以及方案</h1>
-<h2 id="一-问题及方案">一、 问题及方案</h2>
 <p>基于主机的第三层 VPN 的要旨就是“<strong>透明/安全</strong>的接入”，其中透明的含义就是配置要简单，尽量让用户感觉不到 VPN 的存在，因此这种 VPN 的实现其实只要解决两个问题即可：</p>
 <p><strong>1. 如何拿到第N层数据，然后放回第M层；</strong></p>
 <p><strong>2. 加密/解密第三层ip数据报；</strong></p>
 <p>针对第一个问题，实际上我们依赖的是这样一个事实，即 <strong>OSI 的分层网络模型，这样才可以使第 M 层将第 N 层的 PDU 当成有效载荷，解析时只需要根据下层的协议号就可以定位上一层的协议类型</strong>。以封装第三层数据的 VPN 为例，上述第一个问题在linux上有三种方案：</p>
-<h3 id="1-使用netfilter">1. 使用netfilter</h3>
+<h2 id="使用netfilter">使用netfilter</h2>
 <p>使用 netfilter 无疑是最直接的方式，对于接收的包，需要在 prerouting 上挂载一个钩子，对于本地发出的包，则需要在 output 上挂载一个钩子，这样就可以在钩子函数中进行加密/解密处理了，处理完毕之后再根据策略封装成一个新的ip数据报，重新路由并且发送出去或者接收。</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a573b1c7ec378~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
-<h3 id="2-使用虚拟网卡">2. 使用虚拟网卡</h3>
+<h2 id="使用虚拟网卡">使用虚拟网卡</h2>
 <p>这是一种不直接但是很自然的方式，因为，我们知道从网卡出来的包一个包含一个 IP 数据报(暂不考虑其它三层协议，比如ipx)。实现一个虚拟网卡，在其 xmit 发送函数中处理加密，然后重新封装，重新路由。这里暂时先不考虑在哪里解密，因为网卡发送和接收的逻辑是不一样的，我们可以实现一个虚拟网卡，然而却不能修改ip协议栈，除非使用 netfilter。</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a576c63ca9894~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
-<h3 id="3-将-ip-数据报导出到用户态比如使用-packet-套结字以及替换-sendrecv">3. 将 IP 数据报导出到用户态，比如使用 packet 套结字以及替换 send/recv</h3>
+<h2 id="将-ip-数据报导出到用户态比如使用-packet-套结字以及替换-sendrecv">将 IP 数据报导出到用户态，比如使用 packet 套结字以及替换 send/recv</h2>
 <p>这是最灵活的方案，然而如果使用 packet 的话却不行。因为 packet 无法截获数据报。因此需要在 socket 层次替换 send/recv 函数，实现加密/封装以及解密/解封装。这里暂时不考虑 send 处理，因为对于一般的应用数据，是很难替换 send 的(Linux 没有 windows 的 LSP 机制)，这种方式，控制接收较方便，而控制发送则很难，和使用虚拟网卡的情形正好相反。</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a57d968d84828~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <p>我们发现，2和3是互补的，虚拟网卡很容易拿到发出的未封装的原始IP数据报-通过路由即可，但是拿不到接收的封装过的IP数据报，而替换 socket 的 send/recv 则很容易拿到接收的封装过的IP数据报但是拿不到发送的未封装的IP数据报。因此将2和3结合一下，就出现了第四种方式。</p>
@@ -231,40 +230,40 @@
 <p><strong>1. VPN 隧道终点使用 UDP 端口区分了不同的IP安全通道，而不需要采用 IPSec 的方式；</strong></p>
 <p><strong>2. 为何不用 TCP 呢？因为会引起重传叠加导致网络不可用，详见CIPE的作者所做：《Why TCP Over TCP Is A Bad Idea》。同样的规则在后续的 OpenVPN 中依然如此，详见 OpenVPN 的 man 手册中的 &ndash;proto 选项。</strong></p>
 <p><strong>3. 加密在内核态，解密在用户态-使用 UDP，之所以这样的不对称法是因为 UDP 端口是可以从客户端“连接(访问的含义)”的，不同的 UDP 端口就可以区分出来自不同地点的IP安全通道。这种方案依赖于，安全隧道总是由外部(位置不确定的互联网的任意一处)先发起建立请求。后面的 OpenVPN 的 C/S 模型也有赖于这个事实</strong>。</p>
-<h2 id="二vpn类型">二、VPN类型</h2>
+<h1 id="vpn类型">VPN类型</h1>
 <p><strong>VPN 按照网路通路区分划分为：</strong></p>
-<h3 id="1-传输模式-vpn">1. 传输模式 VPN</h3>
+<h2 id="传输模式-vpn">传输模式 VPN</h2>
 <p>传输模式的 VPN 只加密数据，不构建隧道，也就是只实现数据安全。如下图所示，图片来自cisco：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a59be578283b4~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
-<h3 id="2-隧道模式-vpn">2. 隧道模式 VPN</h3>
+<h2 id="隧道模式-vpn">隧道模式 VPN</h2>
 <p>隧道模式的 VPN 不但加密数据，但是构建隧道，也就是说实现网络层次 PDU 的封装。如下图所示，图片来自cisco：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a59c06501b5ec~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <p><strong>VPN 按照认证方式区分可以使用不同的协议承载方式</strong></p>
-<h3 id="1-pppoe">1. PPPoE</h3>
+<h2 id="pppoe">PPPoE</h2>
 <p>严格来讲，这不是一种 VPN，而只是一种接入方式，它只是实现了在以太网上承载 ppp 包。虽然它不属于 VPN 的范畴，然而却能表现隧道的思想，所谓隧道无非就是第m层的 pdu 用一种特定的隧道协议承载第n层的 pdu，思想如下图：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a5a0df1982c70~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
-<h3 id="2-l2tp">2. L2TP</h3>
+<h2 id="l2tp">L2TP</h2>
 <p>L2TP 是一个协议，使用这种协议的 VPN 用拨号来进行认证。如下图所示，图片来自华为：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a5a121272163c~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
-<h3 id="3-ssl-vpn">3. SSL VPN</h3>
+<h2 id="ssl-vpn">SSL VPN</h2>
 <p>这种 VPN 使用证书，密码等 SSL 认可的可配置的方式进行认证。它不一定是第四层 VPN，也不一定是第七层 VPN，而只是强调它使用 SSL 协议实现认证以及密钥协商等安全策略。本文推崇的 VPN 也就是使用虚拟网卡实现的 ssl vpn。</p>
 <h1 id="第二部分-进一步的讨论">第二部分 进一步的讨论</h1>
-<h2 id="一问题">一、问题</h2>
+<h2 id="问题">问题</h2>
 <p>到此为止，VPN 的两个首要工作都得到了解决，使用虚拟网卡，recv，或者 netfilter 抓住IP数据报，然后直接加密，也就是加密/封装和解封装/解密。但是加密的标准以及加密方式我们还没有涉及，<strong>理论上，任何加密算法都是可以对IP数据报进行加密的</strong>。</p>
 <p>实现 VPN 有多种方式，标准的方式是使用 IPSec 协议(ESP，AH等)来实现的，<strong>IPSec 是一个封装第三层数据报的协议集，也可以理解成一个第四层协议集</strong>，和 tcp/udp 等是完全并列的，tcp，udp 的协议号分别为6和17，而 esp，ah 的协议号分别为50和51。总之 IPSec 协议集旨在第三层将数据直接进行加密/解密，要支持 IPSec 无疑需要对协议栈进行修改，在 Linux，netfilter 可以完成此任务，Freeswan 正是这样实现的 IPSec。</p>
 <p>然而在内核态通过修改协议栈的实现方式很不灵活，配置起来也是比较复杂，如果能在用户态实现数据报的加密/解密就比较好，这是完全可行的，因为 IPSec 协议集和 TCP/UDP 一样也是第四层协议，完全可以用 tcp 或者 udp 来承载加密后的数据。既然使用虚拟网卡可以方便的拿到IP数据报，那么就可以想办法导出到用户态，然后加密/解密后再发出去。</p>
-<h2 id="二tap-虚拟网卡">二、tap 虚拟网卡</h2>
+<h2 id="tap-虚拟网卡">tap 虚拟网卡</h2>
 <p>到此，我们明白 IPSec 只是加密/解密的支撑协议，和加密/解密没有关系，并且这种方式对于配置和实现来讲都不是很灵活，当然，这里先不考虑性能因素。既然 IPSec 只是支撑协议，那也就是说只要能实现加密/解密，并且能实现将封装后的数据报传输到 VPN 链路的对端就可以了。可是，又如何将虚拟网卡抓取的ip数据报导出到用户态呢？</p>
 <p>前面提到，使用虚拟网卡抓取IP数据报和使用替换 socket 的 send/recv 函数抓取数据报是矛盾且互补的，因此它们的结合对于封装和解封装的实现是不对称的。</p>
 <p>tap 网卡的出现带来了福音。tap 网卡在实现一个虚拟网卡的同时也实现了一个字符设备，在虚拟网卡的 xmit 函数中直接将未加密未封装的原始IP数据报放到字符设备的输入缓冲区，然后用户态进程就可以从该字符设备读取到ip数据报，用户态进程只需要将之加密，然后通过 socket 发出即可，借助协议栈完成原始ip数据报的封装。数据到了对端，用户态进程从 socket 读取到的就是加过密的原始ip数据报，因为协议栈已经自动解封装了，然后将之解密后写入虚拟网卡字符设备即可，此时，虚拟网卡字符设备模拟中断 cpu，从而虚拟网卡调用接收函数。</p>
 <p>因此，最终我们有了方案3：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a62f7205e7adc~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <p>采用这个模型的开源项目有很多，它们都基于一个很简单的 demo 程序：simpletun(<a href="https://link.juejin.cn/?target=http%3A%2F%2Fbackreference.org%2Fwp-content%2Fuploads%2F2010%2F03%2Fsimpletun.tar.bz2">backreference.org/wp-content/…</a>) 在simpletun的基础上，衍生了 VTun，OpenVPN，Openssh&rsquo;s VPN 等项目。</p>
-<h1 id="三安全策略拓展">三、安全策略拓展</h1>
+<h1 id="安全策略拓展">安全策略拓展</h1>
 <p>到此为止，VPN 的通路问题解决了，其中最漂亮的方案就是使用 tap 网卡。可是加密/解密算法，认证算法等还没有涉及。和解决通路问题一样，处理安全策略也有很多的方案：</p>
-<h3 id="方案1使用-ipsec-协议集以及-ike-机制">方案1：使用 IPSec 协议集以及 IKE 机制。</h3>
+<h2 id="方案1使用-ipsec-协议集以及-ike-机制">方案1：使用 IPSec 协议集以及 IKE 机制。</h2>
 <p>这个方案其实就是 IPSec 的方案，无疑，这种方案对使用 tap 网卡是有限制的，因此很多情况下都是直接在内核实现。详情参见相关标准。</p>
-<h3 id="方案2编写用户态进程实现可配置的安全策略">方案2：编写用户态进程，实现可配置的安全策略</h3>
+<h2 id="方案2编写用户态进程实现可配置的安全策略">方案2：编写用户态进程，实现可配置的安全策略</h2>
 <p>这个方案比较笼统，但是它却是最灵活的。最简单的方式，实现一个通过参数配置加密算法的程序，比如 VTun 所作的那样，然而 VTun 对于身份认证和算法及密钥支持比较弱。<strong>最终人们想到了SSL协议</strong>。</p>
 <p>SSL 协议可以保证通信的保密性和可靠性，它使用公钥技术，支持安全且灵活的认证机制，常见的有使用 X509 证书的认证。SSL 协议本身就包含密钥协商，因此相比 IPSec 的 IKE 要简单的多。<strong>正是 tap 虚拟网卡和 SSL 的结合，才带来了 VPN 技术的革命</strong>！tap 网卡和 SSL 是缺一不可的，虽然 VTun 使用了 tap 网卡，然而它没有使用 SSL 协议，这就直接阻碍了它的进一步拓展，而 cipe 则更是一个中间过程，它的安全运算全部在内核态完成，根本无法使用 SSL 协议。OpenVPN 是这个革命的一个产儿。</p>
 <p><strong>OpenVPN的基本要素有以下几点：</strong></p>
@@ -277,58 +276,58 @@
 <p><strong>7.强大的日志输出功能</strong></p>
 <p>下面是OpenVPN的实现框图：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a63658e6a4bd6~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
-<h1 id="四方案对比">四、方案对比</h1>
-<h2 id="1-对比-ipsec-和虚拟网卡-通路方案选择">1. 对比 IPsec 和虚拟网卡-通路方案选择</h2>
+<h1 id="方案对比">方案对比</h1>
+<h2 id="对比-ipsec-和虚拟网卡-通路方案选择">对比 IPsec 和虚拟网卡-通路方案选择</h2>
 <p>1). <strong>IPSec 的通路方案是在网络层直接修改IP数据报实现封装，然后直接交由路由模块重新路由</strong>。IPSec 对原始IP数据报的封装是直接在网络层完成的(虽然逻辑上 IPSec 属于第四层)。</p>
 <p>2). <strong>虚拟网卡方案利用了这样的一个事实，即可以通过路由的方式将IP数据报导入虚拟网卡，另外从虚拟网卡接收的IP数据报也可以通过路由的方式导出到本机或者其它物理网卡</strong>。虚拟网卡对原始IP数据报的封装是利用标准的 TCP/IP 协议栈完成的(想使用标准协议栈封装数据报，则必须将原始IP数据报放回到协议栈的顶端，即socket层，然后随着数据在协议栈中往下流动，封装过程自然完成)。</p>
 <p>2.1). <strong>虚拟网卡的副作用</strong>：由于虚拟网卡也是一个起始于链路层的网卡，因此可以为之配置网络层地址，即IP地址，出入虚拟网卡的数据和出入物理网卡的数据一样受到所有 TCP/IP 协议栈语义的约束，因此也就可以通过虚拟网卡很简单地实现一个虚拟的局域网，虽然在物理上虚拟局域网内的设备可能相隔千里。正是这一点使后来的 OpenVPN 可以很简单的实现 client2client。</p>
 <p>3). <strong>总结</strong>：无疑，虚拟网卡的方案没有 IPSec 的方案更直接，因此效率上也会大打折扣，在这一点上考虑，IPSec 的方案要胜出。</p>
-<h2 id="2-对比-ipsec-和-ssl--安全策略方案选择">2. 对比 IPSec 和 SSL -安全策略方案选择</h2>
+<h2 id="对比-ipsec-和-ssl--安全策略方案选择">对比 IPSec 和 SSL -安全策略方案选择</h2>
 <p>1). <strong>IPSec 定义了一整套内置的以及可外挂的安全策略协议</strong>，包括 ESP，AH，IKE 等，这些协议的操作全部在网络层完成。</p>
 <p>2). <strong>SSL 是一个安全套结字协议框架</strong>，通过 Cipher Suit 可以灵活配置认证以及加密，摘要算法，这些操作全部在表示层和会话层完成。</p>
 <p>3). <strong>总结</strong>：虽然 IPSec 是一种自然而然的方式，然而可供选择算法非常有限，并且配置很不灵活，因此 SSL 相比 IPSec 的安全协议集无疑会胜出。</p>
-<h2 id="3-综合对比-ipsec-方案-vs-虚拟网卡-ssl">3. 综合对比-IPSec 方案 VS 虚拟网卡+ SSL</h2>
+<h2 id="综合对比-ipsec-方案-vs-虚拟网卡-ssl">综合对比-IPSec 方案 VS 虚拟网卡+ SSL</h2>
 <p>在数据通路和安全策略上，VPN 更加关注的是安全策略，数据通路对于 VPN 来讲是完全透明的，而安全策略则需要是高度可定制的，除非在效率要求很高的需求下，虚拟网卡 + SSL 的方案要略胜一筹。以下只给出 IPSec 和虚拟网卡 + SSL 的数据封装框图：</p>
 <p><strong>IPSec的方式：</strong></p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a641916414f7a~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <p><strong>虚拟网卡+SSL的方式：</strong></p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a641cbabab320~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
-<h1 id="五使用-netfilter-的引申">五、使用 netfilter 的引申</h1>
+<h1 id="使用-netfilter-的引申">使用 netfilter 的引申</h1>
 <p>netfilter 是一个很优秀的框架，它设计的5个 HOOK 点真的是恰到好处，因此我们可以围绕它做出几乎所有和协议栈相关的东西。包括虚拟网卡的功能也是可以通过 netfilter 完成的。也就是说，不再需要虚拟网卡了，这样既实现了用户态的安全策略，又不需要虚拟网卡，也就是下面这张图所显示的，仅以 forward 出口包为例：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a643988c04207~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <p>作为对比，列出虚拟网卡的方式：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a643d4d024e19~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
-<h1 id="六linux-的其它可选方案-gre--espah">六、Linux 的其它可选方案-GRE + ESP/AH</h1>
+<h1 id="linux-的其它可选方案-gre--espah">Linux 的其它可选方案-GRE + ESP/AH</h1>
 <p>将这节内容放到最后有点过分了，因为这节的内容对于 linux 上实现 VPN 而言实在太重要了。</p>
 <p>有很多成熟的方案可以实现 VPN，特别是建立 VPN 隧道，其中最方便的 VPN 通路建立方式当属 GRE 隧道了，并且 GRE 也是一个相当成熟的隧道协议。因此使用 GRE 隧道技术可以方便的铺设隧道。</p>
 <p>其次，在 Linux 的2.6内核中，出现了一个新的框架，这就是<strong>xfrm-xfrm is an IP framework, which can transform format of the datagrams,i.e. encrypt the packets with some algorithm. xfrm policy and xfrm state are associated through templates TMPL_LIST.This framework is used as a part of IPsec protocol</strong>. 使用 xfrm 来实现 IPSec 要比使用 netfilter 来得更直接，因为 xfrm 是内嵌在协议栈内部的，而不是像 netfilter 一样外挂在外部的。</p>
 <p>xfrm 通过注册一个 struct net_protocol 使得 ESP，AH 在第四层协议中有了名分，毕竟 struct net_protocol 就是一个协议栈第四层的操作例程集合，正如 tcp 和 udp 拥有 tcp_protocol 以及 udp_protocol 一样，esp 和 ah 也有 esp4_protocol 和 ah4_protocol(暂不考虑IPv6)。如此 xfrm 以一种直接的方式在标准的协议栈中处理 IPSec 数据包，正如下图所示：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/13/167a6483cda2cc56~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <p>可见 Linux 使用 xfrm 框架(其中为 esp/ah 等实现了两个传输层的封装机制，且可以外挂其它机制，比如基于5元素的策略查找等)实现了逻辑上的 IPSec 安全策略，该框架包含两大部分：</p>
-<p><strong>1. 将IPSec安全协议集注册在传输层；</strong></p>
-<p><strong>2. 修改路由模块，加入策略检查逻辑，实现出口数据包的基于策略的捕获，然后将其导入传输层实现安全协议封装。</strong></p>
+<p><strong>将IPSec安全协议集注册在传输层；</strong></p>
+<p><strong>修改路由模块，加入策略检查逻辑，实现出口数据包的基于策略的捕获，然后将其导入传输层实现安全协议封装。</strong></p>
 <p>然而 VPN 的另一大特性，也就是隧道的实现却另有其人，那就是 GRE 模块(体现为ip_gre)。本质上，GRE 网卡和虚拟网卡的思想是一样的，只不过其使用一个标准协议，即 GRE 来封装网络层数据报。GRE 的关键在于网络的互通，比如它能将 ipx 封装在IP中，从而实现跨协议通信。</p>
-<h1 id="第三部分-网络层-vpn-技术发展阶段">第三部分 网络层 VPN 技术发展阶段</h1>
-<h2 id="一完全内核态的-ipsec-实现阶段">一、完全内核态的 IPSec 实现阶段</h2>
+<h1 id="网络层-vpn-技术发展阶段">网络层 VPN 技术发展阶段</h1>
+<h2 id="完全内核态的-ipsec-实现阶段">完全内核态的 IPSec 实现阶段</h2>
 <p>这是官方的 VPN 建议，其背后有着强大的协会和组织以及商业机构。代表作有 cisco，3com 等厂商的核心安全设备，以及开源届的 freeswan。Linux 2.6内核中内嵌了 xfrm 框架，该框架以一种直接的方式而不是 netfilter 这种间接过滤的方式可以方便的实现 IPSec。然而使用者却没有因为这种实现的方便性而增多，关键还是在于其配置的不灵活以及协议的封闭。</p>
-<h2 id="二半虚拟网卡阶段">二、半虚拟网卡阶段</h2>
+<h2 id="半虚拟网卡阶段">半虚拟网卡阶段</h2>
 <p>只实现了发送例程而没有实现接收例程的虚拟网卡，导致没有实现接收例程的原因是这个时候还没有虚拟网卡的字符设备，无从接收数据。cipe 是这个阶段的代表作。在 cipe 的实现中，替换 socket 的 send/recv 例程并不是必要的，因为原始的协议栈对待从上到下的数据只是封装，对待自下而上的数据是解封装，如果不替换 send/recv 例程的话，数据到达用户态再发出去时就被封装成了本地出发的数据包了，而我们需要的是只解除隧道封装，而不再封装本地的信息，实际上，对 recv 的替换倒不是必须的，因为在 recv 中只处理了解密操作，而在用户态也可以做，不过既然加密是在内核做的，解密也在内核做比较好，其中效率是一大原因。之所以如此复杂，是因为这只是半虚拟网卡。</p>
-<h2 id="三全虚拟网卡阶段">三、全虚拟网卡阶段</h2>
+<h2 id="全虚拟网卡阶段">全虚拟网卡阶段</h2>
 <p>虚拟网卡实现了一个字符设备，完全对称的实现了全虚拟网卡，不但具有发送例程，还有接收例程，这样就可以完美的在两台主机的两个虚拟网卡字符设备之间架设一条“虚拟物理线路”，分别处在两个主机上的两个进程中的一个只需要处理虚拟网卡字符设备和本地 socket 之间IO数据的处理/转发即可。这种方式将安全策略完全解放到了用户态，为 OpenVPN 的革命性进展开辟了道路。值得注意的是，此阶段的 VPN 还是将注意力集中在网络通路上，毕竟安全策略刚刚从内核解放出来。代表作品有 VTun。</p>
-<h2 id="四ssl全虚拟网卡阶段">四、SSL+全虚拟网卡阶段</h2>
+<h2 id="ssl全虚拟网卡阶段">SSL+全虚拟网卡阶段</h2>
 <p>虚拟网卡加上 SSL 协议给软件 VPN 带来了一场革命，不仅仅是这种结合方式，而是这种结合方式之外的扩展功能才是亮点之所在。毕竟 VTun 也使用了虚拟网卡，其模式和 OpenVPN 并没有什么太大的不同，然而正是 SSL 协议给这种结合方式带来了新的活力，就像一剂猛药瞬间激活了最具扩展性的 OpenVPN。细解 OpenVPN，发现它是如此的简单，实际上它在简单的背后映射了不简单的道理。如果我们细解牛顿三定律，也会发现它不过是伽利略理论的总结，正如 OpenVPN 不过是 VTun 加上一些标准化的安全拓展是一样的道理。<strong>实际上，所谓的革命本是不存在的，人们普遍将量变引起质变的点当成是革命，而事实上，只要有一个矮人站到巨人的肩上，那他也会比巨人更高大！</strong></p>
-<h2 id="五最终权衡">五、最终权衡</h2>
+<h2 id="最终权衡">最终权衡</h2>
 <p>由于半虚拟网卡只是到达全虚拟网卡的过渡，因此这里不考虑半虚拟网卡，另外全虚拟网卡方案中的 VTun 也只是到 OpenVPN 的过渡。而基于 IPSec 的 VPN 受到各方面的限制也不予考虑，再者，VPDN 的应用场合也有限制，也不予考虑。最终我们只剩下了基于虚拟网卡的 SSL VPN，当然正如 OpenVPN 官方网站所说，OpenVPN 相比 IPSec 所欠缺的就是各个操作系统的原生支持，虽然 OpenVPN 的设计非常优秀，但是在标准化方面还是比不过 IPSec，IPSec 的成功，和诸如 Cisco 等公司的推波助澜是分不开的，我们知道，第一流的公司做标准，第二流的公司做品牌，第三流的公司做产品，因此标准化是很重要的。在 Windows 上，如想用 VPDN，基本直接就能支持，然而想使用 OpenVPN，则必须安装客户端。另外效率问题也是 OPenVPN 的劣势，然而这不是根本的劣势，技术上的问题终究是可以得到解决的，我本人就曾经修改了 tun 驱动程序，使其吞吐量大幅提高&hellip;</p>
-<h1 id="第四部分-linux-vpn-软件选型">第四部分 Linux VPN 软件选型</h1>
-<h2 id="1-ipsec-的实现freeswan">1. IPSec 的实现：freeswan</h2>
+<h1 id="linux-vpn-软件选型">Linux VPN 软件选型</h1>
+<h2 id="ipsec-的实现freeswan">IPSec 的实现：freeswan</h2>
 <p>虽然 IPSec 的侧重点在性能和安全性，然而事实上在 Linux 中，Freeswan 的效率并没有想象的那么高，因为它是 netfilter 实现的，而 netfilter 将会过往的每一个数据包进行判定，这会严重影响效率。Freeswan 的优点在于其实现的标准性。 Freeswan 在2.6之前的 Linux 内核中使用的更加广泛一些，因为2.6内核有了更好的 IPSec 方案-Xfrm。另外，由于政治原因，Freeswan 的推广受到了很大的限制。</p>
-<h2 id="2-cipe">2. cipe</h2>
+<h2 id="cipe">cipe</h2>
 <p>效率很高，然而配置不灵活，且只支持单通道。</p>
-<h2 id="3-vtun">3. vtun</h2>
+<h2 id="vtun">vtun</h2>
 <p>效率很高，支持多客户端，每个客户端一个进程处理。配置也很丰富，然而缺乏更高级的安全策略的支持，正如其文档中所说的那样。</p>
-<h2 id="4-openvpn">4. openvpn</h2>
+<h2 id="openvpn">openvpn</h2>
 <p>具有革命性的 VPN 实现，支持多客户端，支持 client2client。然而其效率却不是很高。OpenVPN 的灵活性及安全性蕴藏着巨大的收益，并且其实现的对称性和简单性吸引了大量的开发者，最终开发出了各个平台的版本，这正体现了 OpenVPN 的强大。反观 VTun，直到现在，它也不支持 Windows 版本，并且2007年就停止了开发&hellip;</p>
-<h2 id="5-应用层-ssl-vpn">5. 应用层 ssl vpn</h2>
+<h2 id="应用层-ssl-vpn">应用层 ssl vpn</h2>
 <p>这是应用级别的 VPN，诸如代理软件，翻墙软件都属于这种范畴，它保护特定的主机，特定的应用，因此对于个人接入拥有很大的优势，它可以得到更多的应用层的用户信息，这是网络层的 VPN 所无能无力的。然而如果你希望使一个网络安全的接入另一个网络，那只能选择1到4的方案了。</p>
 <p><a href="https://juejin.cn/post/6844903736716820494">以上内容转载自笑叶林的blog</a></p>
 
@@ -347,8 +346,8 @@
      <div class="post-nav">
     <div class="post-nav-next post-nav-item">
     
-        <a href="http://shanks.link/blog/2022/06/22/%E4%B8%8D%E8%A6%81%E5%9B%A0%E4%B8%BA%E8%B5%B0%E5%BE%97%E5%A4%AA%E8%BF%9C%E8%80%8C%E5%BF%98%E8%AE%B0%E4%B8%BA%E4%BB%80%E4%B9%88%E5%87%BA%E5%8F%91/" rel="next" title="不要因为走得太远而忘记为什么出发">
-        <i class="fa fa-chevron-left"></i> 不要因为走得太远而忘记为什么出发
+        <a href="http://shanks.link/blog/2022/07/11/linux%E5%B9%B3%E5%8F%B0vpn%E6%8A%80%E6%9C%AF%E6%A6%82%E8%AE%BA-%E7%BB%AD/" rel="next" title="Linux平台VPN技术概论 续">
+        <i class="fa fa-chevron-left"></i> Linux平台VPN技术概论 续
         </a>
     
     </div>
@@ -406,7 +405,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">424</span>
+        <span class="site-state-item-count">438</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
