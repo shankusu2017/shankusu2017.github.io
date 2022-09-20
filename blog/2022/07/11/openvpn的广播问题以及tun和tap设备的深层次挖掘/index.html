@@ -203,179 +203,179 @@
     <div class="post-body" itemprop="articleBody">
     <p>​		广播到底通过还是不通过OpenVPN呢？tap处理二层，tun处理三层，虽然tun两端ip是同一个子网，但是其二层却不是，广播是无法进行的，但是tap可以传输广播；由于windows的虚拟网卡驱动的特殊性，为了让windows也能进入vpn，OpenVPN和虚拟网卡驱动作了特殊且复杂的处理。本文详述之(注意，本文不介绍OpenVPN的各种专业术语，比如路由模式和桥接模式之类，需要的话请参考OpenVPN的文档或者FAQ)。</p>
 <p>​		怎么理解tun设备建立的是“点对点”链路，因为tun隧道是三层隧道，没有二层链路，更不必说二层广播链路了，我们知道数据链路层有两种通信方式，一种是点对点的方式，比如ppp协议，另一种是广播的方式，比如以太网，tun设备建立的隧道只有两个端点，隧道中封装的是IP数据报，虽然也需要arp协议来定位隧道对端tun设备的mac，然而如果有n台机器同时连接进一个虚拟网络并且属于同一个网段的话，其它机器是不会收到这个arp报文的，因为根本就没有二层链路帮忙广播转发这个arp报文</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">inline</span> <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">mroute_extract_addr_from_packet</span> (<span style="color:#66d9ef">struct</span> mroute_addr <span style="color:#f92672">*</span>src,
-</span></span><span style="display:flex;"><span>                 <span style="color:#66d9ef">struct</span> mroute_addr <span style="color:#f92672">*</span>dest,
-</span></span><span style="display:flex;"><span>                 <span style="color:#66d9ef">struct</span> mroute_addr <span style="color:#f92672">*</span>esrc,
-</span></span><span style="display:flex;"><span>                 <span style="color:#66d9ef">struct</span> mroute_addr <span style="color:#f92672">*</span>edest,
-</span></span><span style="display:flex;"><span>                 <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">struct</span> buffer <span style="color:#f92672">*</span>buf,
-</span></span><span style="display:flex;"><span>                 <span style="color:#66d9ef">int</span> tunnel_type)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> ret <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>  verify_align_4 (buf);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (tunnel_type <span style="color:#f92672">==</span> DEV_TYPE_TUN) <span style="color:#75715e">//如果是tun模式，那么直接处理ipv4包头，不再处理广播的情况，但是可以处理ip多播
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    ret <span style="color:#f92672">=</span> mroute_extract_addr_ipv4 (src, dest, buf);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (tunnel_type <span style="color:#f92672">==</span> DEV_TYPE_TAP)  <span style="color:#75715e">//只有在tap的情况下才解析二层地址。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    ret <span style="color:#f92672">=</span> mroute_extract_addr_ether (src, dest, esrc, edest, buf);
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> ret;
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>在XXX_addr_ether中会调用：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (is_mac_mcast_addr (eth<span style="color:#f92672">-&gt;</span>dest))
-</span></span><span style="display:flex;"><span>    ret <span style="color:#f92672">|=</span> MROUTE_EXTRACT_BCAST;
-</span></span></code></pre></div><p>​		在以后的代码中通过这个MROUTE_EXTRACT_BCAST来判断，进而进行广播。需要注意的是，是在OpenVPN中而不是在tun/tap驱动中进行广播的，可以把tap模式下的OpenVPN进程当成一个二层交换机，而SSL出入口和tap设备出入口是交换机上的物理接口，广播数据的一种行进方向是从SSL_read(虽然OpenVPN并不调用OpenSSL的libssl的接口)中将以太帧读出并解密，然后进入OpenVPN进行广播，同时将数据交给自己一份，就是说往自己的tap设备中写入一份，广播给别的机器的数据还是要经过隧道的方式进行的，就是说将数据经过SSL协议封装然后通过socket发送。这个发送过程是通过multi_bcast来处理的，实际上multi_bcast并不是真正要发送数据，而是将待发送的数据连同其目的地信息先放入到一个容器中，然后等到时机成熟时统一处理这个容器。所谓时机成熟就是在multi_process_outgoing_link被调用时：multi_process_outgoing_link&ndash;&gt;multi_get_queue，正如multi_get_queue的注释所说，这种容器不但存放广播数据，还存放client-to-client数据以及多播数据，既然说到这里了，那么就说说client-to-client的一些话题。首先下面是一段错误的论述：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">inline</span> <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">mroute_extract_addr_from_packet</span> (<span style="color:#66d9ef">struct</span> mroute_addr <span style="color:#f92672">*</span>src,
+                 <span style="color:#66d9ef">struct</span> mroute_addr <span style="color:#f92672">*</span>dest,
+                 <span style="color:#66d9ef">struct</span> mroute_addr <span style="color:#f92672">*</span>esrc,
+                 <span style="color:#66d9ef">struct</span> mroute_addr <span style="color:#f92672">*</span>edest,
+                 <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">struct</span> buffer <span style="color:#f92672">*</span>buf,
+                 <span style="color:#66d9ef">int</span> tunnel_type)
+{
+...
+  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> ret <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+  verify_align_4 (buf);
+  <span style="color:#66d9ef">if</span> (tunnel_type <span style="color:#f92672">==</span> DEV_TYPE_TUN) <span style="color:#75715e">//如果是tun模式，那么直接处理ipv4包头，不再处理广播的情况，但是可以处理ip多播
+</span><span style="color:#75715e"></span>    ret <span style="color:#f92672">=</span> mroute_extract_addr_ipv4 (src, dest, buf);
+  <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (tunnel_type <span style="color:#f92672">==</span> DEV_TYPE_TAP)  <span style="color:#75715e">//只有在tap的情况下才解析二层地址。
+</span><span style="color:#75715e"></span>    ret <span style="color:#f92672">=</span> mroute_extract_addr_ether (src, dest, esrc, edest, buf);
+  <span style="color:#66d9ef">return</span> ret;
+}
+</code></pre></div><p>在XXX_addr_ether中会调用：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#66d9ef">if</span> (is_mac_mcast_addr (eth<span style="color:#f92672">-&gt;</span>dest))
+    ret <span style="color:#f92672">|=</span> MROUTE_EXTRACT_BCAST;
+</code></pre></div><p>​		在以后的代码中通过这个MROUTE_EXTRACT_BCAST来判断，进而进行广播。需要注意的是，是在OpenVPN中而不是在tun/tap驱动中进行广播的，可以把tap模式下的OpenVPN进程当成一个二层交换机，而SSL出入口和tap设备出入口是交换机上的物理接口，广播数据的一种行进方向是从SSL_read(虽然OpenVPN并不调用OpenSSL的libssl的接口)中将以太帧读出并解密，然后进入OpenVPN进行广播，同时将数据交给自己一份，就是说往自己的tap设备中写入一份，广播给别的机器的数据还是要经过隧道的方式进行的，就是说将数据经过SSL协议封装然后通过socket发送。这个发送过程是通过multi_bcast来处理的，实际上multi_bcast并不是真正要发送数据，而是将待发送的数据连同其目的地信息先放入到一个容器中，然后等到时机成熟时统一处理这个容器。所谓时机成熟就是在multi_process_outgoing_link被调用时：multi_process_outgoing_link&ndash;&gt;multi_get_queue，正如multi_get_queue的注释所说，这种容器不但存放广播数据，还存放client-to-client数据以及多播数据，既然说到这里了，那么就说说client-to-client的一些话题。首先下面是一段错误的论述：</p>
 <p>client-to-client实际上目前是通过server来充当路由器的，所有的client-to-client的连接都要通过server进行中转，中转数据包到达server之后首先通过ethX到达应用层并且解除ssl封装，然后server将此裸ip封装后的数据包写入tun0，通过路由之后，发现目的ip地址是到一个vpn的虚拟私有网段的一个ip地址，此时就又将数据从tun0发送出去从而又被openvpn接收，此时server查看自己是否设置了client-to-client，如果没有设置的话，并且刚刚查到的虚拟私有的ip地址不是自己的话，那么就说明这是一次client到client的通信，丢弃该数据包，反之就将之写入目的虚拟私有ip对应的真实ip的ssl连接，这个连接怎么查询得到呢？毕竟一个server可以拥有很多的client，其实有两种方式，一种是通过为每一个客户端配置一个tun虚拟网卡的方式，然后通过路由来实现区分，另一种方式就是在openvpn中解决，当数据从虚拟网卡发送时，实际上出去的是一个带有标准ip头的数据报，openvpn通过字符设备读取的就是这个数据报，它自己显然可以通过读取ip头得到目的地址，然后得知对应的真实ssl连接是哪一个。对比两种方式，第一种对效率影响很小，可以实现高速转发，但是管理复杂，第二种方式单点决策，管理简单又安全，但是在应用层解析数据对性能影响很大，可以考虑并发。</p>
 <p>​		以上的论述错就错在OpenVPN是不可能如此复杂地实现client-to-client的，看了OpenVPN的源代码之后，总的来说OpenVPN的实现很简单，基本就是个转发器，看一下下面的流程：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">while</span> (true) {
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>    multi_process_io_udp (<span style="color:#f92672">&amp;</span>multi);
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> multi_process_io_udp (<span style="color:#66d9ef">struct</span> multi_context <span style="color:#f92672">*</span>m)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (status <span style="color:#f92672">&amp;</span> SOCKET_WRITE) <span style="color:#75715e">//写入socket
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              multi_process_outgoing_link (m, mpp_flags);
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span> <span style="color:#a6e22e">if</span> (status <span style="color:#f92672">&amp;</span> TUN_WRITE) <span style="color:#75715e">//写入虚拟网卡字符设备
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              multi_process_outgoing_tun (m, mpp_flags);
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span> <span style="color:#a6e22e">if</span> (status <span style="color:#f92672">&amp;</span> SOCKET_READ) { <span style="color:#75715e">//读取socket
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              read_incoming_link (<span style="color:#f92672">&amp;</span>m<span style="color:#f92672">-&gt;</span>top);
-</span></span><span style="display:flex;"><span>              multi_release_io_lock (m);
-</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>IS_SIG (<span style="color:#f92672">&amp;</span>m<span style="color:#f92672">-&gt;</span>top))
-</span></span><span style="display:flex;"><span>            multi_process_incoming_link (m, NULL, mpp_flags);
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">else</span> <span style="color:#a6e22e">if</span> (status <span style="color:#f92672">&amp;</span> TUN_READ) { <span style="color:#75715e">//读取虚拟网卡字符设备
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        read_incoming_tun (<span style="color:#f92672">&amp;</span>m<span style="color:#f92672">-&gt;</span>top);
-</span></span><span style="display:flex;"><span>        multi_release_io_lock (m);
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>IS_SIG (<span style="color:#f92672">&amp;</span>m<span style="color:#f92672">-&gt;</span>top))
-</span></span><span style="display:flex;"><span>            multi_process_incoming_tun (m, mpp_flags);
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>​		其中multi_process_outgoing_link是写socket的操作，当然在真正写入之前要做SSL封装，如果顺着往该函数里面看，就会发现写往socket的数据源自于一个队列，就是multi_get_queue中处理的队列，于是问题就是谁将数据放入了队列，由于OpenVPN的逻辑就是上面的multi_process_io_udp，因此很显然是multi_process_incoming_tun将数据放入了队列，multi_process_incoming_tun最终调用了mroute_extract_addr_from_packet，这也就和本文的最开始的广播问题联系了起来。总的来说OpenVPN在multi_process_io_udp中首先形成了下面两个通道：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#66d9ef">while</span> (true) {
+...
+    multi_process_io_udp (<span style="color:#f92672">&amp;</span>multi);
+...
+}
+<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> multi_process_io_udp (<span style="color:#66d9ef">struct</span> multi_context <span style="color:#f92672">*</span>m)
+{
+...
+    <span style="color:#66d9ef">if</span> (status <span style="color:#f92672">&amp;</span> SOCKET_WRITE) <span style="color:#75715e">//写入socket
+</span><span style="color:#75715e"></span>              multi_process_outgoing_link (m, mpp_flags);
+      <span style="color:#66d9ef">else</span> <span style="color:#a6e22e">if</span> (status <span style="color:#f92672">&amp;</span> TUN_WRITE) <span style="color:#75715e">//写入虚拟网卡字符设备
+</span><span style="color:#75715e"></span>              multi_process_outgoing_tun (m, mpp_flags);
+      <span style="color:#66d9ef">else</span> <span style="color:#a6e22e">if</span> (status <span style="color:#f92672">&amp;</span> SOCKET_READ) { <span style="color:#75715e">//读取socket
+</span><span style="color:#75715e"></span>              read_incoming_link (<span style="color:#f92672">&amp;</span>m<span style="color:#f92672">-&gt;</span>top);
+              multi_release_io_lock (m);
+              <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>IS_SIG (<span style="color:#f92672">&amp;</span>m<span style="color:#f92672">-&gt;</span>top))
+            multi_process_incoming_link (m, NULL, mpp_flags);
+        }
+      <span style="color:#66d9ef">else</span> <span style="color:#a6e22e">if</span> (status <span style="color:#f92672">&amp;</span> TUN_READ) { <span style="color:#75715e">//读取虚拟网卡字符设备
+</span><span style="color:#75715e"></span>        read_incoming_tun (<span style="color:#f92672">&amp;</span>m<span style="color:#f92672">-&gt;</span>top);
+        multi_release_io_lock (m);
+        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>IS_SIG (<span style="color:#f92672">&amp;</span>m<span style="color:#f92672">-&gt;</span>top))
+            multi_process_incoming_tun (m, mpp_flags);
+        }
+}
+</code></pre></div><p>​		其中multi_process_outgoing_link是写socket的操作，当然在真正写入之前要做SSL封装，如果顺着往该函数里面看，就会发现写往socket的数据源自于一个队列，就是multi_get_queue中处理的队列，于是问题就是谁将数据放入了队列，由于OpenVPN的逻辑就是上面的multi_process_io_udp，因此很显然是multi_process_incoming_tun将数据放入了队列，multi_process_incoming_tun最终调用了mroute_extract_addr_from_packet，这也就和本文的最开始的广播问题联系了起来。总的来说OpenVPN在multi_process_io_udp中首先形成了下面两个通道：</p>
 <ol>
 <li>from tun/tap&ndash;&gt;to socket</li>
 <li>from socket&ndash;&gt;to tun/tap 如果仅仅是这两个通道的话，client-to-client通信正如上面所说的那样，可是OpenVPN中还提供了另外的通道，那就是：</li>
 <li>from socket&ndash;&gt;to socket 正如下面的调用路径所示：</li>
 </ol>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>multi_process_incoming_link<span style="color:#960050;background-color:#1e0010">：</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (BLEN (<span style="color:#f92672">&amp;</span>c<span style="color:#f92672">-&gt;</span>c2.buf) <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>){
-</span></span><span style="display:flex;"><span>    process_incoming_link (c); 
-</span></span></code></pre></div><p>//SSL解封装，内部将c-&gt;c2.to_tun.len设置为需要写入tun/tap的数据长度，也就是说默认是要写入到虚拟网卡设备的，但是在下面的逻辑中可能将c-&gt;c2.to_tun.len重新设置为0，什么情况呢？那就是数据已经处理过了的情况，比如这是一个client-to-client的通信，就没有必要往虚拟网卡设备写入了，也证实了上面那段话的错误。既然有to_tun，那么肯定有c-&gt;c2.to_link了，只是那是将从tun/tap读出的数据写往link也就是socket的。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (TUNNEL_TYPE (m<span style="color:#f92672">-&gt;</span>top.c1.tuntap) <span style="color:#f92672">==</span> DEV_TYPE_TUN) {
-</span></span><span style="display:flex;"><span>        mroute_flags <span style="color:#f92672">=</span> mroute_extract_addr_from_packet (...);
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (m<span style="color:#f92672">-&gt;</span>enable_c2c) { <span style="color:#75715e">//如果c2c启用的话
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">if</span> (mroute_flags <span style="color:#f92672">&amp;</span> MROUTE_EXTRACT_MCAST) ...<span style="color:#75715e">//组播
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>                      mi <span style="color:#f92672">=</span> multi_get_instance_by_virtual_addr (m, <span style="color:#f92672">&amp;</span>dest, true); <span style="color:#75715e">//server作为“路由器”找到目的client的socket
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                  <span style="color:#66d9ef">if</span> (mi) {
-</span></span><span style="display:flex;"><span>                multi_unicast (m, <span style="color:#f92672">&amp;</span>c<span style="color:#f92672">-&gt;</span>c2.to_tun, mi);  <span style="color:#75715e">//单播发送，实际上就是放入了队列，中转源client到目的client的通信
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                register_activity (c, BLEN(<span style="color:#f92672">&amp;</span>c<span style="color:#f92672">-&gt;</span>c2.to_tun));
-</span></span><span style="display:flex;"><span>                  c<span style="color:#f92672">-&gt;</span>c2.to_tun.len <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; <span style="color:#75715e">//凡是有这个语句的表示数据已经处理过了，不需要to-tun了，或者数据出错
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            }
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>...
-</span></span></code></pre></div><p>如是说，在process_incoming_link就处理了client-to-client，根本就不需要再写入tun/tap设备，然后靠路由再写入tun/tap。同时从上述调用路径继续跟踪也可以看到基于tun的隧道是不支持广播的，因为MROUTE_EXTRACT_BCAST标志只在mroute_extract_addr_ether中被设置，而后者只有在tap模式中才会被调用，同时也只有在tap模式下调用mroute_extract_addr_ether的时候才会处理arp，并且只在一个packet filter预编译宏启用时才被启用，该宏不启用的时候在tap设备模式下arp通过正常的tap隧道被传送，而arp正是一种链路层广播。那么问题又来了，如果是tun设备模式的话，怎样找到对端地址呢？这还要看linux kernel的tun驱动程序：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">tun_net_init</span>(<span style="color:#66d9ef">struct</span> net_device <span style="color:#f92672">*</span>dev)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> tun_struct <span style="color:#f92672">*</span>tun <span style="color:#f92672">=</span> netdev_priv(dev);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">switch</span> (tun<span style="color:#f92672">-&gt;</span>flags <span style="color:#f92672">&amp;</span> TUN_TYPE_MASK) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> TUN_TUN_DEV:  <span style="color:#75715e">//下面设置tun设备的点对点模式
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        dev<span style="color:#f92672">-&gt;</span>hard_header_len <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>        dev<span style="color:#f92672">-&gt;</span>addr_len <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>        dev<span style="color:#f92672">-&gt;</span>mtu <span style="color:#f92672">=</span> <span style="color:#ae81ff">1500</span>;
-</span></span><span style="display:flex;"><span>        dev<span style="color:#f92672">-&gt;</span>type <span style="color:#f92672">=</span> ARPHRD_NONE; <span style="color:#75715e">//没有arp，就是一个点对点的连接，路由时直接从出口发出，不再arp
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        dev<span style="color:#f92672">-&gt;</span>flags <span style="color:#f92672">=</span> IFF_POINTOPOINT <span style="color:#f92672">|</span> IFF_NOARP <span style="color:#f92672">|</span> IFF_MULTICAST;
-</span></span><span style="display:flex;"><span>        dev<span style="color:#f92672">-&gt;</span>tx_queue_len <span style="color:#f92672">=</span> <span style="color:#ae81ff">10</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> TUN_TAP_DEV:
-</span></span><span style="display:flex;"><span>        dev<span style="color:#f92672">-&gt;</span>set_multicast_list <span style="color:#f92672">=</span> tun_net_mclist;
-</span></span><span style="display:flex;"><span>        <span style="color:#f92672">*</span>(u16 <span style="color:#f92672">*</span>)dev<span style="color:#f92672">-&gt;</span>dev_addr <span style="color:#f92672">=</span> htons(<span style="color:#ae81ff">0x00FF</span>);
-</span></span><span style="display:flex;"><span>        get_random_bytes(dev<span style="color:#f92672">-&gt;</span>dev_addr <span style="color:#f92672">+</span> <span style="color:#66d9ef">sizeof</span>(u16), <span style="color:#ae81ff">4</span>);
-</span></span><span style="display:flex;"><span>        ether_setup(dev);
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>最终就回到了最初的问题，tun设备没有链路层，它是点对点的，client到server的寻址是靠隧道进行，虽然是在一个ip网段，它们也不是靠arp来寻址的，毕竟arp寻的是链路层地址，对于没有链路层的隧道两端来讲，它还寻找什么呢？可是windows的tap设备的行为是不一样的，windows的tap驱动并不会像linux的tun驱动那样按照tun或者tap模式的不同分别设置网卡，于是就必须设置一个实际上不存在的ip地址代表对端，然后以此不存在的地址作为网关发送数据，事实上发往该网关的数据全部经由虚拟网卡发送，于是就是就走上了隧道上匝道，于是就有了net30的模式。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">multi_process_incoming_link<span style="color:#960050;background-color:#1e0010">：</span>
+<span style="color:#66d9ef">if</span> (BLEN (<span style="color:#f92672">&amp;</span>c<span style="color:#f92672">-&gt;</span>c2.buf) <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>){
+    process_incoming_link (c); 
+</code></pre></div><p>//SSL解封装，内部将c-&gt;c2.to_tun.len设置为需要写入tun/tap的数据长度，也就是说默认是要写入到虚拟网卡设备的，但是在下面的逻辑中可能将c-&gt;c2.to_tun.len重新设置为0，什么情况呢？那就是数据已经处理过了的情况，比如这是一个client-to-client的通信，就没有必要往虚拟网卡设备写入了，也证实了上面那段话的错误。既然有to_tun，那么肯定有c-&gt;c2.to_link了，只是那是将从tun/tap读出的数据写往link也就是socket的。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">    <span style="color:#66d9ef">if</span> (TUNNEL_TYPE (m<span style="color:#f92672">-&gt;</span>top.c1.tuntap) <span style="color:#f92672">==</span> DEV_TYPE_TUN) {
+        mroute_flags <span style="color:#f92672">=</span> mroute_extract_addr_from_packet (...);
+...
+        <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (m<span style="color:#f92672">-&gt;</span>enable_c2c) { <span style="color:#75715e">//如果c2c启用的话
+</span><span style="color:#75715e"></span>            <span style="color:#66d9ef">if</span> (mroute_flags <span style="color:#f92672">&amp;</span> MROUTE_EXTRACT_MCAST) ...<span style="color:#75715e">//组播
+</span><span style="color:#75715e"></span>              <span style="color:#66d9ef">else</span> {
+                      mi <span style="color:#f92672">=</span> multi_get_instance_by_virtual_addr (m, <span style="color:#f92672">&amp;</span>dest, true); <span style="color:#75715e">//server作为“路由器”找到目的client的socket
+</span><span style="color:#75715e"></span>                  <span style="color:#66d9ef">if</span> (mi) {
+                multi_unicast (m, <span style="color:#f92672">&amp;</span>c<span style="color:#f92672">-&gt;</span>c2.to_tun, mi);  <span style="color:#75715e">//单播发送，实际上就是放入了队列，中转源client到目的client的通信
+</span><span style="color:#75715e"></span>                register_activity (c, BLEN(<span style="color:#f92672">&amp;</span>c<span style="color:#f92672">-&gt;</span>c2.to_tun));
+                  c<span style="color:#f92672">-&gt;</span>c2.to_tun.len <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; <span style="color:#75715e">//凡是有这个语句的表示数据已经处理过了，不需要to-tun了，或者数据出错
+</span><span style="color:#75715e"></span>            }
+            }
+        }
+...
+</code></pre></div><p>如是说，在process_incoming_link就处理了client-to-client，根本就不需要再写入tun/tap设备，然后靠路由再写入tun/tap。同时从上述调用路径继续跟踪也可以看到基于tun的隧道是不支持广播的，因为MROUTE_EXTRACT_BCAST标志只在mroute_extract_addr_ether中被设置，而后者只有在tap模式中才会被调用，同时也只有在tap模式下调用mroute_extract_addr_ether的时候才会处理arp，并且只在一个packet filter预编译宏启用时才被启用，该宏不启用的时候在tap设备模式下arp通过正常的tap隧道被传送，而arp正是一种链路层广播。那么问题又来了，如果是tun设备模式的话，怎样找到对端地址呢？这还要看linux kernel的tun驱动程序：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">tun_net_init</span>(<span style="color:#66d9ef">struct</span> net_device <span style="color:#f92672">*</span>dev)
+{
+    <span style="color:#66d9ef">struct</span> tun_struct <span style="color:#f92672">*</span>tun <span style="color:#f92672">=</span> netdev_priv(dev);
+    <span style="color:#66d9ef">switch</span> (tun<span style="color:#f92672">-&gt;</span>flags <span style="color:#f92672">&amp;</span> TUN_TYPE_MASK) {
+    <span style="color:#66d9ef">case</span> TUN_TUN_DEV:  <span style="color:#75715e">//下面设置tun设备的点对点模式
+</span><span style="color:#75715e"></span>        dev<span style="color:#f92672">-&gt;</span>hard_header_len <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+        dev<span style="color:#f92672">-&gt;</span>addr_len <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+        dev<span style="color:#f92672">-&gt;</span>mtu <span style="color:#f92672">=</span> <span style="color:#ae81ff">1500</span>;
+        dev<span style="color:#f92672">-&gt;</span>type <span style="color:#f92672">=</span> ARPHRD_NONE; <span style="color:#75715e">//没有arp，就是一个点对点的连接，路由时直接从出口发出，不再arp
+</span><span style="color:#75715e"></span>        dev<span style="color:#f92672">-&gt;</span>flags <span style="color:#f92672">=</span> IFF_POINTOPOINT <span style="color:#f92672">|</span> IFF_NOARP <span style="color:#f92672">|</span> IFF_MULTICAST;
+        dev<span style="color:#f92672">-&gt;</span>tx_queue_len <span style="color:#f92672">=</span> <span style="color:#ae81ff">10</span>;
+        <span style="color:#66d9ef">break</span>;
+    <span style="color:#66d9ef">case</span> TUN_TAP_DEV:
+        dev<span style="color:#f92672">-&gt;</span>set_multicast_list <span style="color:#f92672">=</span> tun_net_mclist;
+        <span style="color:#f92672">*</span>(u16 <span style="color:#f92672">*</span>)dev<span style="color:#f92672">-&gt;</span>dev_addr <span style="color:#f92672">=</span> htons(<span style="color:#ae81ff">0x00FF</span>);
+        get_random_bytes(dev<span style="color:#f92672">-&gt;</span>dev_addr <span style="color:#f92672">+</span> <span style="color:#66d9ef">sizeof</span>(u16), <span style="color:#ae81ff">4</span>);
+        ether_setup(dev);
+        <span style="color:#66d9ef">break</span>;
+    }
+}
+</code></pre></div><p>最终就回到了最初的问题，tun设备没有链路层，它是点对点的，client到server的寻址是靠隧道进行，虽然是在一个ip网段，它们也不是靠arp来寻址的，毕竟arp寻的是链路层地址，对于没有链路层的隧道两端来讲，它还寻找什么呢？可是windows的tap设备的行为是不一样的，windows的tap驱动并不会像linux的tun驱动那样按照tun或者tap模式的不同分别设置网卡，于是就必须设置一个实际上不存在的ip地址代表对端，然后以此不存在的地址作为网关发送数据，事实上发往该网关的数据全部经由虚拟网卡发送，于是就是就走上了隧道上匝道，于是就有了net30的模式。</p>
 <p>windows的tap-win32驱动始终将带有以太头的帧发出(可以抓包，看代码确认)，因此tap-win32驱动并不真的支持点对点的ip连接，真正的点对点连接一般用于专用线路上，比如SLIP协议(很简单的串行链路协议，类似HDLC)，这种点对点链路其实也并不是没有链路层，而是链路层特别简单，当然了肯定没有arp/广播等机制支持多点寻址了，windows机器一般用于个人电脑，而个人电脑一般使用以太网，根本没有个人电脑使用点对点链路的，于是windows的虚拟网卡基本就是一个以太网的虚拟适配器，这从它的名称tap-win32上也能看得出来。我们看一下tap-win32驱动的IO完成：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>CompleteIRP<span style="color:#960050;background-color:#1e0010">：</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (p_PacketBuffer<span style="color:#f92672">-&gt;</span>m_SizeFlags <span style="color:#f92672">&amp;</span> TP_TUN) { <span style="color:#75715e">//如果是tun设备模式的话就不将以太头传输给用户空间
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      offset <span style="color:#f92672">=</span> ETHERNET_HEADER_SIZE;
-</span></span><span style="display:flex;"><span>      len <span style="color:#f92672">=</span> (<span style="color:#66d9ef">int</span>) (p_PacketBuffer<span style="color:#f92672">-&gt;</span>m_SizeFlags <span style="color:#f92672">&amp;</span> TP_SIZE_MASK) <span style="color:#f92672">-</span> ETHERNET_HEADER_SIZE;
-</span></span><span style="display:flex;"><span>} <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>      offset <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>      len <span style="color:#f92672">=</span> (p_PacketBuffer<span style="color:#f92672">-&gt;</span>m_SizeFlags <span style="color:#f92672">&amp;</span> TP_SIZE_MASK);
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>可以看出，windows上目前的虚拟网卡并没有直接的点对点链路的概念(不知道今后有没有人去开发)，基本还是按照老一套机制来的，发送arp来进行以太网的寻址，而对于非windows的系统上运行OpenVPN的tun设备模式来讲，arp是不需要的，也是永远不会被发送的。对于windows来说，其arp是有人回应的，那么是谁回应的呢，既然事情是由tap-win32的驱动引起的，那么就不要在OpenVPN的代码中寻找这个arp回应了，还是在tap-win32驱动本身寻找吧，再次重申，OpenVPN本来在tun设备模式下不支持链路层，为了兼容windows才定制出net30的拓扑来模拟链路层的，tun模式虽然在ip层看来所有的ip处于一个网段，但是这同一个网段的ip之间的通信靠的却不是链路层(比如以太网的arp)，而是各个客户端和服务器的点对点链路，如果是tap模式，那很显然是有链路层的，并且就是以太网，arp会在client和server之间传送。回到tap-win32驱动的问题，arp是怎么发送又是怎么接收的呢？</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>DriverEntry<span style="color:#960050;background-color:#1e0010">：</span>
-</span></span><span style="display:flex;"><span>l_Properties<span style="color:#f92672">-&gt;</span>SendHandler <span style="color:#f92672">=</span> AdapterTransmit;
-</span></span><span style="display:flex;"><span>NDIS_STATUS
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">AdapterTransmit</span> (IN NDIS_HANDLE p_AdapterContext,
-</span></span><span style="display:flex;"><span>         IN PNDIS_PACKET p_Packet,
-</span></span><span style="display:flex;"><span>         IN UINT p_Flags)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>...            
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (l_Adapter<span style="color:#f92672">-&gt;</span>m_tun) {
-</span></span><span style="display:flex;"><span>        ETH_HEADER <span style="color:#f92672">*</span>e;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (l_PacketLength <span style="color:#f92672">&lt;</span> ETHERNET_HEADER_SIZE)
-</span></span><span style="display:flex;"><span>              <span style="color:#66d9ef">goto</span> no_queue;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>        e <span style="color:#f92672">=</span> (ETH_HEADER <span style="color:#f92672">*</span>) l_PacketBuffer<span style="color:#f92672">-&gt;</span>m_Data;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">switch</span> (ntohs (e<span style="color:#f92672">-&gt;</span>proto)) {
-</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> ETH_P_ARP:
-</span></span><span style="display:flex;"><span>...   <span style="color:#75715e">//由于tap-win32必然要实现以太网卡的标准，实际上它就是一个以太网卡，从而arp也是必须要处理的，然而tun模式下的arp是没有意义的，于是tap-win32不得不采用一种自问自答的方式来自圆其说。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                ProcessARP (l_Adapter, 
-</span></span><span style="display:flex;"><span>                (PARP_PACKET) l_PacketBuffer<span style="color:#f92672">-&gt;</span>m_Data,
-</span></span><span style="display:flex;"><span>                l_Adapter<span style="color:#f92672">-&gt;</span>m_localIP,
-</span></span><span style="display:flex;"><span>                l_Adapter<span style="color:#f92672">-&gt;</span>m_remoteNetwork,
-</span></span><span style="display:flex;"><span>                l_Adapter<span style="color:#f92672">-&gt;</span>m_remoteNetmask,
-</span></span><span style="display:flex;"><span>                l_Adapter<span style="color:#f92672">-&gt;</span>m_TapToUser.dest); <span style="color:#75715e">//此处自答自己发出的arp请求。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>          <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> 
-</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">goto</span> no_queue;
-</span></span><span style="display:flex;"><span>          <span style="color:#66d9ef">case</span> ETH_P_IP:
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>          }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (IS_UP (l_Adapter)) <span style="color:#75715e">//以下将数据包push到一个读队列，以便从用户空间ReadFile读取
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              result <span style="color:#f92672">=</span> QueuePush (l_Adapter<span style="color:#f92672">-&gt;</span>m_Extension.m_PacketQueue, l_PacketBuffer);
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>BOOLEAN
-</span></span><span style="display:flex;"><span>ProcessARP (TapAdapterPointer p_Adapter,
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">const</span> PARP_PACKET src,
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">const</span> IPADDR adapter_ip,
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">const</span> IPADDR ip_network,
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">const</span> IPADDR ip_netmask,
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">const</span> MACADDR mac)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (src<span style="color:#f92672">-&gt;</span>m_Proto <span style="color:#f92672">==</span> htons (ETH_P_ARP)
-</span></span><span style="display:flex;"><span>      <span style="color:#f92672">&amp;&amp;</span> MAC_EQUAL (src<span style="color:#f92672">-&gt;</span>m_MAC_Source, p_Adapter<span style="color:#f92672">-&gt;</span>m_MAC)
-</span></span><span style="display:flex;"><span>      ...<span style="color:#75715e">//检查确认这个arp是发送给自己的
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#f92672">&amp;&amp;</span> src<span style="color:#f92672">-&gt;</span>m_ARP_IP_Destination <span style="color:#f92672">!=</span> adapter_ip) {
-</span></span><span style="display:flex;"><span>      ARP_PACKET <span style="color:#f92672">*</span>arp <span style="color:#f92672">=</span> (ARP_PACKET <span style="color:#f92672">*</span>) MemAlloc (<span style="color:#66d9ef">sizeof</span> (ARP_PACKET), TRUE);
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (arp) {
-</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// Initialize ARP reply fields
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      arp<span style="color:#f92672">-&gt;</span>m_Proto <span style="color:#f92672">=</span> htons (ETH_P_ARP);
-</span></span><span style="display:flex;"><span>      arp<span style="color:#f92672">-&gt;</span>m_MAC_AddressType <span style="color:#f92672">=</span> htons (MAC_ADDR_TYPE);
-</span></span><span style="display:flex;"><span>      arp<span style="color:#f92672">-&gt;</span>m_PROTO_AddressType <span style="color:#f92672">=</span> htons (ETH_P_IP);
-</span></span><span style="display:flex;"><span>      arp<span style="color:#f92672">-&gt;</span>m_MAC_AddressSize <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span> (MACADDR);
-</span></span><span style="display:flex;"><span>      arp<span style="color:#f92672">-&gt;</span>m_PROTO_AddressSize <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span> (IPADDR);
-</span></span><span style="display:flex;"><span>      arp<span style="color:#f92672">-&gt;</span>m_ARP_Operation <span style="color:#f92672">=</span> htons (ARP_REPLY);
-</span></span><span style="display:flex;"><span>      <span style="color:#75715e">// ARP addresses 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      COPY_MAC (arp<span style="color:#f92672">-&gt;</span>m_MAC_Source, mac);  <span style="color:#75715e">//mac实际上第3个字节比p_Adapter-&gt;m_MAC要大1，这里谎称mac是从“远端”过来的
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      COPY_MAC (arp<span style="color:#f92672">-&gt;</span>m_MAC_Destination, p_Adapter<span style="color:#f92672">-&gt;</span>m_MAC); <span style="color:#75715e">//“远道而来”的arp-reply的目的地显然是p_Adapter-&gt;m_MAC，也就是自己
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      COPY_MAC (arp<span style="color:#f92672">-&gt;</span>m_ARP_MAC_Source, mac);
-</span></span><span style="display:flex;"><span>      COPY_MAC (arp<span style="color:#f92672">-&gt;</span>m_ARP_MAC_Destination, p_Adapter<span style="color:#f92672">-&gt;</span>m_MAC);
-</span></span><span style="display:flex;"><span>      arp<span style="color:#f92672">-&gt;</span>m_ARP_IP_Source <span style="color:#f92672">=</span> src<span style="color:#f92672">-&gt;</span>m_ARP_IP_Destination;
-</span></span><span style="display:flex;"><span>      arp<span style="color:#f92672">-&gt;</span>m_ARP_IP_Destination <span style="color:#f92672">=</span> adapter_ip;
-</span></span><span style="display:flex;"><span>      InjectPacket (p_Adapter, (UCHAR <span style="color:#f92672">*</span>) arp, <span style="color:#66d9ef">sizeof</span> (ARP_PACKET)); <span style="color:#75715e">//模拟接收arp-reply数据帧
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      MemFree (arp, <span style="color:#66d9ef">sizeof</span> (ARP_PACKET));
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> TRUE;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> FALSE;
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>​		最终的InjectPacket调用NdisMEthIndicateReceive和NdisMEthIndicateReceiveComplete来使得虚拟网卡自己以为从物理链路收到了数据。最后总结的就是，tun模式下，linux系统或者unix系统从来不发送arp，windows发送的arp也不会到达OpenVPN进程，直接在tap-win32中模拟，也正是基于此，有了诸如net30之类的网络拓扑，至于广播的问题，严格说来tun模式没有广播，即使windows的tap-win32驱动也没有将arp广播呈现到用户空间的OpenVPN，最后，OpenVPN的体系是简单的，实现是很对称的，基本就是一个tun和link之间的转发器。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">CompleteIRP<span style="color:#960050;background-color:#1e0010">：</span>
+<span style="color:#66d9ef">if</span> (p_PacketBuffer<span style="color:#f92672">-&gt;</span>m_SizeFlags <span style="color:#f92672">&amp;</span> TP_TUN) { <span style="color:#75715e">//如果是tun设备模式的话就不将以太头传输给用户空间
+</span><span style="color:#75715e"></span>      offset <span style="color:#f92672">=</span> ETHERNET_HEADER_SIZE;
+      len <span style="color:#f92672">=</span> (<span style="color:#66d9ef">int</span>) (p_PacketBuffer<span style="color:#f92672">-&gt;</span>m_SizeFlags <span style="color:#f92672">&amp;</span> TP_SIZE_MASK) <span style="color:#f92672">-</span> ETHERNET_HEADER_SIZE;
+} <span style="color:#66d9ef">else</span> {
+      offset <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+      len <span style="color:#f92672">=</span> (p_PacketBuffer<span style="color:#f92672">-&gt;</span>m_SizeFlags <span style="color:#f92672">&amp;</span> TP_SIZE_MASK);
+}
+</code></pre></div><p>可以看出，windows上目前的虚拟网卡并没有直接的点对点链路的概念(不知道今后有没有人去开发)，基本还是按照老一套机制来的，发送arp来进行以太网的寻址，而对于非windows的系统上运行OpenVPN的tun设备模式来讲，arp是不需要的，也是永远不会被发送的。对于windows来说，其arp是有人回应的，那么是谁回应的呢，既然事情是由tap-win32的驱动引起的，那么就不要在OpenVPN的代码中寻找这个arp回应了，还是在tap-win32驱动本身寻找吧，再次重申，OpenVPN本来在tun设备模式下不支持链路层，为了兼容windows才定制出net30的拓扑来模拟链路层的，tun模式虽然在ip层看来所有的ip处于一个网段，但是这同一个网段的ip之间的通信靠的却不是链路层(比如以太网的arp)，而是各个客户端和服务器的点对点链路，如果是tap模式，那很显然是有链路层的，并且就是以太网，arp会在client和server之间传送。回到tap-win32驱动的问题，arp是怎么发送又是怎么接收的呢？</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">DriverEntry<span style="color:#960050;background-color:#1e0010">：</span>
+l_Properties<span style="color:#f92672">-&gt;</span>SendHandler <span style="color:#f92672">=</span> AdapterTransmit;
+NDIS_STATUS
+<span style="color:#a6e22e">AdapterTransmit</span> (IN NDIS_HANDLE p_AdapterContext,
+         IN PNDIS_PACKET p_Packet,
+         IN UINT p_Flags)
+{
+...            
+    <span style="color:#66d9ef">if</span> (l_Adapter<span style="color:#f92672">-&gt;</span>m_tun) {
+        ETH_HEADER <span style="color:#f92672">*</span>e;
+        <span style="color:#66d9ef">if</span> (l_PacketLength <span style="color:#f92672">&lt;</span> ETHERNET_HEADER_SIZE)
+              <span style="color:#66d9ef">goto</span> no_queue;
+
+        e <span style="color:#f92672">=</span> (ETH_HEADER <span style="color:#f92672">*</span>) l_PacketBuffer<span style="color:#f92672">-&gt;</span>m_Data;
+        <span style="color:#66d9ef">switch</span> (ntohs (e<span style="color:#f92672">-&gt;</span>proto)) {
+          <span style="color:#66d9ef">case</span> ETH_P_ARP:
+...   <span style="color:#75715e">//由于tap-win32必然要实现以太网卡的标准，实际上它就是一个以太网卡，从而arp也是必须要处理的，然而tun模式下的arp是没有意义的，于是tap-win32不得不采用一种自问自答的方式来自圆其说。
+</span><span style="color:#75715e"></span>                ProcessARP (l_Adapter, 
+                (PARP_PACKET) l_PacketBuffer<span style="color:#f92672">-&gt;</span>m_Data,
+                l_Adapter<span style="color:#f92672">-&gt;</span>m_localIP,
+                l_Adapter<span style="color:#f92672">-&gt;</span>m_remoteNetwork,
+                l_Adapter<span style="color:#f92672">-&gt;</span>m_remoteNetmask,
+                l_Adapter<span style="color:#f92672">-&gt;</span>m_TapToUser.dest); <span style="color:#75715e">//此处自答自己发出的arp请求。
+</span><span style="color:#75715e"></span>          <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span> 
+                <span style="color:#66d9ef">goto</span> no_queue;
+          <span style="color:#66d9ef">case</span> ETH_P_IP:
+...
+          }
+    <span style="color:#66d9ef">if</span> (IS_UP (l_Adapter)) <span style="color:#75715e">//以下将数据包push到一个读队列，以便从用户空间ReadFile读取
+</span><span style="color:#75715e"></span>              result <span style="color:#f92672">=</span> QueuePush (l_Adapter<span style="color:#f92672">-&gt;</span>m_Extension.m_PacketQueue, l_PacketBuffer);
+...
+}
+BOOLEAN
+ProcessARP (TapAdapterPointer p_Adapter,
+        <span style="color:#66d9ef">const</span> PARP_PACKET src,
+        <span style="color:#66d9ef">const</span> IPADDR adapter_ip,
+        <span style="color:#66d9ef">const</span> IPADDR ip_network,
+        <span style="color:#66d9ef">const</span> IPADDR ip_netmask,
+        <span style="color:#66d9ef">const</span> MACADDR mac)
+{
+  <span style="color:#66d9ef">if</span> (src<span style="color:#f92672">-&gt;</span>m_Proto <span style="color:#f92672">==</span> htons (ETH_P_ARP)
+      <span style="color:#f92672">&amp;&amp;</span> MAC_EQUAL (src<span style="color:#f92672">-&gt;</span>m_MAC_Source, p_Adapter<span style="color:#f92672">-&gt;</span>m_MAC)
+      ...<span style="color:#75715e">//检查确认这个arp是发送给自己的
+</span><span style="color:#75715e"></span>      <span style="color:#f92672">&amp;&amp;</span> src<span style="color:#f92672">-&gt;</span>m_ARP_IP_Destination <span style="color:#f92672">!=</span> adapter_ip) {
+      ARP_PACKET <span style="color:#f92672">*</span>arp <span style="color:#f92672">=</span> (ARP_PACKET <span style="color:#f92672">*</span>) MemAlloc (<span style="color:#66d9ef">sizeof</span> (ARP_PACKET), TRUE);
+      <span style="color:#66d9ef">if</span> (arp) {
+      <span style="color:#75715e">// Initialize ARP reply fields
+</span><span style="color:#75715e"></span>      arp<span style="color:#f92672">-&gt;</span>m_Proto <span style="color:#f92672">=</span> htons (ETH_P_ARP);
+      arp<span style="color:#f92672">-&gt;</span>m_MAC_AddressType <span style="color:#f92672">=</span> htons (MAC_ADDR_TYPE);
+      arp<span style="color:#f92672">-&gt;</span>m_PROTO_AddressType <span style="color:#f92672">=</span> htons (ETH_P_IP);
+      arp<span style="color:#f92672">-&gt;</span>m_MAC_AddressSize <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span> (MACADDR);
+      arp<span style="color:#f92672">-&gt;</span>m_PROTO_AddressSize <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span> (IPADDR);
+      arp<span style="color:#f92672">-&gt;</span>m_ARP_Operation <span style="color:#f92672">=</span> htons (ARP_REPLY);
+      <span style="color:#75715e">// ARP addresses 
+</span><span style="color:#75715e"></span>      COPY_MAC (arp<span style="color:#f92672">-&gt;</span>m_MAC_Source, mac);  <span style="color:#75715e">//mac实际上第3个字节比p_Adapter-&gt;m_MAC要大1，这里谎称mac是从“远端”过来的
+</span><span style="color:#75715e"></span>      COPY_MAC (arp<span style="color:#f92672">-&gt;</span>m_MAC_Destination, p_Adapter<span style="color:#f92672">-&gt;</span>m_MAC); <span style="color:#75715e">//“远道而来”的arp-reply的目的地显然是p_Adapter-&gt;m_MAC，也就是自己
+</span><span style="color:#75715e"></span>      COPY_MAC (arp<span style="color:#f92672">-&gt;</span>m_ARP_MAC_Source, mac);
+      COPY_MAC (arp<span style="color:#f92672">-&gt;</span>m_ARP_MAC_Destination, p_Adapter<span style="color:#f92672">-&gt;</span>m_MAC);
+      arp<span style="color:#f92672">-&gt;</span>m_ARP_IP_Source <span style="color:#f92672">=</span> src<span style="color:#f92672">-&gt;</span>m_ARP_IP_Destination;
+      arp<span style="color:#f92672">-&gt;</span>m_ARP_IP_Destination <span style="color:#f92672">=</span> adapter_ip;
+      InjectPacket (p_Adapter, (UCHAR <span style="color:#f92672">*</span>) arp, <span style="color:#66d9ef">sizeof</span> (ARP_PACKET)); <span style="color:#75715e">//模拟接收arp-reply数据帧
+</span><span style="color:#75715e"></span>      MemFree (arp, <span style="color:#66d9ef">sizeof</span> (ARP_PACKET));
+    }
+      <span style="color:#66d9ef">return</span> TRUE;
+    }
+  <span style="color:#66d9ef">else</span>
+    <span style="color:#66d9ef">return</span> FALSE;
+}
+</code></pre></div><p>​		最终的InjectPacket调用NdisMEthIndicateReceive和NdisMEthIndicateReceiveComplete来使得虚拟网卡自己以为从物理链路收到了数据。最后总结的就是，tun模式下，linux系统或者unix系统从来不发送arp，windows发送的arp也不会到达OpenVPN进程，直接在tap-win32中模拟，也正是基于此，有了诸如net30之类的网络拓扑，至于广播的问题，严格说来tun模式没有广播，即使windows的tap-win32驱动也没有将arp广播呈现到用户空间的OpenVPN，最后，OpenVPN的体系是简单的，实现是很对称的，基本就是一个tun和link之间的转发器。</p>
 <p><a href="https://juejin.cn/post/6844903737241124877">以上内容转载自笑叶林的blog</a></p>
 
     </div>
@@ -452,7 +452,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">452</span>
+        <span class="site-state-item-count">453</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -512,7 +512,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

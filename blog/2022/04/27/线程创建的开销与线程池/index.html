@@ -265,36 +265,36 @@
 <li>最后线程池判断<strong>整个线程池</strong>是否已满？没满，则创建一个新的工作线程来执行任务，满了，则交给饱和策略来处理这个任务。</li>
 </ol>
 <p>上面的流程分析让我们很直观的了解了线程池的工作原理，让我们再通过源代码来看看是如何实现的。线程池执行任务的方法如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">execute</span><span style="color:#f92672">(</span>Runnable command<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
-</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>command <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span>
-</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> NullPointerException<span style="color:#f92672">();</span>
-</span></span><span style="display:flex;"><span> <span style="color:#75715e">// 如果线程数小于基本线程数，则创建线程并执行当前任务 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>poolSize <span style="color:#f92672">&gt;=</span> corePoolSize <span style="color:#f92672">||</span> <span style="color:#f92672">!</span>addIfUnderCorePoolSize<span style="color:#f92672">(</span>command<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>
-</span></span><span style="display:flex;"><span> <span style="color:#75715e">// 如线程数大于等于基本线程数或线程创建失败，则将当前任务放到工作队列中。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>runState <span style="color:#f92672">==</span> RUNNING <span style="color:#f92672">&amp;&amp;</span> workQueue<span style="color:#f92672">.</span><span style="color:#a6e22e">offer</span><span style="color:#f92672">(</span>command<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>
-</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>runState <span style="color:#f92672">!=</span> RUNNING <span style="color:#f92672">||</span> poolSize <span style="color:#f92672">==</span> 0<span style="color:#f92672">)</span>
-</span></span><span style="display:flex;"><span>                      ensureQueuedTaskHandled<span style="color:#f92672">(</span>command<span style="color:#f92672">);</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>
-</span></span><span style="display:flex;"><span> <span style="color:#75715e">// 如果线程池不处于运行中或任务无法放入队列，并且当前线程数量小于最大允许的线程数量，则创建一个线程执行任务。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(!</span>addIfUnderMaximumPoolSize<span style="color:#f92672">(</span>command<span style="color:#f92672">))</span>
-</span></span><span style="display:flex;"><span> <span style="color:#75715e">// 抛出 RejectedExecutionException 异常 
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            reject<span style="color:#f92672">(</span>command<span style="color:#f92672">);</span> <span style="color:#75715e">// is shutdown or saturated
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#f92672">}</span>
-</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
-</span></span></code></pre></div><p><strong>工作线程</strong>。线程池创建线程时，会将线程封装成工作线程 Worker，Worker 在执行完任务后，还会无限循环获取工作队列里的任务来执行。我们可以从 Worker 的 run 方法里看到这点：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">run</span><span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
-</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>
-</span></span><span style="display:flex;"><span>           Runnable task <span style="color:#f92672">=</span> firstTask<span style="color:#f92672">;</span>
-</span></span><span style="display:flex;"><span>           firstTask <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">;</span>
-</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">while</span> <span style="color:#f92672">(</span>task <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> <span style="color:#f92672">(</span>task <span style="color:#f92672">=</span> getTask<span style="color:#f92672">())</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
-</span></span><span style="display:flex;"><span>                    runTask<span style="color:#f92672">(</span>task<span style="color:#f92672">);</span>
-</span></span><span style="display:flex;"><span>                    task <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">;</span>
-</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span> <span style="color:#66d9ef">finally</span> <span style="color:#f92672">{</span>
-</span></span><span style="display:flex;"><span>             workerDone<span style="color:#f92672">(</span><span style="color:#66d9ef">this</span><span style="color:#f92672">);</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#f92672">}</span>
-</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span> 
-</span></span></code></pre></div><p>以下是线程池的运行状态。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-java" data-lang="java"><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">execute</span><span style="color:#f92672">(</span>Runnable command<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+ <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>command <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span>
+ <span style="color:#66d9ef">throw</span> <span style="color:#66d9ef">new</span> NullPointerException<span style="color:#f92672">();</span>
+ <span style="color:#75715e">// 如果线程数小于基本线程数，则创建线程并执行当前任务 
+</span><span style="color:#75715e"></span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>poolSize <span style="color:#f92672">&gt;=</span> corePoolSize <span style="color:#f92672">||</span> <span style="color:#f92672">!</span>addIfUnderCorePoolSize<span style="color:#f92672">(</span>command<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>
+ <span style="color:#75715e">// 如线程数大于等于基本线程数或线程创建失败，则将当前任务放到工作队列中。
+</span><span style="color:#75715e"></span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>runState <span style="color:#f92672">==</span> RUNNING <span style="color:#f92672">&amp;&amp;</span> workQueue<span style="color:#f92672">.</span><span style="color:#a6e22e">offer</span><span style="color:#f92672">(</span>command<span style="color:#f92672">))</span> <span style="color:#f92672">{</span>
+ <span style="color:#66d9ef">if</span> <span style="color:#f92672">(</span>runState <span style="color:#f92672">!=</span> RUNNING <span style="color:#f92672">||</span> poolSize <span style="color:#f92672">==</span> 0<span style="color:#f92672">)</span>
+                      ensureQueuedTaskHandled<span style="color:#f92672">(</span>command<span style="color:#f92672">);</span>
+        <span style="color:#f92672">}</span>
+ <span style="color:#75715e">// 如果线程池不处于运行中或任务无法放入队列，并且当前线程数量小于最大允许的线程数量，则创建一个线程执行任务。
+</span><span style="color:#75715e"></span> <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#f92672">(!</span>addIfUnderMaximumPoolSize<span style="color:#f92672">(</span>command<span style="color:#f92672">))</span>
+ <span style="color:#75715e">// 抛出 RejectedExecutionException 异常 
+</span><span style="color:#75715e"></span>            reject<span style="color:#f92672">(</span>command<span style="color:#f92672">);</span> <span style="color:#75715e">// is shutdown or saturated
+</span><span style="color:#75715e"></span>    <span style="color:#f92672">}</span>
+<span style="color:#f92672">}</span>
+</code></pre></div><p><strong>工作线程</strong>。线程池创建线程时，会将线程封装成工作线程 Worker，Worker 在执行完任务后，还会无限循环获取工作队列里的任务来执行。我们可以从 Worker 的 run 方法里看到这点：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-java" data-lang="java"><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">run</span><span style="color:#f92672">()</span> <span style="color:#f92672">{</span>
+ <span style="color:#66d9ef">try</span> <span style="color:#f92672">{</span>
+           Runnable task <span style="color:#f92672">=</span> firstTask<span style="color:#f92672">;</span>
+           firstTask <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">;</span>
+ <span style="color:#66d9ef">while</span> <span style="color:#f92672">(</span>task <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span> <span style="color:#f92672">||</span> <span style="color:#f92672">(</span>task <span style="color:#f92672">=</span> getTask<span style="color:#f92672">())</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+                    runTask<span style="color:#f92672">(</span>task<span style="color:#f92672">);</span>
+                    task <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">;</span>
+            <span style="color:#f92672">}</span>
+      <span style="color:#f92672">}</span> <span style="color:#66d9ef">finally</span> <span style="color:#f92672">{</span>
+             workerDone<span style="color:#f92672">(</span><span style="color:#66d9ef">this</span><span style="color:#f92672">);</span>
+      <span style="color:#f92672">}</span>
+<span style="color:#f92672">}</span> 
+</code></pre></div><p>以下是线程池的运行状态。</p>
 <p>RUNNING</p>
 <p>能接受新提交的任务，并且也能处理阻塞队列中的任务；</p>
 <p>SHUTDOWN</p>
@@ -437,7 +437,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">452</span>
+        <span class="site-state-item-count">453</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -497,7 +497,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

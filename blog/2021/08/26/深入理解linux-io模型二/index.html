@@ -254,31 +254,31 @@
 <blockquote>
 <p>说明: 这张图来自于《深入理解Nginx》，网上很多博客用了这张图，但是这张图关于就绪链表的描述有个小错误。&ldquo;红黑树中每个节点都是基于epitem结构中的rdllink成员&quot;应该改成&quot;就绪链表中每个节点都是基于epitem结构中的rdllink成员&rdquo;。</p>
 </blockquote>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// 这里只列出了成员rbr、rdllist，它们和epoll的使用密切相关
-</span></span><span style="display:flex;"><span> 2struct eventpoll {
-</span></span><span style="display:flex;"><span> 3  ...
-</span></span><span style="display:flex;"><span> 4  // 红黑树的根节点，这棵树中存储着所有添加到epoll中的事件，即这个epoll监控的事件
-</span></span><span style="display:flex;"><span> 5  struct rb_root rbr;
-</span></span><span style="display:flex;"><span> 6
-</span></span><span style="display:flex;"><span> 7  // 双向链表rdllist保存着要通过epoll_wait返回给应用程序的满足条件的事件
-</span></span><span style="display:flex;"><span> 8  struct list_head rdllist;
-</span></span><span style="display:flex;"><span> 9  ...
-</span></span><span style="display:flex;"><span>10};
-</span></span><span style="display:flex;"><span> 1struct epitem {
-</span></span><span style="display:flex;"><span> 2  ...
-</span></span><span style="display:flex;"><span> 3  // 红黑树节点
-</span></span><span style="display:flex;"><span> 4  struct rb_node rbn;
-</span></span><span style="display:flex;"><span> 5  // 双向链表节点
-</span></span><span style="display:flex;"><span> 6  struct list_head rdllink;
-</span></span><span style="display:flex;"><span> 7  // 事件句柄等信息
-</span></span><span style="display:flex;"><span> 8  struct epoll_filefd ffd;
-</span></span><span style="display:flex;"><span> 9  // 指向其所属的eventpoll对象
-</span></span><span style="display:flex;"><span>10  struct eventpoll *ep;
-</span></span><span style="display:flex;"><span>11  // 期待的事件类型
-</span></span><span style="display:flex;"><span>12  struct epoll_event event;
-</span></span><span style="display:flex;"><span>13  ...
-</span></span><span style="display:flex;"><span>14}
-</span></span></code></pre></div><h4 id="实现原理">实现原理</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1// 这里只列出了成员rbr、rdllist，它们和epoll的使用密切相关
+ 2struct eventpoll {
+ 3  ...
+ 4  // 红黑树的根节点，这棵树中存储着所有添加到epoll中的事件，即这个epoll监控的事件
+ 5  struct rb_root rbr;
+ 6
+ 7  // 双向链表rdllist保存着要通过epoll_wait返回给应用程序的满足条件的事件
+ 8  struct list_head rdllist;
+ 9  ...
+10};
+ 1struct epitem {
+ 2  ...
+ 3  // 红黑树节点
+ 4  struct rb_node rbn;
+ 5  // 双向链表节点
+ 6  struct list_head rdllink;
+ 7  // 事件句柄等信息
+ 8  struct epoll_filefd ffd;
+ 9  // 指向其所属的eventpoll对象
+10  struct eventpoll *ep;
+11  // 期待的事件类型
+12  struct epoll_event event;
+13  ...
+14}
+</code></pre></div><h4 id="实现原理">实现原理</h4>
 <p>在epoll中，为每个事件都建立一个epitem结构体对象。
 这些事件都会添加到rbr红黑树中（重复添加的事件可以通过红黑树高效地识别出来）。从红黑树中查找事件非常快。</p>
 <p>所有添加到epoll对象中的事件都会与设备驱动程序（如网卡驱动程序）建立回调关系，当相应的事件发生时，会调用回调函数（中断处理程序）。这个回调函数在内核叫<code>ep_poll_callback</code>，回调函数会把就绪的事件写入rdllist双向链表中。</p>
@@ -309,15 +309,15 @@ select需要CPU在内核模式下（CPU的一种执行模式）主动去遍历�
 <p>创建epoll，指的是在内核空间创建一颗红黑树（平衡二叉树）的根节点root。它返回一个fd（下文用epfd指代），用来标识这个epoll对象。这个root根节点与epfd相对应。如图所示。</p>
 <p><img src="2.png" alt="图片"></p>
 <p>API如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1/** 
-</span></span><span style="display:flex;"><span>2 * @param size 告诉epoll要处理的大致事件数量，而不是能处理的事件最大数量。
-</span></span><span style="display:flex;"><span>3 * 
-</span></span><span style="display:flex;"><span>4 * @returns 返回一个epoll句柄（即一个文件描述符） 
-</span></span><span style="display:flex;"><span>5 */
-</span></span><span style="display:flex;"><span>6int epoll_create(int size);
-</span></span></code></pre></div><p>调用方法：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1int epfd = epoll_create(1000);
-</span></span></code></pre></div><h4 id="控制epoll">控制epoll</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1/** 
+2 * @param size 告诉epoll要处理的大致事件数量，而不是能处理的事件最大数量。
+3 * 
+4 * @returns 返回一个epoll句柄（即一个文件描述符） 
+5 */
+6int epoll_create(int size);
+</code></pre></div><p>调用方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1int epfd = epoll_create(1000);
+</code></pre></div><h4 id="控制epoll">控制epoll</h4>
 <p>控制epoll，指的是以下三种操作:</p>
 <ul>
 <li>注册新的事件到epoll</li>
@@ -326,34 +326,34 @@ select需要CPU在内核模式下（CPU的一种执行模式）主动去遍历�
 </ul>
 <p>添加某事件的时候，事件被插到红黑树的某个节点，并且与相应的设备驱动程序建立回调关系。当事件发生后，内核中断处理程序调用这个回调函数，将事件添加到就绪链表。</p>
 <p>API如下:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1/**
-</span></span><span style="display:flex;"><span> 2* @param epfd 用epoll_create所创建的epoll实例
-</span></span><span style="display:flex;"><span> 3* @param op 表示对epoll监控描述符控制的动作
-</span></span><span style="display:flex;"><span> 4*
-</span></span><span style="display:flex;"><span> 5* EPOLL_CTL_ADD(添加新的事件到epoll中)
-</span></span><span style="display:flex;"><span> 6* EPOLL_CTL_MOD(修改已经注册到epoll中的事件)
-</span></span><span style="display:flex;"><span> 7* EPOLL_CTL_DEL(删除epoll中的事件)
-</span></span><span style="display:flex;"><span> 8*
-</span></span><span style="display:flex;"><span> 9* @param fd 待监测的连接fd
-</span></span><span style="display:flex;"><span>10* @param event 告诉内核需要监听的事件(包括类型)，指向epoll_event的指针
-</span></span><span style="display:flex;"><span>11*
-</span></span><span style="display:flex;"><span>12* @returns 成功返回0，失败返回-1, errno查看错误信息
-</span></span><span style="display:flex;"><span>13*/
-</span></span><span style="display:flex;"><span>14int epoll_ctl(int epfd, int op, int fd,
-</span></span><span style="display:flex;"><span>15struct epoll_event *event);
-</span></span><span style="display:flex;"><span>16
-</span></span><span style="display:flex;"><span>17struct epoll_event {
-</span></span><span style="display:flex;"><span>18  __uint32_t events; // epoll 事件
-</span></span><span style="display:flex;"><span>19  epoll_data_t data; // 用户传递的数据
-</span></span><span style="display:flex;"><span>20}
-</span></span><span style="display:flex;"><span>21
-</span></span><span style="display:flex;"><span>22typedef union epoll_data {
-</span></span><span style="display:flex;"><span>23  void *ptr;
-</span></span><span style="display:flex;"><span>24  int fd; // 监听的事件fd
-</span></span><span style="display:flex;"><span>25  uint32_t u32;
-</span></span><span style="display:flex;"><span>26  uint64_t u64;
-</span></span><span style="display:flex;"><span>27} epoll_data_t;
-</span></span></code></pre></div><p>关于epoll_event，具体介绍下。上文介绍过epoll为每个事件创建epitem对象，在结构体epitem中有一个成员epoll_event。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1/**
+ 2* @param epfd 用epoll_create所创建的epoll实例
+ 3* @param op 表示对epoll监控描述符控制的动作
+ 4*
+ 5* EPOLL_CTL_ADD(添加新的事件到epoll中)
+ 6* EPOLL_CTL_MOD(修改已经注册到epoll中的事件)
+ 7* EPOLL_CTL_DEL(删除epoll中的事件)
+ 8*
+ 9* @param fd 待监测的连接fd
+10* @param event 告诉内核需要监听的事件(包括类型)，指向epoll_event的指针
+11*
+12* @returns 成功返回0，失败返回-1, errno查看错误信息
+13*/
+14int epoll_ctl(int epfd, int op, int fd,
+15struct epoll_event *event);
+16
+17struct epoll_event {
+18  __uint32_t events; // epoll 事件
+19  epoll_data_t data; // 用户传递的数据
+20}
+21
+22typedef union epoll_data {
+23  void *ptr;
+24  int fd; // 监听的事件fd
+25  uint32_t u32;
+26  uint64_t u64;
+27} epoll_data_t;
+</code></pre></div><p>关于epoll_event，具体介绍下。上文介绍过epoll为每个事件创建epitem对象，在结构体epitem中有一个成员epoll_event。</p>
 <p>epoll_event.events的取值包括：
 EPOLLIN：表示对应的连接上有数据可以读出（TCP连接的远端主动关闭连接，也相当于可读事件，因为要处理发过来的FIN包）
 EPOLLOUT：表示对应的连接上可以写入数据发送
@@ -364,71 +364,71 @@ EPOLLHUP：表示对应的连接被挂起
 EPOLLET：表示将处罚方式设置为边缘触发（ET），系统默认为水平触发（LT）
 EPOLLONESHOT：表示对这个事件只处理一次，下次需要处理时需要重新加入epoll</p>
 <p>调用方法:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1struct epoll_event new_event;
-</span></span><span style="display:flex;"><span>2
-</span></span><span style="display:flex;"><span>3new_event.events = EPOLLIN | EPOLLOUT;
-</span></span><span style="display:flex;"><span>4new_event.data.fd = 5;
-</span></span><span style="display:flex;"><span>5
-</span></span><span style="display:flex;"><span>6epoll_ctl(epfd, EPOLL_CTL_ADD, 5, &amp;new_event);
-</span></span></code></pre></div><p>在用户空间创建一个IO事件，绑定到某个fd上，然后把该事件的fd添加到内核中的epoll红黑树中。当fd可读或可写时，触发的是epoll_event。如图所示。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1struct epoll_event new_event;
+2
+3new_event.events = EPOLLIN | EPOLLOUT;
+4new_event.data.fd = 5;
+5
+6epoll_ctl(epfd, EPOLL_CTL_ADD, 5, &amp;new_event);
+</code></pre></div><p>在用户空间创建一个IO事件，绑定到某个fd上，然后把该事件的fd添加到内核中的epoll红黑树中。当fd可读或可写时，触发的是epoll_event。如图所示。</p>
 <p><img src="3.png" alt="图片"></p>
 <h4 id="等待epoll">等待epoll</h4>
 <p>收集在epoll监控的事件中已经发生的事件，内核会检查就绪链表中是否有存在添加过的事件，如果没有任何事件发生，最多等待timeout毫秒后返回（在timeout设置&gt;0的情况下）。返回值表示当前发生的事件个数。</p>
 <p>API如下:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1/**
-</span></span><span style="display:flex;"><span> 2*
-</span></span><span style="display:flex;"><span> 3* @param epfd 用epoll_create所创建的epoll实例
-</span></span><span style="display:flex;"><span> 4* @param event 从内核得到的就绪的事件集合
-</span></span><span style="display:flex;"><span> 5* @param maxevents 本次可以返回的最大事件数目，通常与预分配的event数组大小相等
-</span></span><span style="display:flex;"><span> 6* 注意: 值不能大于创建epoll_create()时的size
-</span></span><span style="display:flex;"><span> 7* @param timeout 等待IO事件发生的超时时间
-</span></span><span style="display:flex;"><span> 8* -1: 永久阻塞
-</span></span><span style="display:flex;"><span> 9* 0: 如果就绪链表rdllist为空，立即返回，不会等待，即非阻塞
-</span></span><span style="display:flex;"><span>10* &gt;0: 指定最多等待的时间，单位毫秒
-</span></span><span style="display:flex;"><span>11*
-</span></span><span style="display:flex;"><span>12* @returns 成功: 有多少文件描述符就绪,时间到时返回0
-</span></span><span style="display:flex;"><span>13* 失败: -1, errno 查看错误
-</span></span><span style="display:flex;"><span>14*/
-</span></span><span style="display:flex;"><span>15int epoll_wait(int epfd, struct epoll_event *event,
-</span></span><span style="display:flex;"><span>16               int maxevents, int timeout);
-</span></span></code></pre></div><blockquote>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1/**
+ 2*
+ 3* @param epfd 用epoll_create所创建的epoll实例
+ 4* @param event 从内核得到的就绪的事件集合
+ 5* @param maxevents 本次可以返回的最大事件数目，通常与预分配的event数组大小相等
+ 6* 注意: 值不能大于创建epoll_create()时的size
+ 7* @param timeout 等待IO事件发生的超时时间
+ 8* -1: 永久阻塞
+ 9* 0: 如果就绪链表rdllist为空，立即返回，不会等待，即非阻塞
+10* &gt;0: 指定最多等待的时间，单位毫秒
+11*
+12* @returns 成功: 有多少文件描述符就绪,时间到时返回0
+13* 失败: -1, errno 查看错误
+14*/
+15int epoll_wait(int epfd, struct epoll_event *event,
+16               int maxevents, int timeout);
+</code></pre></div><blockquote>
 <p>注意: epoll_event不能是空指针，内核只是负责把内核空间中就绪链表的数据复制到用户空间的event数组中，不会去帮忙分配内存，所以用户空间需要自己提前分配内存。</p>
 </blockquote>
 <p>调用方法:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1struct epoll_event my_event[1000];
-</span></span><span style="display:flex;"><span>2
-</span></span><span style="display:flex;"><span>3int event_cnt = epoll_wait(epfd, my_event, 1000, -1);
-</span></span></code></pre></div><p>如图所示。应用程序调用epoll_wait后，进入阻塞状态。当内核检测到new_event或event1绑定的fd可读了，内核把就绪的event事件拷贝到用户空间的my_event数组。应用程序只需要遍历my_event，取出对应的事件和fd，知道是可读了，然后堵塞调用recv(fd)读数据。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1struct epoll_event my_event[1000];
+2
+3int event_cnt = epoll_wait(epfd, my_event, 1000, -1);
+</code></pre></div><p>如图所示。应用程序调用epoll_wait后，进入阻塞状态。当内核检测到new_event或event1绑定的fd可读了，内核把就绪的event事件拷贝到用户空间的my_event数组。应用程序只需要遍历my_event，取出对应的事件和fd，知道是可读了，然后堵塞调用recv(fd)读数据。</p>
 <p><img src="4.png" alt="图片"></p>
 <h3 id="使用epoll-api">使用epoll API</h3>
 <p>一个简单的使用epoll API的编程架构如下。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// 创建epoll fd，最多可接收1000个事件
-</span></span><span style="display:flex;"><span> 2int epfd = epoll_crete(1000);
-</span></span><span style="display:flex;"><span> 3
-</span></span><span style="display:flex;"><span> 4// 将listen_fd添加进epoll中
-</span></span><span style="display:flex;"><span> 5epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &amp;listen_event);
-</span></span><span style="display:flex;"><span> 6
-</span></span><span style="display:flex;"><span> 7while (1) {
-</span></span><span style="display:flex;"><span> 8  // 阻塞等待epoll中的事件fd触发
-</span></span><span style="display:flex;"><span> 9  int active_cnt = epoll_wait(epfd, events, 1000, -1);
-</span></span><span style="display:flex;"><span>10
-</span></span><span style="display:flex;"><span>11  for (i = 0 ; i &lt; active_cnt; i++) {
-</span></span><span style="display:flex;"><span>12    if (evnets[i].data.fd == listen_fd) {
-</span></span><span style="display:flex;"><span>13      // 表示新的客户端连接请求到来
-</span></span><span style="display:flex;"><span>14      // 调用accept进行三次握手，创建client_fd
-</span></span><span style="display:flex;"><span>15      // 并将client_fd加进epoll中
-</span></span><span style="display:flex;"><span>16    }
-</span></span><span style="display:flex;"><span>17    else if (events[i].events &amp; EPOLLIN) {
-</span></span><span style="display:flex;"><span>18      // 表示不是新的客户端连接，可读客户端发来的数据
-</span></span><span style="display:flex;"><span>19      // client_fd就绪可读，对此fd进行读操作
-</span></span><span style="display:flex;"><span>20    }
-</span></span><span style="display:flex;"><span>21    else if (events[i].events &amp; EPOLLOUT) {
-</span></span><span style="display:flex;"><span>22      // 表示不是新的客户端连接，可把数据回写客户端
-</span></span><span style="display:flex;"><span>23      // client_fd就绪可写，对此fd进行写操作
-</span></span><span style="display:flex;"><span>24    }
-</span></span><span style="display:flex;"><span>25  }
-</span></span><span style="display:flex;"><span>26}
-</span></span></code></pre></div><p>如图所示，是一个服务器使用epoll的常规流程。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1// 创建epoll fd，最多可接收1000个事件
+ 2int epfd = epoll_crete(1000);
+ 3
+ 4// 将listen_fd添加进epoll中
+ 5epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &amp;listen_event);
+ 6
+ 7while (1) {
+ 8  // 阻塞等待epoll中的事件fd触发
+ 9  int active_cnt = epoll_wait(epfd, events, 1000, -1);
+10
+11  for (i = 0 ; i &lt; active_cnt; i++) {
+12    if (evnets[i].data.fd == listen_fd) {
+13      // 表示新的客户端连接请求到来
+14      // 调用accept进行三次握手，创建client_fd
+15      // 并将client_fd加进epoll中
+16    }
+17    else if (events[i].events &amp; EPOLLIN) {
+18      // 表示不是新的客户端连接，可读客户端发来的数据
+19      // client_fd就绪可读，对此fd进行读操作
+20    }
+21    else if (events[i].events &amp; EPOLLOUT) {
+22      // 表示不是新的客户端连接，可把数据回写客户端
+23      // client_fd就绪可写，对此fd进行写操作
+24    }
+25  }
+26}
+</code></pre></div><p>如图所示，是一个服务器使用epoll的常规流程。</p>
 <p><img src="5.png" alt="图片"></p>
 <h3 id="触发方式">触发方式</h3>
 <p>epoll有两种工作模式：水平触发和边缘触发。默认情况下，epoll采用水平触发模式。</p>
@@ -524,7 +524,7 @@ EPOLLONESHOT：表示对这个事件只处理一次，下次需要处理时需�
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">452</span>
+        <span class="site-state-item-count">453</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -584,7 +584,7 @@ EPOLLONESHOT：表示对这个事件只处理一次，下次需要处理时需�
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

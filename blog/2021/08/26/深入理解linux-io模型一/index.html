@@ -495,22 +495,22 @@ Linux一切皆文件，一切都是流。用户进程都是对这些流进行读
 注意：所以非阻塞忙轮询和异步是两个概念。</p>
 <p>缺点：浪费CPU。</p>
 <p>伪代码如下。CPU 大部分时间在做 while 和 for 判断处理，CPU 的利用率不高。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1while true {
-</span></span><span style="display:flex;"><span>2  for i in 流[] {
-</span></span><span style="display:flex;"><span>3    if i has 数据 {
-</span></span><span style="display:flex;"><span>4      读 或者 其他处理
-</span></span><span style="display:flex;"><span>5    }
-</span></span><span style="display:flex;"><span>6  }
-</span></span><span style="display:flex;"><span>7}
-</span></span></code></pre></div><h4 id="io多路复用解决的问题">IO多路复用解决的问题</h4>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1while true {
+2  for i in 流[] {
+3    if i has 数据 {
+4      读 或者 其他处理
+5    }
+6  }
+7}
+</code></pre></div><h4 id="io多路复用解决的问题">IO多路复用解决的问题</h4>
 <p>最基础的网络编程伪代码如下。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1创建socketint s = socket(AF_INET, SOCK_STREAM, 0); // 得到socket fd
-</span></span><span style="display:flex;"><span>2绑定bind(s, ...)
-</span></span><span style="display:flex;"><span>3监听listen(s, ...)
-</span></span><span style="display:flex;"><span>4接受客户端连接int c = accept(s, ...)
-</span></span><span style="display:flex;"><span>5接收客户端数据recv(c, ...);
-</span></span><span style="display:flex;"><span>6将数据打印出来printf(...)
-</span></span></code></pre></div><p>先创建socket fd，依次调用bind、listen、accept，最后调用recv接收数据。recv是个阻塞方法，当程序运行到recv时，进程进入阻塞状态（不占用CPU资源），直到接收到数据，进程转到执行状态处理数据。进程阻塞在accept和recv。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1创建socketint s = socket(AF_INET, SOCK_STREAM, 0); // 得到socket fd
+2绑定bind(s, ...)
+3监听listen(s, ...)
+4接受客户端连接int c = accept(s, ...)
+5接收客户端数据recv(c, ...);
+6将数据打印出来printf(...)
+</code></pre></div><p>先创建socket fd，依次调用bind、listen、accept，最后调用recv接收数据。recv是个阻塞方法，当程序运行到recv时，进程进入阻塞状态（不占用CPU资源），直到接收到数据，进程转到执行状态处理数据。进程阻塞在accept和recv。</p>
 <p>但是有没有一种方式，既有阻塞等待不浪费CPU资源的优点，也能避免阻塞等待同一时刻只能处理一个流的问题，而是可以在同一时刻监听多个socket fd？即同时accept和recv多个socket fd。答案就是IO多路复用。</p>
 <p>所以产生了select、poll、epoll等IO多路复用技术，目的是解决单线程同一时刻处理大量IO读写请求，并且不浪费CPU。</p>
 <h4 id="什么是-io-多路复用">什么是 IO 多路复用</h4>
@@ -519,31 +519,31 @@ Linux一切皆文件，一切都是流。用户进程都是对这些流进行读
 如果同一流程想同一时刻监听多个IO状态。要么非阻塞忙轮询；要么用 select/epoll等IO多路复用器，告诉用户态有哪些 IO 可读可写，一起处理。即 IO 多路复用可以实现单线程在同一时刻可以监听多个IO状态。IO多路复用在非忙轮询状态，不浪费CPU。</p>
 <h4 id="select-简介">select 简介</h4>
 <p>先上伪代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1while true {
-</span></span><span style="display:flex;"><span> 2  select(流[]); // 阻塞。CPU 可以去做其他事。如果有流可读了，返回。
-</span></span><span style="display:flex;"><span> 3
-</span></span><span style="display:flex;"><span> 4  // 有消息抵达
-</span></span><span style="display:flex;"><span> 5  for i in 流 [] { // 需要依次判断所有的流哪个可读
-</span></span><span style="display:flex;"><span> 6    if i has 数据 { // 如果可读的流数量少，浪费性能
-</span></span><span style="display:flex;"><span> 7        读 或者 其他处理
-</span></span><span style="display:flex;"><span> 8    }
-</span></span><span style="display:flex;"><span> 9  }
-</span></span><span style="display:flex;"><span>10}
-</span></span></code></pre></div><p>进一步的代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1int s = socket(AF_INET, SOCK_STREAM, 0); 
-</span></span><span style="display:flex;"><span> 2bind(s, ...);
-</span></span><span style="display:flex;"><span> 3listen(s, ...)
-</span></span><span style="display:flex;"><span> 4int fds[] = 存放需要监听的socket
-</span></span><span style="display:flex;"><span> 5
-</span></span><span style="display:flex;"><span> 6while(1){
-</span></span><span style="display:flex;"><span> 7  int n = select(..., fds, ...)
-</span></span><span style="display:flex;"><span> 8  for(int i=0; i &lt; fds.count; i++){
-</span></span><span style="display:flex;"><span> 9    if(FD_ISSET(fds[i], ...)){
-</span></span><span style="display:flex;"><span>10      // fds[i]的数据处理
-</span></span><span style="display:flex;"><span>11    }
-</span></span><span style="display:flex;"><span>12  }
-</span></span><span style="display:flex;"><span>13}
-</span></span></code></pre></div><p>select的流程是：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1while true {
+ 2  select(流[]); // 阻塞。CPU 可以去做其他事。如果有流可读了，返回。
+ 3
+ 4  // 有消息抵达
+ 5  for i in 流 [] { // 需要依次判断所有的流哪个可读
+ 6    if i has 数据 { // 如果可读的流数量少，浪费性能
+ 7        读 或者 其他处理
+ 8    }
+ 9  }
+10}
+</code></pre></div><p>进一步的代码。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1int s = socket(AF_INET, SOCK_STREAM, 0); 
+ 2bind(s, ...);
+ 3listen(s, ...)
+ 4int fds[] = 存放需要监听的socket
+ 5
+ 6while(1){
+ 7  int n = select(..., fds, ...)
+ 8  for(int i=0; i &lt; fds.count; i++){
+ 9    if(FD_ISSET(fds[i], ...)){
+10      // fds[i]的数据处理
+11    }
+12  }
+13}
+</code></pre></div><p>select的流程是：</p>
 <ol>
 <li>应用进程调用系统调用select(fds)。</li>
 <li>select阻塞直到有任意数量fd可读。</li>
@@ -559,28 +559,28 @@ Linux一切皆文件，一切都是流。用户进程都是对这些流进行读
 </ol>
 <h4 id="epoll-简介">epoll 简介</h4>
 <p>先上伪代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1while true {
-</span></span><span style="display:flex;"><span>2  可处理的流[] = epoll_wait(epoll_fd); // 阻塞
-</span></span><span style="display:flex;"><span>3
-</span></span><span style="display:flex;"><span>4  // 有消息抵达
-</span></span><span style="display:flex;"><span>5  for i in 可处理的流[] {
-</span></span><span style="display:flex;"><span>6    读 或者 其他处理
-</span></span><span style="display:flex;"><span>7  }
-</span></span><span style="display:flex;"><span>8}
-</span></span></code></pre></div><p>进一步的代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1int s = socket(AF_INET, SOCK_STREAM, 0);
-</span></span><span style="display:flex;"><span> 2bind(s, ...);
-</span></span><span style="display:flex;"><span> 3listen(s, ...)
-</span></span><span style="display:flex;"><span> 4int epfd = epoll_create(...);
-</span></span><span style="display:flex;"><span> 5epoll_ctl(epfd, ...); // 将所有需要监听的socket添加到epfd中
-</span></span><span style="display:flex;"><span> 6
-</span></span><span style="display:flex;"><span> 7while(1){
-</span></span><span style="display:flex;"><span> 8  int n = epoll_wait(...)
-</span></span><span style="display:flex;"><span> 9  for(接收到数据的socket fds){
-</span></span><span style="display:flex;"><span>10    // fds[i]的数据处理
-</span></span><span style="display:flex;"><span>11  }
-</span></span><span style="display:flex;"><span>12}
-</span></span></code></pre></div><p>epoll的流程是：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1while true {
+2  可处理的流[] = epoll_wait(epoll_fd); // 阻塞
+3
+4  // 有消息抵达
+5  for i in 可处理的流[] {
+6    读 或者 其他处理
+7  }
+8}
+</code></pre></div><p>进一步的代码。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1int s = socket(AF_INET, SOCK_STREAM, 0);
+ 2bind(s, ...);
+ 3listen(s, ...)
+ 4int epfd = epoll_create(...);
+ 5epoll_ctl(epfd, ...); // 将所有需要监听的socket添加到epfd中
+ 6
+ 7while(1){
+ 8  int n = epoll_wait(...)
+ 9  for(接收到数据的socket fds){
+10    // fds[i]的数据处理
+11  }
+12}
+</code></pre></div><p>epoll的流程是：</p>
 <ol>
 <li>应用进程调用系统调用epoll_create，创建eventpoll对象，用于维护等待列表和就绪列表。</li>
 <li>应用进程调用系统调用epoll_ctl，添加要监听的fd。</li>
@@ -683,7 +683,7 @@ Linux一切皆文件，一切都是流。用户进程都是对这些流进行读
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">452</span>
+        <span class="site-state-item-count">453</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -743,7 +743,7 @@ Linux一切皆文件，一切都是流。用户进程都是对这些流进行读
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

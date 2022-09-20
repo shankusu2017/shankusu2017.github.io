@@ -205,185 +205,185 @@
 <h3 id="lua-gc-的源码剖析-3">Lua GC 的源码剖析 (3)</h3>
 <p>有了前几天的基础，我们可以从顶向下来读 lua gc 部分的代码了。</p>
 <p>我们知道，lua 对外的 API 中，一切个 gc 打交道的都通过 <code>lua_gc</code> 。C 语言构建系统时，一般不讲设计模式。但模式还是存在的。若要按《设计模式》中的分类，这应该归于 Facade 模式。代码在 lapi.c 的 895 行：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/*
-</span></span><span style="display:flex;"><span>** Garbage-collection function
-</span></span><span style="display:flex;"><span>*/
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>LUA_API int lua_gc (lua_State *L, int what, int data) {
-</span></span><span style="display:flex;"><span>  int res = 0;
-</span></span><span style="display:flex;"><span>  global_State *g;
-</span></span><span style="display:flex;"><span>  lua_lock(L);
-</span></span><span style="display:flex;"><span>  g = G(L);
-</span></span><span style="display:flex;"><span>  switch (what) {
-</span></span><span style="display:flex;"><span>    case LUA_GCSTOP: {
-</span></span><span style="display:flex;"><span>      g-&gt;GCthreshold = MAX_LUMEM;
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    case LUA_GCRESTART: {
-</span></span><span style="display:flex;"><span>      g-&gt;GCthreshold = g-&gt;totalbytes;
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    case LUA_GCCOLLECT: {
-</span></span><span style="display:flex;"><span>      luaC_fullgc(L);
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    case LUA_GCCOUNT: {
-</span></span><span style="display:flex;"><span>      /* GC values are expressed in Kbytes: #bytes/2^10 */
-</span></span><span style="display:flex;"><span>      res = cast_int(g-&gt;totalbytes &gt;&gt; 10);
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    case LUA_GCCOUNTB: {
-</span></span><span style="display:flex;"><span>      res = cast_int(g-&gt;totalbytes &amp; 0x3ff);
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    case LUA_GCSTEP: {
-</span></span><span style="display:flex;"><span>      lu_mem a = (cast(lu_mem, data) &lt;&lt; 10);
-</span></span><span style="display:flex;"><span>      if (a &lt;= g-&gt;totalbytes)
-</span></span><span style="display:flex;"><span>        g-&gt;GCthreshold = g-&gt;totalbytes - a;
-</span></span><span style="display:flex;"><span>      else
-</span></span><span style="display:flex;"><span>        g-&gt;GCthreshold = 0;
-</span></span><span style="display:flex;"><span>      while (g-&gt;GCthreshold &lt;= g-&gt;totalbytes) {
-</span></span><span style="display:flex;"><span>        luaC_step(L);
-</span></span><span style="display:flex;"><span>        if (g-&gt;gcstate == GCSpause) {  /* end of cycle? */
-</span></span><span style="display:flex;"><span>          res = 1;  /* signal it */
-</span></span><span style="display:flex;"><span>          break;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    case LUA_GCSETPAUSE: {
-</span></span><span style="display:flex;"><span>      res = g-&gt;gcpause;
-</span></span><span style="display:flex;"><span>      g-&gt;gcpause = data;
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    case LUA_GCSETSTEPMUL: {
-</span></span><span style="display:flex;"><span>      res = g-&gt;gcstepmul;
-</span></span><span style="display:flex;"><span>      g-&gt;gcstepmul = data;
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    default: res = -1;  /* invalid option */
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  lua_unlock(L);
-</span></span><span style="display:flex;"><span>  return res;
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>从代码可见，对内部状态的访问，都是直接访问 global state 表的。GC 控制则是调用内部 api 。lua 中对外的 api 和内部模块交互的 api 都是分开的。这样层次分明。内部子模块一般名为 <code>luaX_xxx</code> X 为子模块代号。对于收集器相关的 api 一律以 <code>luaC_xxx</code> 命名。这些 api 定义在 lgc.h 中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">/*
+** Garbage-collection function
+*/
+
+LUA_API int lua_gc (lua_State *L, int what, int data) {
+  int res = 0;
+  global_State *g;
+  lua_lock(L);
+  g = G(L);
+  switch (what) {
+    case LUA_GCSTOP: {
+      g-&gt;GCthreshold = MAX_LUMEM;
+      break;
+    }
+    case LUA_GCRESTART: {
+      g-&gt;GCthreshold = g-&gt;totalbytes;
+      break;
+    }
+    case LUA_GCCOLLECT: {
+      luaC_fullgc(L);
+      break;
+    }
+    case LUA_GCCOUNT: {
+      /* GC values are expressed in Kbytes: #bytes/2^10 */
+      res = cast_int(g-&gt;totalbytes &gt;&gt; 10);
+      break;
+    }
+    case LUA_GCCOUNTB: {
+      res = cast_int(g-&gt;totalbytes &amp; 0x3ff);
+      break;
+    }
+    case LUA_GCSTEP: {
+      lu_mem a = (cast(lu_mem, data) &lt;&lt; 10);
+      if (a &lt;= g-&gt;totalbytes)
+        g-&gt;GCthreshold = g-&gt;totalbytes - a;
+      else
+        g-&gt;GCthreshold = 0;
+      while (g-&gt;GCthreshold &lt;= g-&gt;totalbytes) {
+        luaC_step(L);
+        if (g-&gt;gcstate == GCSpause) {  /* end of cycle? */
+          res = 1;  /* signal it */
+          break;
+        }
+      }
+      break;
+    }
+    case LUA_GCSETPAUSE: {
+      res = g-&gt;gcpause;
+      g-&gt;gcpause = data;
+      break;
+    }
+    case LUA_GCSETSTEPMUL: {
+      res = g-&gt;gcstepmul;
+      g-&gt;gcstepmul = data;
+      break;
+    }
+    default: res = -1;  /* invalid option */
+  }
+  lua_unlock(L);
+  return res;
+}
+</code></pre></div><p>从代码可见，对内部状态的访问，都是直接访问 global state 表的。GC 控制则是调用内部 api 。lua 中对外的 api 和内部模块交互的 api 都是分开的。这样层次分明。内部子模块一般名为 <code>luaX_xxx</code> X 为子模块代号。对于收集器相关的 api 一律以 <code>luaC_xxx</code> 命名。这些 api 定义在 lgc.h 中。</p>
 <p>此间提到的 api 有两个：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>LUAI_FUNC void luaC_step (lua_State *L);
-</span></span><span style="display:flex;"><span>LUAI_FUNC void luaC_fullgc (lua_State *L);
-</span></span></code></pre></div><p>用于分步 GC 已经完整 GC 。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">LUAI_FUNC void luaC_step (lua_State *L);
+LUAI_FUNC void luaC_fullgc (lua_State *L);
+</code></pre></div><p>用于分步 GC 已经完整 GC 。</p>
 <p>另一个重要的 api 是：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>#define luaC_checkGC(L) { \
-</span></span><span style="display:flex;"><span>  condhardstacktests(luaD_reallocstack(L, L-&gt;stacksize - EXTRA_STACK - 1)); \
-</span></span><span style="display:flex;"><span>  if (G(L)-&gt;totalbytes &gt;= G(L)-&gt;GCthreshold) \
-</span></span><span style="display:flex;"><span>    luaC_step(L); }
-</span></span></code></pre></div><p>它以宏形式定义出来，用于自动的 GC 。如果我们审查 lapi.c ldo.c lvm.c ，会发现大部分会导致内存增长的 api 中，都调用了它。保证 gc 可以随内存使用增加而自动进行。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">#define luaC_checkGC(L) { \
+  condhardstacktests(luaD_reallocstack(L, L-&gt;stacksize - EXTRA_STACK - 1)); \
+  if (G(L)-&gt;totalbytes &gt;= G(L)-&gt;GCthreshold) \
+    luaC_step(L); }
+</code></pre></div><p>它以宏形式定义出来，用于自动的 GC 。如果我们审查 lapi.c ldo.c lvm.c ，会发现大部分会导致内存增长的 api 中，都调用了它。保证 gc 可以随内存使用增加而自动进行。</p>
 <p>这里插几句。</p>
 <p>使用自动 gc 会有一个问题。它很可能使系统的峰值内存占用远超过实际需求量。原因就在于，收集行为往往发生在调用栈很深的地方。当你的应用程序呈现出某种周期性（大多数包驱动的服务都是这样）。在一个服务周期内，往往会引用众多临时对象，这个时候做 mark 工作，会导致许多临时对象也被 mark 住。</p>
 <p>一个经验方法是，调用 <code>LUA_GCSTOP</code> 停止自动 GC。在周期间定期调用 gcstep 且使用较大的 data 值，在有限个周期做完一整趟 gc 。</p>
 <p>另，condhardstacktests 是一个宏，通常是不开启的。</p>
 <hr>
 <p>先来看 <code>luaC_fullgc</code> 。它用来执行完整的一次 gc 动作。fullgc 并不是仅仅把当前的流程走完。因为之前的 gc 行为可能执行了一半，可能有一些半路加进来的需要回收的对象。所以在走完一趟流程后，fullgc 将阻塞着再完整跑一遍 gc 。整个流程有一些优化的余地。即，前半程的 gc 流程其实不必严格执行，它并不需要真的去清除什么。只需要把状态恢复。这个工作是如何做到的呢？见 lgc.c 的 637 行：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>void luaC_fullgc (lua_State *L) {
-</span></span><span style="display:flex;"><span>  global_State *g = G(L);
-</span></span><span style="display:flex;"><span>  if (g-&gt;gcstate &lt;= GCSpropagate) {
-</span></span><span style="display:flex;"><span>    /* reset sweep marks to sweep all elements (returning them to white) */
-</span></span><span style="display:flex;"><span>    g-&gt;sweepstrgc = 0;
-</span></span><span style="display:flex;"><span>    g-&gt;sweepgc = &amp;g-&gt;rootgc;
-</span></span><span style="display:flex;"><span>    /* reset other collector lists */
-</span></span><span style="display:flex;"><span>    g-&gt;gray = NULL;
-</span></span><span style="display:flex;"><span>    g-&gt;grayagain = NULL;
-</span></span><span style="display:flex;"><span>    g-&gt;weak = NULL;
-</span></span><span style="display:flex;"><span>    g-&gt;gcstate = GCSsweepstring;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  lua_assert(g-&gt;gcstate != GCSpause &amp;&amp; g-&gt;gcstate != GCSpropagate);
-</span></span><span style="display:flex;"><span>  /* finish any pending sweep phase */
-</span></span><span style="display:flex;"><span>  while (g-&gt;gcstate != GCSfinalize) {
-</span></span><span style="display:flex;"><span>    lua_assert(g-&gt;gcstate == GCSsweepstring || g-&gt;gcstate == GCSsweep);
-</span></span><span style="display:flex;"><span>    singlestep(L);
-</span></span><span style="display:flex;"><span>  }
-</span></span></code></pre></div><p>比较耗时的 mark 步骤被简单跳过了（如果它还没进行完的话）。和正常的 mark 流程不同，正常的 mark 流程最后，会将白色标记反转。见 lgc.c 548 行，atomic 函数：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  /* flip current white */
-</span></span><span style="display:flex;"><span>  g-&gt;currentwhite = cast_byte(otherwhite(g));
-</span></span></code></pre></div><p>在 fullgc 的前半程中，直接跳过了 GCSpropagate ，重置了内部状态，但没有翻转白色标记。这会导致后面的 sweep 流程不会真的释放那些白色对象。sweep 工作实际做的只是把所有对象又重新设置回白色而已。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">void luaC_fullgc (lua_State *L) {
+  global_State *g = G(L);
+  if (g-&gt;gcstate &lt;= GCSpropagate) {
+    /* reset sweep marks to sweep all elements (returning them to white) */
+    g-&gt;sweepstrgc = 0;
+    g-&gt;sweepgc = &amp;g-&gt;rootgc;
+    /* reset other collector lists */
+    g-&gt;gray = NULL;
+    g-&gt;grayagain = NULL;
+    g-&gt;weak = NULL;
+    g-&gt;gcstate = GCSsweepstring;
+  }
+  lua_assert(g-&gt;gcstate != GCSpause &amp;&amp; g-&gt;gcstate != GCSpropagate);
+  /* finish any pending sweep phase */
+  while (g-&gt;gcstate != GCSfinalize) {
+    lua_assert(g-&gt;gcstate == GCSsweepstring || g-&gt;gcstate == GCSsweep);
+    singlestep(L);
+  }
+</code></pre></div><p>比较耗时的 mark 步骤被简单跳过了（如果它还没进行完的话）。和正常的 mark 流程不同，正常的 mark 流程最后，会将白色标记反转。见 lgc.c 548 行，atomic 函数：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  /* flip current white */
+  g-&gt;currentwhite = cast_byte(otherwhite(g));
+</code></pre></div><p>在 fullgc 的前半程中，直接跳过了 GCSpropagate ，重置了内部状态，但没有翻转白色标记。这会导致后面的 sweep 流程不会真的释放那些白色对象。sweep 工作实际做的只是把所有对象又重新设置回白色而已。</p>
 <p>接下来就是一个完整不被打断的 gc 过程了。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  markroot(L);
-</span></span><span style="display:flex;"><span>  while (g-&gt;gcstate != GCSpause) {
-</span></span><span style="display:flex;"><span>    singlestep(L);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  setthreshold(g);
-</span></span></code></pre></div><p>从根开始 mark ，直到整个 gc 流程执行完毕。最后，重新设置了 GCthreshold 。注：调用 fullgc 会重置 GCthreshold ，所以如果你曾经调用 <code>LUA_GCSTOP</code> 暂停自动 GC 的话（也是通过修改 GCthreshold 实现） ，记得再调用一次。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  markroot(L);
+  while (g-&gt;gcstate != GCSpause) {
+    singlestep(L);
+  }
+  setthreshold(g);
+</code></pre></div><p>从根开始 mark ，直到整个 gc 流程执行完毕。最后，重新设置了 GCthreshold 。注：调用 fullgc 会重置 GCthreshold ，所以如果你曾经调用 <code>LUA_GCSTOP</code> 暂停自动 GC 的话（也是通过修改 GCthreshold 实现） ，记得再调用一次。</p>
 <p>stepgc 要相对复杂一些。在 lua 手册的 2.10 解释了　garbage-collector pause　和 step multiplier 的意义，却没有给出精确定义。<code>lua_gc</code> 的说明里，也只说“<code>LUA_GCSTEP</code>: 发起一步增量垃圾收集。 步数由 data 控制（越大的值意味着越多步）， 而其具体含义（具体数字表示了多少）并未标准化。 如果你想控制这个步数，必须实验性的测试 data 的值。 如果这一步结束了一个垃圾收集周期，返回返回 1 。 并没有给出准确的含义。实践中，我们也都是以经验取值。</p>
 <p>回到源代码，我们就能搞清楚它们到底是什么了。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>    case LUA_GCSETPAUSE: {
-</span></span><span style="display:flex;"><span>      res = g-&gt;gcpause;
-</span></span><span style="display:flex;"><span>      g-&gt;gcpause = data;
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    case LUA_GCSETSTEPMUL: {
-</span></span><span style="display:flex;"><span>      res = g-&gt;gcstepmul;
-</span></span><span style="display:flex;"><span>      g-&gt;gcstepmul = data;
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span></code></pre></div><p>这里只是设置 gcpause gcstepmul　。gcpause 实际只在 lgc.c 59 行的 setthreshold 宏中用到</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>#define setthreshold(g)  (g-&gt;GCthreshold = (g-&gt;estimate/100) * g-&gt;gcpause)
-</span></span></code></pre></div><p>看见，GCSETPAUSE 其实是通过调整 GCthreshold 来实现的。当 GCthreshold 足够大时，<code>luaC_step</code> 不会被 <code>luaC_checkGC</code> 自动触发。事实上，GCSTOP 正是通过设置一个很大的 GCthreshold 值来实现的。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>    case LUA_GCSTOP: {
-</span></span><span style="display:flex;"><span>      g-&gt;GCthreshold = MAX_LUMEM;
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span></code></pre></div><p>gcpause 值的含义很文档一致，用来表示和实际内存使用量 estimate 的比值（放大 100 倍）。一旦内存使用量超过这个阀值，就会出发 GC 的工作。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">    case LUA_GCSETPAUSE: {
+      res = g-&gt;gcpause;
+      g-&gt;gcpause = data;
+      break;
+    }
+    case LUA_GCSETSTEPMUL: {
+      res = g-&gt;gcstepmul;
+      g-&gt;gcstepmul = data;
+      break;
+    }
+</code></pre></div><p>这里只是设置 gcpause gcstepmul　。gcpause 实际只在 lgc.c 59 行的 setthreshold 宏中用到</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">#define setthreshold(g)  (g-&gt;GCthreshold = (g-&gt;estimate/100) * g-&gt;gcpause)
+</code></pre></div><p>看见，GCSETPAUSE 其实是通过调整 GCthreshold 来实现的。当 GCthreshold 足够大时，<code>luaC_step</code> 不会被 <code>luaC_checkGC</code> 自动触发。事实上，GCSTOP 正是通过设置一个很大的 GCthreshold 值来实现的。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">    case LUA_GCSTOP: {
+      g-&gt;GCthreshold = MAX_LUMEM;
+      break;
+    }
+</code></pre></div><p>gcpause 值的含义很文档一致，用来表示和实际内存使用量 estimate 的比值（放大 100 倍）。一旦内存使用量超过这个阀值，就会出发 GC 的工作。</p>
 <p>要理解 gcstepmul ，就要从 <code>lua_gc</code> 的 <code>LUA_GCSTEP</code> 的实现看起。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>    case LUA_GCSTEP: {
-</span></span><span style="display:flex;"><span>      lu_mem a = (cast(lu_mem, data) &lt;&lt; 10);
-</span></span><span style="display:flex;"><span>      if (a &lt;= g-&gt;totalbytes)
-</span></span><span style="display:flex;"><span>        g-&gt;GCthreshold = g-&gt;totalbytes - a;
-</span></span><span style="display:flex;"><span>      else
-</span></span><span style="display:flex;"><span>        g-&gt;GCthreshold = 0;
-</span></span><span style="display:flex;"><span>      while (g-&gt;GCthreshold &lt;= g-&gt;totalbytes) {
-</span></span><span style="display:flex;"><span>        luaC_step(L);
-</span></span><span style="display:flex;"><span>        if (g-&gt;gcstate == GCSpause) {  /* end of cycle? */
-</span></span><span style="display:flex;"><span>          res = 1;  /* signal it */
-</span></span><span style="display:flex;"><span>          break;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>    }
-</span></span></code></pre></div><p>step 的长度 data 被放大了 1024 倍。在 lgc.c 的 26 行，也可以看到</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>#define GCSTEPSIZE  1024u
-</span></span></code></pre></div><p>我们姑且可以认为 data 的单位是 KBytes ，和 lua 总共占用的内存 totalbytes 有些关系。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">    case LUA_GCSTEP: {
+      lu_mem a = (cast(lu_mem, data) &lt;&lt; 10);
+      if (a &lt;= g-&gt;totalbytes)
+        g-&gt;GCthreshold = g-&gt;totalbytes - a;
+      else
+        g-&gt;GCthreshold = 0;
+      while (g-&gt;GCthreshold &lt;= g-&gt;totalbytes) {
+        luaC_step(L);
+        if (g-&gt;gcstate == GCSpause) {  /* end of cycle? */
+          res = 1;  /* signal it */
+          break;
+        }
+      }
+      break;
+    }
+</code></pre></div><p>step 的长度 data 被放大了 1024 倍。在 lgc.c 的 26 行，也可以看到</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">#define GCSTEPSIZE  1024u
+</code></pre></div><p>我们姑且可以认为 data 的单位是 KBytes ，和 lua 总共占用的内存 totalbytes 有些关系。</p>
 <p>ps. 这里 totalbytes 是严格通过 Alloc 管理的内存量。而前面提到的 estimate 则不同，它是一个估算量，比 totalbytes 要小。这是因为，前面也提到过，userdata 的回收比较特殊。被检测出已经访问不到的 userdata 占用的内存并不会马上释放（保证 gc 元方法的安全调用），但 estimate 会抛去这部分，不算在实际内存使用量内。</p>
 <p>见 lgc.c 544 行</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  udsize = luaC_separateudata(L, 0);  /* separate userdata to be finalized */
-</span></span></code></pre></div><p>以及 lgc.c 553 行</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  g-&gt;estimate = g-&gt;totalbytes - udsize;  /* first estimate */
-</span></span></code></pre></div><p>从代码逻辑，我们暂时可以把 data 理解为，需要处理的字节数量（以 K bytes 为单位）。如果需要处理的数据量超过了 totalbytes ，自然就可以把 GCthreshold 设置为 0 了。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  udsize = luaC_separateudata(L, 0);  /* separate userdata to be finalized */
+</code></pre></div><p>以及 lgc.c 553 行</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  g-&gt;estimate = g-&gt;totalbytes - udsize;  /* first estimate */
+</code></pre></div><p>从代码逻辑，我们暂时可以把 data 理解为，需要处理的字节数量（以 K bytes 为单位）。如果需要处理的数据量超过了 totalbytes ，自然就可以把 GCthreshold 设置为 0 了。</p>
 <p>实际上不能完全这么理解。因为 GC 过程并不是一点点回收内存，同时可用内存越来越多。GC 分标记(mark) 清除(sweep) 调用 userdata 元方法等几个阶段。只有中间的清除阶段是真正释放内存的。所以可用内存的增加（ totalbytes 减少）过程，时间上并不是线性的。通常标记的开销更大。为了让 gcstep 的每个步骤消耗的时间更平滑，就得有手段动态调整 GCthreshold 值。它和 totalbytes 最终影响了每个 step 的时间。</p>
 <p>下面的关注焦点转向 <code>luaC_step</code>　，见 lgc.c 的 611 行：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>void luaC_step (lua_State *L) {
-</span></span><span style="display:flex;"><span>  global_State *g = G(L);
-</span></span><span style="display:flex;"><span>  l_mem lim = (GCSTEPSIZE/100) * g-&gt;gcstepmul;
-</span></span><span style="display:flex;"><span>  if (lim == 0)
-</span></span><span style="display:flex;"><span>    lim = (MAX_LUMEM-1)/2;  /* no limit */
-</span></span><span style="display:flex;"><span>  g-&gt;gcdept += g-&gt;totalbytes - g-&gt;GCthreshold;
-</span></span><span style="display:flex;"><span>  do {
-</span></span><span style="display:flex;"><span>    lim -= singlestep(L);
-</span></span><span style="display:flex;"><span>    if (g-&gt;gcstate == GCSpause)
-</span></span><span style="display:flex;"><span>      break;
-</span></span><span style="display:flex;"><span>  } while (lim &gt; 0);
-</span></span><span style="display:flex;"><span>  if (g-&gt;gcstate != GCSpause) {
-</span></span><span style="display:flex;"><span>    if (g-&gt;gcdept &lt; GCSTEPSIZE)
-</span></span><span style="display:flex;"><span>      g-&gt;GCthreshold = g-&gt;totalbytes + GCSTEPSIZE;  /* - lim/g-&gt;gcstepmul;*/
-</span></span><span style="display:flex;"><span>    else {
-</span></span><span style="display:flex;"><span>      g-&gt;gcdept -= GCSTEPSIZE;
-</span></span><span style="display:flex;"><span>      g-&gt;GCthreshold = g-&gt;totalbytes;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  else {
-</span></span><span style="display:flex;"><span>    lua_assert(g-&gt;totalbytes &gt;= g-&gt;estimate);
-</span></span><span style="display:flex;"><span>    setthreshold(g);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>从代码我们可以看到，GC 的核心其实在于 singlestep 函数。<code>luaC_step</code> 每次调用多少次 singlestep 跟 gcstepmul 的值有关。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">void luaC_step (lua_State *L) {
+  global_State *g = G(L);
+  l_mem lim = (GCSTEPSIZE/100) * g-&gt;gcstepmul;
+  if (lim == 0)
+    lim = (MAX_LUMEM-1)/2;  /* no limit */
+  g-&gt;gcdept += g-&gt;totalbytes - g-&gt;GCthreshold;
+  do {
+    lim -= singlestep(L);
+    if (g-&gt;gcstate == GCSpause)
+      break;
+  } while (lim &gt; 0);
+  if (g-&gt;gcstate != GCSpause) {
+    if (g-&gt;gcdept &lt; GCSTEPSIZE)
+      g-&gt;GCthreshold = g-&gt;totalbytes + GCSTEPSIZE;  /* - lim/g-&gt;gcstepmul;*/
+    else {
+      g-&gt;gcdept -= GCSTEPSIZE;
+      g-&gt;GCthreshold = g-&gt;totalbytes;
+    }
+  }
+  else {
+    lua_assert(g-&gt;totalbytes &gt;= g-&gt;estimate);
+    setthreshold(g);
+  }
+}
+</code></pre></div><p>从代码我们可以看到，GC 的核心其实在于 singlestep 函数。<code>luaC_step</code> 每次调用多少次 singlestep 跟 gcstepmul 的值有关。</p>
 <p>如果是自动进行的 GC ，当 totalbytes 大于等于 GCthreshold 时，就会触发 <code>luaC_step</code> 。每次 <code>luaC_step</code> ，GCthreshold 都会被调高 1K (GCSTEPSIZE) 直到 GCthreshold 追上 totalbytes 。这个追赶过程通常发生在 mark 流程。因为这个流程中，totalbytes 是只增不减的。</p>
 <p>如果是手控 GC ，每次 gcstep 调用执行多少次 <code>luaC_step</code> 则跟 data 值有关。大体上是 1 就表示一次（在 mark 过程中就是这样）到了 sweep 流程就不一定了。这和 singlestep 调用次数，即 gcstepmul 的值有关。它影响了 totalbytes 的减小速度。</p>
 <p>所以，一两句话很难严格定义出这些控制 GC 步进量的参数的含义，只能慢慢阅读代码，看看实现了。</p>
@@ -465,7 +465,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">452</span>
+        <span class="site-state-item-count">453</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -525,7 +525,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

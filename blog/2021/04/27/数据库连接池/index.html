@@ -212,8 +212,8 @@
 <ul>
 <li></li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>show variables like &#39;%max_connections%&#39;;
-</span></span></code></pre></div><p>而数据库连接池负责分配、管理和释放数据库连接，它允许客户端请求复用现有的数据库连接，而不是重新建立一个。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">show variables like &#39;%max_connections%&#39;;
+</code></pre></div><p>而数据库连接池负责分配、管理和释放数据库连接，它允许客户端请求复用现有的数据库连接，而不是重新建立一个。</p>
 <p><img src="http://shanks.link/img/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%9E%E6%8E%A5%E6%B1%A0/2.png" alt=""></p>
 <p><strong>核心概念</strong></p>
 <p><strong>1. 连接数</strong></p>
@@ -228,78 +228,78 @@
 <p><img src="http://shanks.link/img/%E6%95%B0%E6%8D%AE%E5%BA%93%E8%BF%9E%E6%8E%A5%E6%B1%A0/2.png" alt=""></p>
 <p><strong>Demo实现</strong></p>
 <p>定义数据库连接池对象Pool</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>type Pool struct {
-</span></span><span style="display:flex;"><span> mu      sync.Mutex
-</span></span><span style="display:flex;"><span> minConn int // 最小连接数
-</span></span><span style="display:flex;"><span> maxConn int // 最大连接数
-</span></span><span style="display:flex;"><span> numConn int // 池已申请的连接数
-</span></span><span style="display:flex;"><span> conns   chan *DBConn //当前池中空闲连接实例
-</span></span><span style="display:flex;"><span> close   bool
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// 初始化池实例
-</span></span><span style="display:flex;"><span>func NewPool(min, max int) *Pool {
-</span></span><span style="display:flex;"><span> p := &amp;Pool{
-</span></span><span style="display:flex;"><span>  minConn: min,
-</span></span><span style="display:flex;"><span>  maxConn: max,
-</span></span><span style="display:flex;"><span>  numConn: min,
-</span></span><span style="display:flex;"><span>  conns:   make(chan *DBConn, max),
-</span></span><span style="display:flex;"><span>  close:   false,
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> for i := 0; i &lt; min; i++ {
-</span></span><span style="display:flex;"><span>  p.conns &lt;- NewDBConn()
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> return p
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>模拟数据库连接对象DBConn</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>type DBConn struct {
-</span></span><span style="display:flex;"><span> idleTime int  // 标记该数据库连接空闲时间
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// 新建数据库连接
-</span></span><span style="display:flex;"><span>func NewDBConn() *DBConn {
-</span></span><span style="display:flex;"><span> return &amp;DBConn{idleTime: 0}
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// 关闭数据库连接
-</span></span><span style="display:flex;"><span>func (d *DBConn) Close() {} 
-</span></span></code></pre></div><p>池对象方法定义</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// 从池中取出连接
-</span></span><span style="display:flex;"><span>func (p *Pool) Get() *DBConn {
-</span></span><span style="display:flex;"><span> if p.close {
-</span></span><span style="display:flex;"><span>  return nil
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> p.mu.Lock()
-</span></span><span style="display:flex;"><span> defer p.mu.Unlock()
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span> if p.numConn &gt;= p.maxConn || len(p.conns) &gt; 0 { // 保证了池申请连接数量不超过最大连接数
-</span></span><span style="display:flex;"><span>  d := &lt;-p.conns // 若池中没有可取的连接，则等待其他请求返回连接至池中再取
-</span></span><span style="display:flex;"><span>  return d
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> p.numConn++
-</span></span><span style="display:flex;"><span> return NewDBConn() //申请新的连接
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// 将连接返回池中
-</span></span><span style="display:flex;"><span>func (p *Pool) Put(d *DBConn) {
-</span></span><span style="display:flex;"><span> if p.close {
-</span></span><span style="display:flex;"><span>  return
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> p.mu.Lock()
-</span></span><span style="display:flex;"><span> defer p.mu.Unlock()
-</span></span><span style="display:flex;"><span> p.conns &lt;- d
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// 关闭池
-</span></span><span style="display:flex;"><span>func (p *Pool) Close() {
-</span></span><span style="display:flex;"><span> p.mu.Lock()
-</span></span><span style="display:flex;"><span> defer p.mu.Unlock()
-</span></span><span style="display:flex;"><span> for d := range p.conns {
-</span></span><span style="display:flex;"><span>  d.Close()
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> p.close = true
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>（左右滑动查看完整代码图片）</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">type Pool struct {
+ mu      sync.Mutex
+ minConn int // 最小连接数
+ maxConn int // 最大连接数
+ numConn int // 池已申请的连接数
+ conns   chan *DBConn //当前池中空闲连接实例
+ close   bool
+}
+
+// 初始化池实例
+func NewPool(min, max int) *Pool {
+ p := &amp;Pool{
+  minConn: min,
+  maxConn: max,
+  numConn: min,
+  conns:   make(chan *DBConn, max),
+  close:   false,
+ }
+ for i := 0; i &lt; min; i++ {
+  p.conns &lt;- NewDBConn()
+ }
+ return p
+}
+</code></pre></div><p>模拟数据库连接对象DBConn</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">type DBConn struct {
+ idleTime int  // 标记该数据库连接空闲时间
+}
+
+// 新建数据库连接
+func NewDBConn() *DBConn {
+ return &amp;DBConn{idleTime: 0}
+}
+
+// 关闭数据库连接
+func (d *DBConn) Close() {} 
+</code></pre></div><p>池对象方法定义</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">// 从池中取出连接
+func (p *Pool) Get() *DBConn {
+ if p.close {
+  return nil
+ }
+ p.mu.Lock()
+ defer p.mu.Unlock()
+
+ if p.numConn &gt;= p.maxConn || len(p.conns) &gt; 0 { // 保证了池申请连接数量不超过最大连接数
+  d := &lt;-p.conns // 若池中没有可取的连接，则等待其他请求返回连接至池中再取
+  return d
+ }
+ p.numConn++
+ return NewDBConn() //申请新的连接
+}
+
+// 将连接返回池中
+func (p *Pool) Put(d *DBConn) {
+ if p.close {
+  return
+ }
+ p.mu.Lock()
+ defer p.mu.Unlock()
+ p.conns &lt;- d
+}
+
+// 关闭池
+func (p *Pool) Close() {
+ p.mu.Lock()
+ defer p.mu.Unlock()
+ for d := range p.conns {
+  d.Close()
+ }
+ p.close = true
+}
+</code></pre></div><p>（左右滑动查看完整代码图片）</p>
 <p>考虑代码篇幅原因，本Demo并没有实现释放空闲超时的数据库连接功能，即没有对p.numConn做&ndash;计数和Pool的RemoveConn方法。实际情况中，设计连接池，还有很多因素需要考虑，例如：</p>
 <ul>
 <li>
@@ -389,7 +389,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">452</span>
+        <span class="site-state-item-count">453</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -449,7 +449,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

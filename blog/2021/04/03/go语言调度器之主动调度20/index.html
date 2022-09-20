@@ -205,75 +205,75 @@
 <p>本文是《Go语言调度器源代码情景分析》系列的第20篇，也是第五章《主动调度》的第1小节。</p>
 <p>Goroutine的主动调度是指当前正在运行的goroutine通过直接调用runtime.Gosched()函数暂时放弃运行而发生的调度。</p>
 <p>主动调度完全是用户代码自己控制的，我们根据代码就可以预见什么地方一定会发生调度。比如下面的程序，在main goroutine中创建了一个新的我们称之为g2的goroutine去执行start函数，g2在start函数的循环中反复调用Gosched()函数放弃自己的执行权，主动把CPU让给调度器去执行调度。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#f92672">import</span> (
-</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;runtime&#34;</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#e6db74">&#34;sync&#34;</span>
-</span></span><span style="display:flex;"><span>)
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">N</span> = <span style="color:#ae81ff">1</span>
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">wg</span> <span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">WaitGroup</span>
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#a6e22e">N</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#a6e22e">N</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">start</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">wg</span>)
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Wait</span>()
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">start</span>(<span style="color:#a6e22e">wg</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">WaitGroup</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#ae81ff">1000</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">1000</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">1000</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">Gosched</span>()
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Done</span>()
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>下面我们就从这个程序开始分析主动调度是如何实现的。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
+ 
+<span style="color:#f92672">import</span> (
+    <span style="color:#e6db74">&#34;runtime&#34;</span>
+    <span style="color:#e6db74">&#34;sync&#34;</span>
+)
+ 
+<span style="color:#66d9ef">const</span> <span style="color:#a6e22e">N</span> = <span style="color:#ae81ff">1</span>
+ 
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
+    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">wg</span> <span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">WaitGroup</span>
+ 
+    <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Add</span>(<span style="color:#a6e22e">N</span>)
+    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#a6e22e">N</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+        <span style="color:#66d9ef">go</span> <span style="color:#a6e22e">start</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">wg</span>)
+    }
+    <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Wait</span>()
+}
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">start</span>(<span style="color:#a6e22e">wg</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">WaitGroup</span>) {
+    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#ae81ff">1000</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">1000</span> <span style="color:#f92672">*</span> <span style="color:#ae81ff">1000</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+        <span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">Gosched</span>()
+    }
+    <span style="color:#a6e22e">wg</span>.<span style="color:#a6e22e">Done</span>()
+}
+</code></pre></div><p>下面我们就从这个程序开始分析主动调度是如何实现的。</p>
 <p>首先从主动调度的入口函数Gosched()开始分析。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">262</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Gosched yields the processor, allowing other goroutines to run. It does not
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// suspend the current goroutine, so execution resumes automatically.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">Gosched</span>() {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">checkTimeouts</span>() <span style="color:#75715e">//amd64 linux平台空函数
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//切换到当前m的g0栈执行gosched_m函数
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">mcall</span>(<span style="color:#a6e22e">gosched_m</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//再次被调度起来则从这里开始继续运行
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
-</span></span></code></pre></div><p>因为我们需要关注程序运行起来之后g2 goroutine的状态，所以这里用gdb配合源代码一起来进行调试和分析，首先使用b proc.go:266在Gosched函数的mcall(gosched_m)这一行设置一个断点，然后运行程序，等程序被断下来之后，反汇编一下程序当前正在执行的函数</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> disass
-</span></span><span style="display:flex;"><span>Dump of assembler code <span style="color:#66d9ef">for</span> <span style="color:#66d9ef">function</span> main.start:
-</span></span><span style="display:flex;"><span>     0x000000000044fc90 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
-</span></span><span style="display:flex;"><span>     0x000000000044fc99 &lt;+9&gt;:cmp   0x10<span style="color:#f92672">(</span>%rcx<span style="color:#f92672">)</span>,%rsp
-</span></span><span style="display:flex;"><span>     0x000000000044fc9d &lt;+13&gt;:jbe   0x44fcfa &lt;main.start+106&gt;
-</span></span><span style="display:flex;"><span>     0x000000000044fc9f &lt;+15&gt;:sub   $0x20,%rsp
-</span></span><span style="display:flex;"><span>     0x000000000044fca3 &lt;+19&gt;:mov   %rbp,0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
-</span></span><span style="display:flex;"><span>     0x000000000044fca8 &lt;+24&gt;:lea   0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rbp
-</span></span><span style="display:flex;"><span>     0x000000000044fcad &lt;+29&gt;:xor   %eax,%eax
-</span></span><span style="display:flex;"><span>     0x000000000044fcaf &lt;+31&gt;:jmp   0x44fcd0 &lt;main.start+64&gt;
-</span></span><span style="display:flex;"><span>     0x000000000044fcb1 &lt;+33&gt;:mov   %rax,0x10<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
-</span></span><span style="display:flex;"><span>     0x000000000044fcb6 &lt;+38&gt;:nop
-</span></span><span style="display:flex;"><span>     0x000000000044fcb7 &lt;+39&gt;:nop
-</span></span><span style="display:flex;"><span><span style="color:#f92672">=</span>&gt; 0x000000000044fcb8 &lt;+40&gt;:lea   0x241e1<span style="color:#f92672">(</span>%rip<span style="color:#f92672">)</span>,%rax        <span style="color:#75715e"># 0x473ea0</span>
-</span></span><span style="display:flex;"><span>     0x000000000044fcbf &lt;+47&gt;:mov   %rax,<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
-</span></span><span style="display:flex;"><span>     0x000000000044fcc3 &lt;+51&gt;:callq 0x447380 &lt;runtime.mcall&gt;
-</span></span><span style="display:flex;"><span>     0x000000000044fcc8 &lt;+56&gt;:mov   0x10<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
-</span></span><span style="display:flex;"><span>     0x000000000044fccd &lt;+61&gt;:inc   %rax
-</span></span><span style="display:flex;"><span>     0x000000000044fcd0 &lt;+64&gt;:cmp   $0x3b9aca00,%rax
-</span></span><span style="display:flex;"><span>     0x000000000044fcd6 &lt;+70&gt;:jl     0x44fcb1 &lt;main.start+33&gt;
-</span></span><span style="display:flex;"><span>     0x000000000044fcd8 &lt;+72&gt;:nop
-</span></span><span style="display:flex;"><span>    0x000000000044fcd9 &lt;+73&gt;:mov   0x28<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
-</span></span><span style="display:flex;"><span>     0x000000000044fcde &lt;+78&gt;:mov   %rax,<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
-</span></span><span style="display:flex;"><span>     0x000000000044fce2 &lt;+82&gt;:movq   $0xffffffffffffffff,0x8<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
-</span></span><span style="display:flex;"><span>     0x000000000044fceb &lt;+91&gt;:callq 0x44f8f0 &lt;sync.<span style="color:#f92672">(</span>*WaitGroup<span style="color:#f92672">)</span>.Add&gt;
-</span></span><span style="display:flex;"><span>     0x000000000044fcf0 &lt;+96&gt;:mov   0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rbp
-</span></span><span style="display:flex;"><span>     0x000000000044fcf5 &lt;+101&gt;:add   $0x20,%rsp
-</span></span><span style="display:flex;"><span>     0x000000000044fcf9 &lt;+105&gt;:retq   
-</span></span><span style="display:flex;"><span>     0x000000000044fcfa &lt;+106&gt;:callq 0x447550 &lt;runtime.morestack_noctxt&gt;
-</span></span><span style="display:flex;"><span>     0x000000000044fcff &lt;+111&gt;:jmp   0x44fc90 &lt;main.start&gt;
-</span></span></code></pre></div><p>可以看到当前正在执行的函数是main.start而不是runtime.Gosched，在整个start函数中都找不到Gosched函数的身影，原来它被编译器优化了。程序现在停在了0x000000000044fcb8 &lt;+40&gt;: lea 0x241e1(%rip),%rax 这一指令处，该指令下面的第二条callq指令在调用runtime.mcall，我们首先使用si 2来执行2条汇编指令让程序停在下面这条指令处：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">262</span>
+
+<span style="color:#75715e">// Gosched yields the processor, allowing other goroutines to run. It does not
+</span><span style="color:#75715e">// suspend the current goroutine, so execution resumes automatically.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">Gosched</span>() {
+    <span style="color:#a6e22e">checkTimeouts</span>() <span style="color:#75715e">//amd64 linux平台空函数
+</span><span style="color:#75715e"></span>   
+    <span style="color:#75715e">//切换到当前m的g0栈执行gosched_m函数
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">mcall</span>(<span style="color:#a6e22e">gosched_m</span>)
+    <span style="color:#75715e">//再次被调度起来则从这里开始继续运行
+</span><span style="color:#75715e"></span>}
+</code></pre></div><p>因为我们需要关注程序运行起来之后g2 goroutine的状态，所以这里用gdb配合源代码一起来进行调试和分析，首先使用b proc.go:266在Gosched函数的mcall(gosched_m)这一行设置一个断点，然后运行程序，等程序被断下来之后，反汇编一下程序当前正在执行的函数</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#f92672">(</span>gdb<span style="color:#f92672">)</span> disass
+Dump of assembler code <span style="color:#66d9ef">for</span> <span style="color:#66d9ef">function</span> main.start:
+     0x000000000044fc90 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
+     0x000000000044fc99 &lt;+9&gt;:cmp   0x10<span style="color:#f92672">(</span>%rcx<span style="color:#f92672">)</span>,%rsp
+     0x000000000044fc9d &lt;+13&gt;:jbe   0x44fcfa &lt;main.start+106&gt;
+     0x000000000044fc9f &lt;+15&gt;:sub   $0x20,%rsp
+     0x000000000044fca3 &lt;+19&gt;:mov   %rbp,0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+     0x000000000044fca8 &lt;+24&gt;:lea   0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rbp
+     0x000000000044fcad &lt;+29&gt;:xor   %eax,%eax
+     0x000000000044fcaf &lt;+31&gt;:jmp   0x44fcd0 &lt;main.start+64&gt;
+     0x000000000044fcb1 &lt;+33&gt;:mov   %rax,0x10<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+     0x000000000044fcb6 &lt;+38&gt;:nop
+     0x000000000044fcb7 &lt;+39&gt;:nop
+<span style="color:#f92672">=</span>&gt; 0x000000000044fcb8 &lt;+40&gt;:lea   0x241e1<span style="color:#f92672">(</span>%rip<span style="color:#f92672">)</span>,%rax        <span style="color:#75715e"># 0x473ea0</span>
+     0x000000000044fcbf &lt;+47&gt;:mov   %rax,<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+     0x000000000044fcc3 &lt;+51&gt;:callq 0x447380 &lt;runtime.mcall&gt;
+     0x000000000044fcc8 &lt;+56&gt;:mov   0x10<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
+     0x000000000044fccd &lt;+61&gt;:inc   %rax
+     0x000000000044fcd0 &lt;+64&gt;:cmp   $0x3b9aca00,%rax
+     0x000000000044fcd6 &lt;+70&gt;:jl     0x44fcb1 &lt;main.start+33&gt;
+     0x000000000044fcd8 &lt;+72&gt;:nop
+    0x000000000044fcd9 &lt;+73&gt;:mov   0x28<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rax
+     0x000000000044fcde &lt;+78&gt;:mov   %rax,<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+     0x000000000044fce2 &lt;+82&gt;:movq   $0xffffffffffffffff,0x8<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>
+     0x000000000044fceb &lt;+91&gt;:callq 0x44f8f0 &lt;sync.<span style="color:#f92672">(</span>*WaitGroup<span style="color:#f92672">)</span>.Add&gt;
+     0x000000000044fcf0 &lt;+96&gt;:mov   0x18<span style="color:#f92672">(</span>%rsp<span style="color:#f92672">)</span>,%rbp
+     0x000000000044fcf5 &lt;+101&gt;:add   $0x20,%rsp
+     0x000000000044fcf9 &lt;+105&gt;:retq   
+     0x000000000044fcfa &lt;+106&gt;:callq 0x447550 &lt;runtime.morestack_noctxt&gt;
+     0x000000000044fcff &lt;+111&gt;:jmp   0x44fc90 &lt;main.start&gt;
+</code></pre></div><p>可以看到当前正在执行的函数是main.start而不是runtime.Gosched，在整个start函数中都找不到Gosched函数的身影，原来它被编译器优化了。程序现在停在了0x000000000044fcb8 &lt;+40&gt;: lea 0x241e1(%rip),%rax 这一指令处，该指令下面的第二条callq指令在调用runtime.mcall，我们首先使用si 2来执行2条汇编指令让程序停在下面这条指令处：</p>
 <p>=&gt; 0x000000000044fcc3 &lt;+51&gt;: callq 0x447380 &lt;runtime.mcall&gt;
 然后使用i r rsp rbp rip记录一下CPU的rsp、rbp和rip寄存器的值备用：</p>
 <p>(gdb) i r rsp rbp rip
@@ -285,29 +285,29 @@ rip     0x44fcc3             0x44fcc3 &lt;main.start+51&gt;
 <p>把保存在g0的sched.sp和sched.bp字段中的值分别恢复到CPU的rsp和rbp寄存器，这样完成从g2的栈到g0的栈的切换；</p>
 <p>在g0栈执行gosched_m函数（gosched_m函数是runtime.Gosched函数调用mcall时传递给mcall的参数）。</p>
 <p>继续看gosched_m函数</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2623</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Gosched continuation on g0.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">gosched_m</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">enabled</span> { <span style="color:#75715e">//traceback 不关注
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">traceGoSched</span>()
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">goschedImpl</span>(<span style="color:#a6e22e">gp</span>)  <span style="color:#75715e">//我们这个场景：gp = g2
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
-</span></span></code></pre></div><p>gosched_m函数只是简单的在调用goschedImpl：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2608</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goschedImpl</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">casgstatus</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_Grunning</span>, <span style="color:#a6e22e">_Grunnable</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">dropg</span>() <span style="color:#75715e">//设置当前m.curg = nil, gp.m = nil
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">globrunqput</span>(<span style="color:#a6e22e">gp</span>) <span style="color:#75715e">//把gp放入sched的全局运行队列runq
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">schedule</span>() <span style="color:#75715e">//进入新一轮调度
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
-</span></span></code></pre></div><p>goschedImpl函数有一个g指针类型的形参，我们这个场景传递给它的实参是g2，goschedImpl函数首先把g2的状态从_Grunning设置为_Grunnable，并通过dropg函数解除当前工作线程m和g2之间的关系（把m.curg设置成nil，把g2.m设置成nil），然后通过调用我们已经分析过的globrunqput函数把g2放入全局运行队列之中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2623</span>
+
+<span style="color:#75715e">// Gosched continuation on g0.
+</span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">gosched_m</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>) {
+    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">enabled</span> { <span style="color:#75715e">//traceback 不关注
+</span><span style="color:#75715e"></span>        <span style="color:#a6e22e">traceGoSched</span>()
+    }
+    <span style="color:#a6e22e">goschedImpl</span>(<span style="color:#a6e22e">gp</span>)  <span style="color:#75715e">//我们这个场景：gp = g2
+</span><span style="color:#75715e"></span>}
+</code></pre></div><p>gosched_m函数只是简单的在调用goschedImpl：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2608</span>
+
+<span style="color:#66d9ef">func</span> <span style="color:#a6e22e">goschedImpl</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>) {
+    <span style="color:#f92672">......</span>
+    <span style="color:#a6e22e">casgstatus</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_Grunning</span>, <span style="color:#a6e22e">_Grunnable</span>)
+    <span style="color:#a6e22e">dropg</span>() <span style="color:#75715e">//设置当前m.curg = nil, gp.m = nil
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
+    <span style="color:#a6e22e">globrunqput</span>(<span style="color:#a6e22e">gp</span>) <span style="color:#75715e">//把gp放入sched的全局运行队列runq
+</span><span style="color:#75715e"></span>    <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
+ 
+    <span style="color:#a6e22e">schedule</span>() <span style="color:#75715e">//进入新一轮调度
+</span><span style="color:#75715e"></span>}
+</code></pre></div><p>goschedImpl函数有一个g指针类型的形参，我们这个场景传递给它的实参是g2，goschedImpl函数首先把g2的状态从_Grunning设置为_Grunnable，并通过dropg函数解除当前工作线程m和g2之间的关系（把m.curg设置成nil，把g2.m设置成nil），然后通过调用我们已经分析过的globrunqput函数把g2放入全局运行队列之中。</p>
 <p>g2被挂入全局运行队列之后，g2以及其它一些相关部分的状态和关系如下图所示：</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/5c3d766232ff4dbba2a447b72e96aeaa.png" alt=""></p>
 <p>从上图我们可以清晰的看到，g2被挂在了sched的全局运行队列里面，该队列有一个head头指针指向队列中的第一个g对象，还有一个tail尾指针指向队列中的最后一个g对象，队列中各个g对象通过g的schedlink指针成员相互链接起在一起；g2的sched结构体成员中保存了调度所需的所有现场信息（比如栈寄存器sp和bp的值，pc指令寄存器的值等等），这样当g2下次被schedule函数调度时，gogo函数会负责把这些信息恢复到CPU的rsp, rbp和rip寄存器中，从而使g2又得以从0x44fcc8地址处开始在g2的栈中执行g2的代码。</p>
@@ -389,7 +389,7 @@ rip     0x44fcc3             0x44fcc3 &lt;main.start+51&gt;
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">452</span>
+        <span class="site-state-item-count">453</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
@@ -449,7 +449,7 @@ rip     0x44fcc3             0x44fcc3 &lt;main.start+51&gt;
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
