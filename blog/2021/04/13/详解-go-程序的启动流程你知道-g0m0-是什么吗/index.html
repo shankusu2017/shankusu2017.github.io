@@ -205,38 +205,38 @@
 <h2 id="详解-go-程序的启动流程你知道-g0m0-是什么吗">详解 Go 程序的启动流程，你知道 g0，m0 是什么吗？</h2>
 <p>大家好，我是煎鱼。</p>
 <p>自古应用程序均从 Hello World 开始，你我所写的 Go 语言亦然：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">import &#34;fmt&#34;
-
-func main() {
- fmt.Println(&#34;hello world.&#34;)
-}
-</code></pre></div><p>这段程序的输出结果为 <code>hello world.</code>，就是这么的简单又直接。但这时候又不禁思考了起来，这个 <code>hello world.</code> 是怎么输出来，经历了什么过程。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>import &#34;fmt&#34;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>func main() {
+</span></span><span style="display:flex;"><span> fmt.Println(&#34;hello world.&#34;)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这段程序的输出结果为 <code>hello world.</code>，就是这么的简单又直接。但这时候又不禁思考了起来，这个 <code>hello world.</code> 是怎么输出来，经历了什么过程。</p>
 <p>真是非常的好奇，今天我们就一起来探一探 Go 程序的启动流程。其中涉及到 Go Runtime 的调度器启动，g0，m0 又是什么？</p>
 <p>车门焊死，正式开始吸鱼之路。</p>
 <h2 id="go-引导阶段">Go 引导阶段</h2>
 <h3 id="查找入口">查找入口</h3>
 <p>首先编译上文提到的示例程序：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">$ GOFLAGS=&#34;-ldflags=-compressdwarf=false&#34; go build 
-</code></pre></div><p>在命令中指定了 GOFLAGS 参数，这是因为在 Go1.11 起，为了减少二进制文件大小，调试信息会被压缩。导致在 MacOS 上使用 gdb 时无法理解压缩的 DWARF 的含义是什么（而我恰恰就是用的 MacOS）。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ GOFLAGS=&#34;-ldflags=-compressdwarf=false&#34; go build 
+</span></span></code></pre></div><p>在命令中指定了 GOFLAGS 参数，这是因为在 Go1.11 起，为了减少二进制文件大小，调试信息会被压缩。导致在 MacOS 上使用 gdb 时无法理解压缩的 DWARF 的含义是什么（而我恰恰就是用的 MacOS）。</p>
 <p>因此需要在本次调试中将其关闭，再使用 gdb 进行调试，以此达到观察的目的：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">$ gdb awesomeProject 
-(gdb) info files
-Symbols from &#34;/Users/eddycjy/go-application/awesomeProject/awesomeProject&#34;.
-Local exec file:
- `/Users/eddycjy/go-application/awesomeProject/awesomeProject&#39;, file type mach-o-x86-64.
- Entry point: 0x1063c80
- 0x0000000001001000 - 0x00000000010a6aca is .text
- ...
-(gdb) b *0x1063c80
-Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt0_darwin_amd64.s, line 8.
-</code></pre></div><p>通过 Entry point 的调试，可看到真正的程序入口在 runtime 包中，不同的计算机架构指向不同。例如：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ gdb awesomeProject 
+</span></span><span style="display:flex;"><span>(gdb) info files
+</span></span><span style="display:flex;"><span>Symbols from &#34;/Users/eddycjy/go-application/awesomeProject/awesomeProject&#34;.
+</span></span><span style="display:flex;"><span>Local exec file:
+</span></span><span style="display:flex;"><span> `/Users/eddycjy/go-application/awesomeProject/awesomeProject&#39;, file type mach-o-x86-64.
+</span></span><span style="display:flex;"><span> Entry point: 0x1063c80
+</span></span><span style="display:flex;"><span> 0x0000000001001000 - 0x00000000010a6aca is .text
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span>(gdb) b *0x1063c80
+</span></span><span style="display:flex;"><span>Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt0_darwin_amd64.s, line 8.
+</span></span></code></pre></div><p>通过 Entry point 的调试，可看到真正的程序入口在 runtime 包中，不同的计算机架构指向不同。例如：</p>
 <ul>
 <li>MacOS 在 <code>src/runtime/rt0_darwin_amd64.s</code>。</li>
 <li>Linux 在 <code>src/runtime/rt0_linux_amd64.s</code>。</li>
 </ul>
 <p>其最终指向了 rt0_darwin_amd64.s 文件，这个文件名称非常的直观：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt0_darwin_amd64.s, line 8.
-</code></pre></div><p>rt0 代表 runtime0 的缩写，指代运行时的创世，超级奶爸：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt0_darwin_amd64.s, line 8.
+</span></span></code></pre></div><p>rt0 代表 runtime0 的缩写，指代运行时的创世，超级奶爸：</p>
 <ul>
 <li>darwin 代表目标操作系统（GOOS）。</li>
 <li>amd64 代表目标操作系统架构（GOHOSTARCH）。</li>
@@ -246,41 +246,41 @@ Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt
 <p>若有兴趣可到 <code>src/runtime</code> 目录下进一步查看，这里就不一一介绍了。</p>
 <h3 id="入口方法">入口方法</h3>
 <p>在 rt0_linux_amd64.s 文件中，可发现 <code>_rt0_amd64_darwin</code> JMP 跳转到了 <code>_rt0_amd64</code> 方法：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">TEXT _rt0_amd64_darwin(SB),NOSPLIT,$-8
- JMP _rt0_amd64(SB)
-...
-</code></pre></div><p>紧接着又跳转到 <code>runtime·rt0_go</code> 方法：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">TEXT _rt0_amd64(SB),NOSPLIT,$-8
- MOVQ 0(SP), DI // argc
- LEAQ 8(SP), SI // argv
- JMP runtime·rt0_go(SB)
-</code></pre></div><p>该方法将程序输入的 argc 和 argv 从内存移动到寄存器中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>TEXT _rt0_amd64_darwin(SB),NOSPLIT,$-8
+</span></span><span style="display:flex;"><span> JMP _rt0_amd64(SB)
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><p>紧接着又跳转到 <code>runtime·rt0_go</code> 方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>TEXT _rt0_amd64(SB),NOSPLIT,$-8
+</span></span><span style="display:flex;"><span> MOVQ 0(SP), DI // argc
+</span></span><span style="display:flex;"><span> LEAQ 8(SP), SI // argv
+</span></span><span style="display:flex;"><span> JMP runtime·rt0_go(SB)
+</span></span></code></pre></div><p>该方法将程序输入的 argc 和 argv 从内存移动到寄存器中。</p>
 <p>栈指针（SP）的前两个值分别是 argc 和 argv，其对应参数的数量和具体各参数的值。</p>
 <h3 id="开启主线">开启主线</h3>
 <p>程序参数准备就绪后，正式初始化的方法落在 <code>runtime·rt0_go</code> 方法中：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">TEXT runtime·rt0_go(SB),NOSPLIT,$0
- ...
- CALL runtime·check(SB)
- MOVL 16(SP), AX  // copy argc
- MOVL AX, 0(SP)
- MOVQ 24(SP), AX  // copy argv
- MOVQ AX, 8(SP)
- CALL runtime·args(SB)
- CALL runtime·osinit(SB)
- CALL runtime·schedinit(SB)
-
- // create a new goroutine to start program
- MOVQ $runtime·mainPC(SB), AX  // entry
- PUSHQ AX
- PUSHQ $0   // arg size
- CALL runtime·newproc(SB)
- POPQ AX
- POPQ AX
-
- // start this M
- CALL runtime·mstart(SB)
- ...
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>TEXT runtime·rt0_go(SB),NOSPLIT,$0
+</span></span><span style="display:flex;"><span> ...
+</span></span><span style="display:flex;"><span> CALL runtime·check(SB)
+</span></span><span style="display:flex;"><span> MOVL 16(SP), AX  // copy argc
+</span></span><span style="display:flex;"><span> MOVL AX, 0(SP)
+</span></span><span style="display:flex;"><span> MOVQ 24(SP), AX  // copy argv
+</span></span><span style="display:flex;"><span> MOVQ AX, 8(SP)
+</span></span><span style="display:flex;"><span> CALL runtime·args(SB)
+</span></span><span style="display:flex;"><span> CALL runtime·osinit(SB)
+</span></span><span style="display:flex;"><span> CALL runtime·schedinit(SB)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> // create a new goroutine to start program
+</span></span><span style="display:flex;"><span> MOVQ $runtime·mainPC(SB), AX  // entry
+</span></span><span style="display:flex;"><span> PUSHQ AX
+</span></span><span style="display:flex;"><span> PUSHQ $0   // arg size
+</span></span><span style="display:flex;"><span> CALL runtime·newproc(SB)
+</span></span><span style="display:flex;"><span> POPQ AX
+</span></span><span style="display:flex;"><span> POPQ AX
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> // start this M
+</span></span><span style="display:flex;"><span> CALL runtime·mstart(SB)
+</span></span><span style="display:flex;"><span> ...
+</span></span></code></pre></div><ul>
 <li>runtime.check：运行时类型检查，主要是校验编译器的翻译工作是否正确，是否有 “坑”。基本代码均为检查 <code>int8</code> 在 <code>unsafe.Sizeof</code> 方法下是否等于 1 这类动作。</li>
 <li>runtime.args：系统参数传递，主要是将系统参数转换传递给程序使用。</li>
 <li>runtime.osinit：系统基本参数设置，主要是获取 CPU 核心数和内存物理页大小。</li>
@@ -307,33 +307,33 @@ Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt
 <p>知道了 Go 程序是怎么引导起来的之后，我们需要了解 Go Runtime 中调度器是怎么流转的。</p>
 <h3 id="runtimemstart">runtime.mstart</h3>
 <p>这里主要关注 <code>runtime.mstart</code> 方法：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func mstart() {
- // 获取 g0
- _g_ := getg()
-
- // 确定栈边界
- osStack := _g_.stack.lo == 0
- if osStack {
-  size := _g_.stack.hi
-  if size == 0 {
-   size = 8192 * sys.StackGuardMultiplier
-  }
-  _g_.stack.hi = uintptr(noescape(unsafe.Pointer(&amp;size)))
-  _g_.stack.lo = _g_.stack.hi - size + 1024
- }
- _g_.stackguard0 = _g_.stack.lo + _StackGuard
- _g_.stackguard1 = _g_.stackguard0
-  
-  // 启动 m，进行调度器循环调度
- mstart1()
-
- // 退出线程
- if mStackIsSystemAllocated() {
-  osStack = true
- }
- mexit(osStack)
-}
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func mstart() {
+</span></span><span style="display:flex;"><span> // 获取 g0
+</span></span><span style="display:flex;"><span> _g_ := getg()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> // 确定栈边界
+</span></span><span style="display:flex;"><span> osStack := _g_.stack.lo == 0
+</span></span><span style="display:flex;"><span> if osStack {
+</span></span><span style="display:flex;"><span>  size := _g_.stack.hi
+</span></span><span style="display:flex;"><span>  if size == 0 {
+</span></span><span style="display:flex;"><span>   size = 8192 * sys.StackGuardMultiplier
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  _g_.stack.hi = uintptr(noescape(unsafe.Pointer(&amp;size)))
+</span></span><span style="display:flex;"><span>  _g_.stack.lo = _g_.stack.hi - size + 1024
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> _g_.stackguard0 = _g_.stack.lo + _StackGuard
+</span></span><span style="display:flex;"><span> _g_.stackguard1 = _g_.stackguard0
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  // 启动 m，进行调度器循环调度
+</span></span><span style="display:flex;"><span> mstart1()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> // 退出线程
+</span></span><span style="display:flex;"><span> if mStackIsSystemAllocated() {
+</span></span><span style="display:flex;"><span>  osStack = true
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> mexit(osStack)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
 <li>调用 <code>getg</code> 方法获取 GMP 模型中的 g，此处获取的是 g0。</li>
 <li>通过检查 g 的执行栈 <code>_g_.stack</code> 的边界（堆栈的边界正好是 lo, hi）来确定是否为系统栈。若是，则根据系统栈初始化 g 执行栈的边界。</li>
 <li>调用 <code>mstart1</code> 方法启动系统线程 m，进行调度器循环调度。</li>
@@ -341,34 +341,34 @@ Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt
 </ul>
 <h3 id="runtimemstart1">runtime.mstart1</h3>
 <p>这么看来其实质逻辑在 <code>mstart1</code> 方法，我们继续往下剖析：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func mstart1() {
- // 获取 g，并判断是否为 g0
- _g_ := getg()
- if _g_ != _g_.m.g0 {
-  throw(&#34;bad runtime·mstart&#34;)
- }
-
- // 初始化 m 并记录调用方 pc、sp
- save(getcallerpc(), getcallersp())
- asminit()
- minit()
-
- // 设置信号 handler
- if _g_.m == &amp;m0 {
-  mstartm0()
- }
- // 运行启动函数
- if fn := _g_.m.mstartfn; fn != nil {
-  fn()
- }
-
- if _g_.m != &amp;m0 {
-  acquirep(_g_.m.nextp.ptr())
-  _g_.m.nextp = 0
- }
- schedule()
-}
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func mstart1() {
+</span></span><span style="display:flex;"><span> // 获取 g，并判断是否为 g0
+</span></span><span style="display:flex;"><span> _g_ := getg()
+</span></span><span style="display:flex;"><span> if _g_ != _g_.m.g0 {
+</span></span><span style="display:flex;"><span>  throw(&#34;bad runtime·mstart&#34;)
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> // 初始化 m 并记录调用方 pc、sp
+</span></span><span style="display:flex;"><span> save(getcallerpc(), getcallersp())
+</span></span><span style="display:flex;"><span> asminit()
+</span></span><span style="display:flex;"><span> minit()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> // 设置信号 handler
+</span></span><span style="display:flex;"><span> if _g_.m == &amp;m0 {
+</span></span><span style="display:flex;"><span>  mstartm0()
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> // 运行启动函数
+</span></span><span style="display:flex;"><span> if fn := _g_.m.mstartfn; fn != nil {
+</span></span><span style="display:flex;"><span>  fn()
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> if _g_.m != &amp;m0 {
+</span></span><span style="display:flex;"><span>  acquirep(_g_.m.nextp.ptr())
+</span></span><span style="display:flex;"><span>  _g_.m.nextp = 0
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> schedule()
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
 <li>调用 <code>getg</code> 方法获取 g。并且通过前面绑定的 <code>_g_.m.g0</code> 判断所获取的 g 是否 g0。若不是，则直接抛出致命错误。因为调度器仅在 g0 上运行。</li>
 <li>调用 <code>minit</code> 方法初始化 m，并记录调用方的 PC、SP，便于后续 schedule 阶段时的复用。</li>
 <li>若确定当前的 g 所绑定的 m 是 m0，则调用 <code>mstartm0</code> 方法，设置信号 handler。该动作必须在 <code>minit</code> 方法之后，这样 <code>minit</code> 方法可以提前准备好线程，以便能够处理信号。</li>
@@ -491,14 +491,14 @@ Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">453</span>
+        <span class="site-state-item-count">454</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
     <div class="site-state-item site-state-categories">    
         <a href="http://shanks.link/categories/">      
          
-        <span class="site-state-item-count">25</span>
+        <span class="site-state-item-count">26</span>
         
         <span class="site-state-item-name">分类</span>
         
@@ -508,7 +508,7 @@ Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt
     <div class="site-state-item site-state-tags">
         <a href="http://shanks.link/tags/">
          
-        <span class="site-state-item-count">31</span>
+        <span class="site-state-item-count">32</span>
         
         <span class="site-state-item-name">标签</span>
         </a>
@@ -551,7 +551,7 @@ Breakpoint 1 at 0x1063c80: file /usr/local/Cellar/go/1.15/libexec/src/runtime/rt
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

@@ -207,106 +207,106 @@
 <p>所有的 GC 流程，都从 singlestep 函数开始。singlestep 就是一个最简单的状态机。GC 状态简单的从一个状态切换到下一个状态，循环不止。状态标识放在 global state 的 gcstate 域中。这一点前面谈过。</p>
 <p>开始的两个状态和 mark 过程有关。</p>
 <p>初始的 GCSpause 状态下，执行 markroot 函数。我们来看一下 markroot 的代码。见 lgc.c 的 501 行。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">/* mark root set */
-static void markroot (lua_State *L) {
-  global_State *g = G(L);
-  g-&gt;gray = NULL;
-  g-&gt;grayagain = NULL;
-  g-&gt;weak = NULL;
-  markobject(g, g-&gt;mainthread);
-  /* make global table be traversed before main stack */
-  markvalue(g, gt(g-&gt;mainthread));
-  markvalue(g, registry(L));
-  markmt(g);
-  g-&gt;gcstate = GCSpropagate;
-}
-</code></pre></div><p>主要是把状态复位的操作以及标记根节点。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/* mark root set */
+</span></span><span style="display:flex;"><span>static void markroot (lua_State *L) {
+</span></span><span style="display:flex;"><span>  global_State *g = G(L);
+</span></span><span style="display:flex;"><span>  g-&gt;gray = NULL;
+</span></span><span style="display:flex;"><span>  g-&gt;grayagain = NULL;
+</span></span><span style="display:flex;"><span>  g-&gt;weak = NULL;
+</span></span><span style="display:flex;"><span>  markobject(g, g-&gt;mainthread);
+</span></span><span style="display:flex;"><span>  /* make global table be traversed before main stack */
+</span></span><span style="display:flex;"><span>  markvalue(g, gt(g-&gt;mainthread));
+</span></span><span style="display:flex;"><span>  markvalue(g, registry(L));
+</span></span><span style="display:flex;"><span>  markmt(g);
+</span></span><span style="display:flex;"><span>  g-&gt;gcstate = GCSpropagate;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>主要是把状态复位的操作以及标记根节点。</p>
 <p>lua 采用是 <a href="http://en.wikipedia.org/wiki/Garbage_collection_(computer_science)#Tri-colour_marking">Tri-colour marking GC 算法</a> 。需要维护一个灰色节点集。这里用 gary 存放。grayagain 保存着需要原子操作标记的灰色节点。</p>
 <p>weak 保存着需要清理的 weak 表。</p>
 <p>这里的 markobject 和 markvalue 都是用宏实现的。区别仅在于操作的是 GCObject 还是 TValue 。最终都是通过调用 reallymarkobject 实现的。markmt 也是直接 mark 的 global state 中的若干元表。这些元表作用于基本的几个数据类型。这些加起来成为整个数据的根。对 lua 语言有所了解的话，不难理解这几行实现。</p>
 <p>核心的实现见 lgc.c 的 69 行</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">static void reallymarkobject (global_State *g, GCObject *o) {
-  lua_assert(iswhite(o) &amp;&amp; !isdead(g, o));
-  white2gray(o);
-  switch (o-&gt;gch.tt) {
-    case LUA_TSTRING: {
-      return;
-    }
-    case LUA_TUSERDATA: {
-      Table *mt = gco2u(o)-&gt;metatable;
-      gray2black(o);  /* udata are never gray */
-      if (mt) markobject(g, mt);
-      markobject(g, gco2u(o)-&gt;env);
-      return;
-    }
-    case LUA_TUPVAL: {
-      UpVal *uv = gco2uv(o);
-      markvalue(g, uv-&gt;v);
-      if (uv-&gt;v == &amp;uv-&gt;u.value)  /* closed? */
-        gray2black(o);  /* open upvalues are never black */
-      return;
-    }
-    case LUA_TFUNCTION: {
-      gco2cl(o)-&gt;c.gclist = g-&gt;gray;
-      g-&gt;gray = o;
-      break;
-    }
-    case LUA_TTABLE: {
-      gco2h(o)-&gt;gclist = g-&gt;gray;
-      g-&gt;gray = o;
-      break;
-    }
-    case LUA_TTHREAD: {
-      gco2th(o)-&gt;gclist = g-&gt;gray;
-      g-&gt;gray = o;
-      break;
-    }
-    case LUA_TPROTO: {
-      gco2p(o)-&gt;gclist = g-&gt;gray;
-      g-&gt;gray = o;
-      break;
-    }
-    default: lua_assert(0);
-  }
-}
-</code></pre></div><p>它按 GCObject 的实际类型来 mark 它。reallymarkobject 的时间复杂度是 O(1) 的，它不会递归标记相关对象，虽然大多数 GCObject 都关联有其它对象。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void reallymarkobject (global_State *g, GCObject *o) {
+</span></span><span style="display:flex;"><span>  lua_assert(iswhite(o) &amp;&amp; !isdead(g, o));
+</span></span><span style="display:flex;"><span>  white2gray(o);
+</span></span><span style="display:flex;"><span>  switch (o-&gt;gch.tt) {
+</span></span><span style="display:flex;"><span>    case LUA_TSTRING: {
+</span></span><span style="display:flex;"><span>      return;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    case LUA_TUSERDATA: {
+</span></span><span style="display:flex;"><span>      Table *mt = gco2u(o)-&gt;metatable;
+</span></span><span style="display:flex;"><span>      gray2black(o);  /* udata are never gray */
+</span></span><span style="display:flex;"><span>      if (mt) markobject(g, mt);
+</span></span><span style="display:flex;"><span>      markobject(g, gco2u(o)-&gt;env);
+</span></span><span style="display:flex;"><span>      return;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    case LUA_TUPVAL: {
+</span></span><span style="display:flex;"><span>      UpVal *uv = gco2uv(o);
+</span></span><span style="display:flex;"><span>      markvalue(g, uv-&gt;v);
+</span></span><span style="display:flex;"><span>      if (uv-&gt;v == &amp;uv-&gt;u.value)  /* closed? */
+</span></span><span style="display:flex;"><span>        gray2black(o);  /* open upvalues are never black */
+</span></span><span style="display:flex;"><span>      return;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    case LUA_TFUNCTION: {
+</span></span><span style="display:flex;"><span>      gco2cl(o)-&gt;c.gclist = g-&gt;gray;
+</span></span><span style="display:flex;"><span>      g-&gt;gray = o;
+</span></span><span style="display:flex;"><span>      break;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    case LUA_TTABLE: {
+</span></span><span style="display:flex;"><span>      gco2h(o)-&gt;gclist = g-&gt;gray;
+</span></span><span style="display:flex;"><span>      g-&gt;gray = o;
+</span></span><span style="display:flex;"><span>      break;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    case LUA_TTHREAD: {
+</span></span><span style="display:flex;"><span>      gco2th(o)-&gt;gclist = g-&gt;gray;
+</span></span><span style="display:flex;"><span>      g-&gt;gray = o;
+</span></span><span style="display:flex;"><span>      break;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    case LUA_TPROTO: {
+</span></span><span style="display:flex;"><span>      gco2p(o)-&gt;gclist = g-&gt;gray;
+</span></span><span style="display:flex;"><span>      g-&gt;gray = o;
+</span></span><span style="display:flex;"><span>      break;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    default: lua_assert(0);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>它按 GCObject 的实际类型来 mark 它。reallymarkobject 的时间复杂度是 O(1) 的，它不会递归标记相关对象，虽然大多数 GCObject 都关联有其它对象。</p>
 <p>保证 O(1) 时间使得标记过程可以均匀分摊在逐个短小的时间片内，不至于停止世界太久。这里就需要用到三色标记法。</p>
 <p>reallymarkobject 进入时，先把对象设置为灰色（通过 white2gray 这个宏）。然后再根据具体类型，当一个对象的所有关联对象都被标记后，再从灰色转为黑色。</p>
 <p>因为 TSTRING 一定没有关联对象，而且所有的字符串都是统一独立处理的。这里可以做一个小优化，不需要设置为黑色，只要不是白色就可以清理。所以此处不必染黑。</p>
 <p>但 TUSERDATA 则不同，它是跟其它对象一起处理的。标记 userdata 就需要调用 gray2black 了。另外，还需要标记 userdata 的元表和环境表。</p>
 <p>TUPVAL 是一个特殊的东西。在 lua 编程，以及写 C 代码和 lua 交互时，都看不到这种类型。它用来解决多个 closure 共享同一个 upvalue 的情况。实际上是对一个 upvalue 的引用。问什么 TUPVAL 会有 open 和 closed 两种状态？应该这样理解。</p>
 <p>当一个 lua 函数本执行的时候，和 C 语言不一样，它不仅可以看到当前层次上的 local 变量，还可以看到上面所有层次的 local 变量。这个可见性是由 lua 解析器解析你的 lua 代码时定位的（换句话说，就是在“编译”期决定的）。那些不属于你的函数当前层次上的 local 变量，就称之为 upvalue 。upvalue 这个概念是由 parser 引入的。在 Lua 中，任何一个 function 其实都是由 proto 和运行时绑定的 upvalue 构成的。proto 将如何绑定 upvalue 是在 parser 生成的 bytecode 里描述清楚了的。如果对这一块的实现代码有兴趣，可以参考 lvm.c 的 719 行：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">      case OP_CLOSURE: {
-        Proto *p;
-        Closure *ncl;
-        int nup, j;
-        p = cl-&gt;p-&gt;p[GETARG_Bx(i)];
-        nup = p-&gt;nups;
-        ncl = luaF_newLclosure(L, nup, cl-&gt;env);
-        ncl-&gt;l.p = p;
-        for (j=0; jl.upvals[j] = cl-&gt;upvals[GETARG_B(*pc)];
-          else {
-            lua_assert(GET_OPCODE(*pc) == OP_MOVE);
-            ncl-&gt;l.upvals[j] = luaF_findupval(L, base + GETARG_B(*pc));
-          }
-        }
-        setclvalue(L, ra, ncl);
-        Protect(luaC_checkGC(L));
-        continue;
-      }
-</code></pre></div><p>我们会看到，调用 <code>luaF_newLclosure</code> 生成完一个 Lua Closure 后，会去填那张 upvalue 表。当 upvalue 尚在堆栈上时，其实是调用 <code>luaF_findupval</code> 去生成一个对堆栈上的特定值之引用的 TUPVAL 对象的。<code>luaF_findupval</code> 的实现不再列在这里，它的主要作用就是保证对堆栈相同位置的引用之生成一次。生成的这个对象就是 open 状态的。所有 open 的 TUPVAL 用一个双向链表串起来，挂在 global state 的 uvhead 中。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>      case OP_CLOSURE: {
+</span></span><span style="display:flex;"><span>        Proto *p;
+</span></span><span style="display:flex;"><span>        Closure *ncl;
+</span></span><span style="display:flex;"><span>        int nup, j;
+</span></span><span style="display:flex;"><span>        p = cl-&gt;p-&gt;p[GETARG_Bx(i)];
+</span></span><span style="display:flex;"><span>        nup = p-&gt;nups;
+</span></span><span style="display:flex;"><span>        ncl = luaF_newLclosure(L, nup, cl-&gt;env);
+</span></span><span style="display:flex;"><span>        ncl-&gt;l.p = p;
+</span></span><span style="display:flex;"><span>        for (j=0; jl.upvals[j] = cl-&gt;upvals[GETARG_B(*pc)];
+</span></span><span style="display:flex;"><span>          else {
+</span></span><span style="display:flex;"><span>            lua_assert(GET_OPCODE(*pc) == OP_MOVE);
+</span></span><span style="display:flex;"><span>            ncl-&gt;l.upvals[j] = luaF_findupval(L, base + GETARG_B(*pc));
+</span></span><span style="display:flex;"><span>          }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        setclvalue(L, ra, ncl);
+</span></span><span style="display:flex;"><span>        Protect(luaC_checkGC(L));
+</span></span><span style="display:flex;"><span>        continue;
+</span></span><span style="display:flex;"><span>      }
+</span></span></code></pre></div><p>我们会看到，调用 <code>luaF_newLclosure</code> 生成完一个 Lua Closure 后，会去填那张 upvalue 表。当 upvalue 尚在堆栈上时，其实是调用 <code>luaF_findupval</code> 去生成一个对堆栈上的特定值之引用的 TUPVAL 对象的。<code>luaF_findupval</code> 的实现不再列在这里，它的主要作用就是保证对堆栈相同位置的引用之生成一次。生成的这个对象就是 open 状态的。所有 open 的 TUPVAL 用一个双向链表串起来，挂在 global state 的 uvhead 中。</p>
 <p>一旦函数返回，某些堆栈上的变量就会消失，这时，还被某些 upvalue 引用的变量就必须找个地方妥善安置。这个安全的地方就是 TUPVAL 结构之中。修改引用指针的结果，就被认为是 close 了这个 TUPVAL 。相关代码可以去看 lfunc.c 中 <code>luaF_close</code> 的实现。</p>
 <p>走题太多。现在回来看 TUPVAL 的 mark 过程。mark upvalue 引用的对象之后，closed TUPVAL 就可以置黑了。为何 open 状态的 TUPVAL 需要留为灰色待处理呢？这是因为 open TUPVAL 是易变的。GC 分步执行，我们无法预料在 mark 流程走完前，堆栈上被引用的数据会不会发生变化。</p>
 <p>事实上，在 mark 的最后一个步骤，我们会看到所有的 open TUPVAL 被再次 mark 一次。做这件事情的函数是 lgc.c 516 行的：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">static void remarkupvals (global_State *g) {
-  UpVal *uv;
-  for (uv = g-&gt;uvhead.u.l.next; uv != &amp;g-&gt;uvhead; uv = uv-&gt;u.l.next) {
-    lua_assert(uv-&gt;u.l.next-&gt;u.l.prev == uv &amp;&amp; uv-&gt;u.l.prev-&gt;u.l.next == uv);
-    if (isgray(obj2gco(uv)))
-      markvalue(g, uv-&gt;v);
-  }
-}
-</code></pre></div><p>其它的数据类型处理都很简单。把自己挂在 gray 链表上即可。这条链表将在后面的 GCSpropagate 步骤被处理到。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void remarkupvals (global_State *g) {
+</span></span><span style="display:flex;"><span>  UpVal *uv;
+</span></span><span style="display:flex;"><span>  for (uv = g-&gt;uvhead.u.l.next; uv != &amp;g-&gt;uvhead; uv = uv-&gt;u.l.next) {
+</span></span><span style="display:flex;"><span>    lua_assert(uv-&gt;u.l.next-&gt;u.l.prev == uv &amp;&amp; uv-&gt;u.l.prev-&gt;u.l.next == uv);
+</span></span><span style="display:flex;"><span>    if (isgray(obj2gco(uv)))
+</span></span><span style="display:flex;"><span>      markvalue(g, uv-&gt;v);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>其它的数据类型处理都很简单。把自己挂在 gray 链表上即可。这条链表将在后面的 GCSpropagate 步骤被处理到。</p>
 <hr>
 <p>GC 状态为 GCSpropagate 时，singlestep 就是调用 propagatemark 处理 global state 中的 gray 链。</p>
 <p>今天白天因为有些其他工作做，所以没有留太多时间写这篇 Blog ，propagatemark 内部的细节分析得等到下一篇了。从总体看来，propagatemark 标记了各种 GCObject 的直接相关级的对象。</p>
@@ -315,80 +315,80 @@ static void markroot (lua_State *L) {
 <p>我们可以依靠的数据只有内存管理器辖下的内存数量。大致上，整个 GC 需要的总时间和 GCObject 的数量成正比。但每种类型的 GCObject 的处理时间复杂度却各不相同。仔细衡量每种类型的处理时间差别不太现实，它可能和具体机器也有关系。但我们却可以大体上认为，占用内存较多的对象，处理时间也更长一点。这里不包括 string 和 userdata 。它们即使占用内存较多，但却没有增加 mark 的时间。虽然不太精确，但对 table ，function ，thread 这些类型来说，这种估算方式却比较接近。</p>
 <p>所以在 propagatemark 过程中，每 mark 一个灰色节点，就返回了它实际占用的内存字节数作为 quantity 值。</p>
 <p>如果回顾昨天看过的代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  l_mem lim = (GCSTEPSIZE/100) * g-&gt;gcstepmul;
-  if (lim == 0)
-    lim = (MAX_LUMEM-1)/2;  /* no limit */
-  g-&gt;gcdept += g-&gt;totalbytes - g-&gt;GCthreshold;
-  do {
-    lim -= singlestep(L);
-    if (g-&gt;gcstate == GCSpause)
-      break;
-  } while (lim &gt; 0);
-</code></pre></div><p>我们就能理解，当 gcstepmul 为 100 时，每次由 <code>luaC_checkGC</code> 满足条件后调用一次 <code>luaC_step</code> ，大致就会标记 1K 的数据（当处于 mark 环节中时）。而每次 <code>luaC_step</code> 会递增 GCthreshold 1K 。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  if (g-&gt;gcstate != GCSpause) {
-    if (g-&gt;gcdept &lt; GCSTEPSIZE)
-      g-&gt;GCthreshold = g-&gt;totalbytes + GCSTEPSIZE;  /* - lim/g-&gt;gcstepmul;*/
-    else {
-      g-&gt;gcdept -= GCSTEPSIZE;
-      g-&gt;GCthreshold = g-&gt;totalbytes;
-    }
-  }
-</code></pre></div><p>依赖自动 GC ，只有 totalbytes 持续增长才会驱动 <code>luaC_step</code> 不断工作下去的。但增长速度如果快于 mark 速度，那么就会产生问题。这正是 lua 手册中所警告的：“step multiplier 控制了收集器相对内存分配的速度。 更大的数字将导致收集器工作的更主动的同时，也使每步收集的尺寸增加。 小于 1 的值会使收集器工作的非常慢，可能导致收集器永远都结束不了当前周期。”</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  l_mem lim = (GCSTEPSIZE/100) * g-&gt;gcstepmul;
+</span></span><span style="display:flex;"><span>  if (lim == 0)
+</span></span><span style="display:flex;"><span>    lim = (MAX_LUMEM-1)/2;  /* no limit */
+</span></span><span style="display:flex;"><span>  g-&gt;gcdept += g-&gt;totalbytes - g-&gt;GCthreshold;
+</span></span><span style="display:flex;"><span>  do {
+</span></span><span style="display:flex;"><span>    lim -= singlestep(L);
+</span></span><span style="display:flex;"><span>    if (g-&gt;gcstate == GCSpause)
+</span></span><span style="display:flex;"><span>      break;
+</span></span><span style="display:flex;"><span>  } while (lim &gt; 0);
+</span></span></code></pre></div><p>我们就能理解，当 gcstepmul 为 100 时，每次由 <code>luaC_checkGC</code> 满足条件后调用一次 <code>luaC_step</code> ，大致就会标记 1K 的数据（当处于 mark 环节中时）。而每次 <code>luaC_step</code> 会递增 GCthreshold 1K 。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  if (g-&gt;gcstate != GCSpause) {
+</span></span><span style="display:flex;"><span>    if (g-&gt;gcdept &lt; GCSTEPSIZE)
+</span></span><span style="display:flex;"><span>      g-&gt;GCthreshold = g-&gt;totalbytes + GCSTEPSIZE;  /* - lim/g-&gt;gcstepmul;*/
+</span></span><span style="display:flex;"><span>    else {
+</span></span><span style="display:flex;"><span>      g-&gt;gcdept -= GCSTEPSIZE;
+</span></span><span style="display:flex;"><span>      g-&gt;GCthreshold = g-&gt;totalbytes;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  }
+</span></span></code></pre></div><p>依赖自动 GC ，只有 totalbytes 持续增长才会驱动 <code>luaC_step</code> 不断工作下去的。但增长速度如果快于 mark 速度，那么就会产生问题。这正是 lua 手册中所警告的：“step multiplier 控制了收集器相对内存分配的速度。 更大的数字将导致收集器工作的更主动的同时，也使每步收集的尺寸增加。 小于 1 的值会使收集器工作的非常慢，可能导致收集器永远都结束不了当前周期。”</p>
 <p>我们也可以看到，自动 GC 过程处于 sweep 流程时，收集器也并不那么急于释放内存了。因为释放内存会导致 totalbytes 减少，如果没有新的对象分配出来，totalbytes 是不会增加到触发新的 <code>luaC_step</code> 的。</p>
 <p>手动分步 GC 则是另一番光景。<code>lua_gc</code> GCSTEP 使用的 data 值，在处于 mark 流程时，便可以认为扫描的内存字节数乘上 step multiplier 这个系数。当然这只是大致上个估计。毕竟内存不是理想中的逐字节扫描的。</p>
 <p>等待所有灰色节点都处理完，我们就可以开始清理那些剩下的白色节点了吗？不，因为 mark 是分步执行的，中间 lua 虚拟机中的对象关系可能又发生的变化。所以在开始清理工作前，我们还需要做最后一次扫描。这个过程不可以再被打断。</p>
 <p>让我们看看相关的处理函数。见 lgc.c 526 行：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">static void atomic (lua_State *L) {
-  global_State *g = G(L);
-  size_t udsize;  /* total size of userdata to be finalized */
-  /* remark occasional upvalues of (maybe) dead threads */
-  remarkupvals(g);
-  /* traverse objects cautch by write barrier and by &#39;remarkupvals&#39; */
-  propagateall(g);
-  /* remark weak tables */
-  g-&gt;gray = g-&gt;weak;
-  g-&gt;weak = NULL;
-  lua_assert(!iswhite(obj2gco(g-&gt;mainthread)));
-  markobject(g, L);  /* mark running thread */
-  markmt(g);  /* mark basic metatables (again) */
-  propagateall(g);
-  /* remark gray again */
-  g-&gt;gray = g-&gt;grayagain;
-  g-&gt;grayagain = NULL;
-  propagateall(g);
-  udsize = luaC_separateudata(L, 0);  /* separate userdata to be finalized */
-  marktmu(g);  /* mark `preserved&#39; userdata */
-  udsize += propagateall(g);  /* remark, to propagate `preserveness&#39; */
-  cleartable(g-&gt;weak);  /* remove collected objects from weak tables */
-  /* flip current white */
-  g-&gt;currentwhite = cast_byte(otherwhite(g));
-  g-&gt;sweepstrgc = 0;
-  g-&gt;sweepgc = &amp;g-&gt;rootgc;
-  g-&gt;gcstate = GCSsweepstring;
-  g-&gt;estimate = g-&gt;totalbytes - udsize;  /* first estimate */
-}
-</code></pre></div><p>代码中注释的很详细。propagateall 是用来迭代所有的灰色节点的。所以每个关键步骤结束后，都需要调用一下保证处理完所有可能需要标记的对象。第一个步骤是那些 open 的 TUPVAL ，在前面已经提及。然后是处理弱表。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void atomic (lua_State *L) {
+</span></span><span style="display:flex;"><span>  global_State *g = G(L);
+</span></span><span style="display:flex;"><span>  size_t udsize;  /* total size of userdata to be finalized */
+</span></span><span style="display:flex;"><span>  /* remark occasional upvalues of (maybe) dead threads */
+</span></span><span style="display:flex;"><span>  remarkupvals(g);
+</span></span><span style="display:flex;"><span>  /* traverse objects cautch by write barrier and by &#39;remarkupvals&#39; */
+</span></span><span style="display:flex;"><span>  propagateall(g);
+</span></span><span style="display:flex;"><span>  /* remark weak tables */
+</span></span><span style="display:flex;"><span>  g-&gt;gray = g-&gt;weak;
+</span></span><span style="display:flex;"><span>  g-&gt;weak = NULL;
+</span></span><span style="display:flex;"><span>  lua_assert(!iswhite(obj2gco(g-&gt;mainthread)));
+</span></span><span style="display:flex;"><span>  markobject(g, L);  /* mark running thread */
+</span></span><span style="display:flex;"><span>  markmt(g);  /* mark basic metatables (again) */
+</span></span><span style="display:flex;"><span>  propagateall(g);
+</span></span><span style="display:flex;"><span>  /* remark gray again */
+</span></span><span style="display:flex;"><span>  g-&gt;gray = g-&gt;grayagain;
+</span></span><span style="display:flex;"><span>  g-&gt;grayagain = NULL;
+</span></span><span style="display:flex;"><span>  propagateall(g);
+</span></span><span style="display:flex;"><span>  udsize = luaC_separateudata(L, 0);  /* separate userdata to be finalized */
+</span></span><span style="display:flex;"><span>  marktmu(g);  /* mark `preserved&#39; userdata */
+</span></span><span style="display:flex;"><span>  udsize += propagateall(g);  /* remark, to propagate `preserveness&#39; */
+</span></span><span style="display:flex;"><span>  cleartable(g-&gt;weak);  /* remove collected objects from weak tables */
+</span></span><span style="display:flex;"><span>  /* flip current white */
+</span></span><span style="display:flex;"><span>  g-&gt;currentwhite = cast_byte(otherwhite(g));
+</span></span><span style="display:flex;"><span>  g-&gt;sweepstrgc = 0;
+</span></span><span style="display:flex;"><span>  g-&gt;sweepgc = &amp;g-&gt;rootgc;
+</span></span><span style="display:flex;"><span>  g-&gt;gcstate = GCSsweepstring;
+</span></span><span style="display:flex;"><span>  g-&gt;estimate = g-&gt;totalbytes - udsize;  /* first estimate */
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>代码中注释的很详细。propagateall 是用来迭代所有的灰色节点的。所以每个关键步骤结束后，都需要调用一下保证处理完所有可能需要标记的对象。第一个步骤是那些 open 的 TUPVAL ，在前面已经提及。然后是处理弱表。</p>
 <p>弱表是个比较特殊的东西，这里，弱表需要反复 mark ，跟 write barrier 的行为有关，超出了今天的话题。write barrier 还会引起另一些对象再 mark ，即对 grayagain 链的处理。都留到明天再谈。</p>
 <p>接下来处理 userdata 的部分，<code>luaC_separateudata</code> 之前已经解释过了。</p>
 <p>所以的一切都标记完后，那些不被引用的对象就都被分离出来了。可以安全的清理所有尚被引用的弱表。cleartable 就是干的这件事情。实现没有什么好谈的，一目了然。这里也不列代码了。不过值得一提的是对可以清理的项的判定函数：iscleared 。见 lgc.c 的 329 行。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">/*
-** The next function tells whether a key or value can be cleared from
-** a weak table. Non-collectable objects are never removed from weak
-** tables. Strings behave as `values&#39;, so are never removed too. for
-** other objects: if really collected, cannot keep them; for userdata
-** being finalized, keep them in keys, but not in values
-*/
-static int iscleared (const TValue *o, int iskey) {
-    printf(&#34;is cleared %p,%d\n&#34;, o,iskey);
-  if (!iscollectable(o)) return 0;
-  if (ttisstring(o)) {
-    stringmark(rawtsvalue(o));  /* strings are `values&#39;, so are never weak */
-    return 0;
-  }
-  return iswhite(gcvalue(o)) ||
-    (ttisuserdata(o) &amp;&amp; (!iskey &amp;&amp; isfinalized(uvalue(o))));
-}
-</code></pre></div><p>如果你对 for userdata being finalized, keep them in keys, but not in values 这一句表示困惑的话。可以读读 <a href="http://lua-users.org/lists/lua-l/2009-03/msg00438.html">Roberto 对此的解释</a> 。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/*
+</span></span><span style="display:flex;"><span>** The next function tells whether a key or value can be cleared from
+</span></span><span style="display:flex;"><span>** a weak table. Non-collectable objects are never removed from weak
+</span></span><span style="display:flex;"><span>** tables. Strings behave as `values&#39;, so are never removed too. for
+</span></span><span style="display:flex;"><span>** other objects: if really collected, cannot keep them; for userdata
+</span></span><span style="display:flex;"><span>** being finalized, keep them in keys, but not in values
+</span></span><span style="display:flex;"><span>*/
+</span></span><span style="display:flex;"><span>static int iscleared (const TValue *o, int iskey) {
+</span></span><span style="display:flex;"><span>    printf(&#34;is cleared %p,%d\n&#34;, o,iskey);
+</span></span><span style="display:flex;"><span>  if (!iscollectable(o)) return 0;
+</span></span><span style="display:flex;"><span>  if (ttisstring(o)) {
+</span></span><span style="display:flex;"><span>    stringmark(rawtsvalue(o));  /* strings are `values&#39;, so are never weak */
+</span></span><span style="display:flex;"><span>    return 0;
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  return iswhite(gcvalue(o)) ||
+</span></span><span style="display:flex;"><span>    (ttisuserdata(o) &amp;&amp; (!iskey &amp;&amp; isfinalized(uvalue(o))));
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>如果你对 for userdata being finalized, keep them in keys, but not in values 这一句表示困惑的话。可以读读 <a href="http://lua-users.org/lists/lua-l/2009-03/msg00438.html">Roberto 对此的解释</a> 。</p>
 <p>和那些被清理掉的 userdata 一样。当 userdata 被标为白色，在下一个 GC 周期中，它便不再认为是 isfinalized 状态。对应弱表中的 k/v 就被真的被清除掉了。</p>
 
     </div>
@@ -465,14 +465,14 @@ static int iscleared (const TValue *o, int iskey) {
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">453</span>
+        <span class="site-state-item-count">454</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
     <div class="site-state-item site-state-categories">    
         <a href="http://shanks.link/categories/">      
          
-        <span class="site-state-item-count">25</span>
+        <span class="site-state-item-count">26</span>
         
         <span class="site-state-item-name">分类</span>
         
@@ -482,7 +482,7 @@ static int iscleared (const TValue *o, int iskey) {
     <div class="site-state-item site-state-tags">
         <a href="http://shanks.link/tags/">
          
-        <span class="site-state-item-count">31</span>
+        <span class="site-state-item-count">32</span>
         
         <span class="site-state-item-name">标签</span>
         </a>
@@ -525,7 +525,7 @@ static int iscleared (const TValue *o, int iskey) {
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

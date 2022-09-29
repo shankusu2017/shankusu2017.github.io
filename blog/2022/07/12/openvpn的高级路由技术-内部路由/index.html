@@ -220,38 +220,38 @@
 <p>同样在multi_process_incoming_link函数中，tun模式对载荷数据包源地址的检查是针对IP地址进行的而不是MAC地址。对于IP互联网络而言，这就需要更多的配置来让执行逻辑通过检查。默认情况下，载荷数据包的源IP地址必须是OpenVPN服务器分配给该客户端的虚拟IP地址。</p>
 <p>综合2.1和2.2我们发现，针对载荷源地址的检查其实是在OpenVPN执行用户接入控制之后的又一层检查，该检查一般可以用于和防火墙的联动。</p>
 <p>下面看一下代码是怎么处理这个检查的。在函数multi_process_incoming_link中，如果判断是TAP网卡模式，那么调用mroute_extract_addr_from_packet解析出载荷的源地址，解析的过程在函数mroute_extract_addr_ether中：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">memcpy (src<span style="color:#f92672">-&gt;</span>addr, eth<span style="color:#f92672">-&gt;</span>source, <span style="color:#ae81ff">6</span>);
-</code></pre></div><p>可见解析出来的是以太头的MAC地址。再接下来会调用：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#66d9ef">if</span> (multi_learn_addr (m, m<span style="color:#f92672">-&gt;</span>pending, <span style="color:#f92672">&amp;</span>src, <span style="color:#ae81ff">0</span>) <span style="color:#f92672">==</span> m<span style="color:#f92672">-&gt;</span>pending)
-</code></pre></div><p>来判断是否可以为源地址为src的载荷发起者转发该数据包。在判断中会调用用户配置的plugin或者script来协助抉择。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>memcpy (src<span style="color:#f92672">-&gt;</span>addr, eth<span style="color:#f92672">-&gt;</span>source, <span style="color:#ae81ff">6</span>);
+</span></span></code></pre></div><p>可见解析出来的是以太头的MAC地址。再接下来会调用：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (multi_learn_addr (m, m<span style="color:#f92672">-&gt;</span>pending, <span style="color:#f92672">&amp;</span>src, <span style="color:#ae81ff">0</span>) <span style="color:#f92672">==</span> m<span style="color:#f92672">-&gt;</span>pending)
+</span></span></code></pre></div><p>来判断是否可以为源地址为src的载荷发起者转发该数据包。在判断中会调用用户配置的plugin或者script来协助抉择。</p>
 <h1 id="如何配置tun模式的openvpn从而通过检查">如何配置TUN模式的OpenVPN从而通过检查</h1>
 <p>在得到配置之前，首先要理解一个OpenVPN中的参数选项iroute，解释起来就是internal route，其实就是独立于系统路由之外的OpenVPN的路由，该路由起到了访问控制的作用，特别是是在多对一即server模式的OpenVPN拓扑中，该机制可以在防止地址欺骗的同时更加灵活的针对每一个接入的客户端进行单独配置。在多对一的情况下，必须要有机制检查访问内网资源的用户就是开始接入的那个用户，由于OpenVPN是第三层的VPN，而且基于独立于OpenVPN进程之外的虚拟网卡，那么一定要防止单独的客户端盗用其它接入客户端的地址的情况。在特定客户端的上下文中配置iroute选项，它是一个ip子网，默认是客户端虚拟ip地址掩码是32位，你可以在保证路由以及IP地址不混乱的前提下任意配置它，OpenVPN仅仅让载荷数据包的源IP地址在iroute选项中配置的子网内的主机通过检查，其它数据载荷一律drop。比如客户端虚拟IP地址是172.16.0.2，而OpenVPN服务器针对该客户端的iroute参数是10.0.0.0/24,那么只要载荷数据包的源IP地址在10.0.0.0/24这个子网中，一律可以通过检查。</p>
 <p>iroute是OpenVPN内部维护的一个路由，它主要用于维护和定位多个客户端所在的子网以及所挂接的子网，鉴于此，OpenVPN对所谓的网对网拓扑的支持其实超级灵活，它能做到这个虚拟专用网到哪里终止以及从哪里开始。</p>
 <p>对于TUN模式的虚拟网卡构建的VPN，源代码里是这样说的(还是在multi_process_incoming_link函数中)：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#960050;background-color:#1e0010">…</span>
-<span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (multi_get_instance_by_virtual_addr (m, <span style="color:#f92672">&amp;</span>src, true) <span style="color:#f92672">!=</span> m<span style="color:#f92672">-&gt;</span>pending)
-<span style="color:#960050;background-color:#1e0010">…</span>
-</code></pre></div><p>在multi_get_instance_by_virtual_addr里面实现判断是否可以转发。其参数src是载荷包的源IP地址，在multi_get_instance_by_virtual_addr函数中，有以下的循环：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> rh<span style="color:#f92672">-&gt;</span>n_net_len; <span style="color:#f92672">++</span>i) {
-tryaddr <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>addr;
-tryaddr.type <span style="color:#f92672">|=</span> MR_WITH_NETBITS;
-    tryaddr.netbits <span style="color:#f92672">=</span> rh<span style="color:#f92672">-&gt;</span>net_len[i];
-    mroute_addr_mask_host_bits (<span style="color:#f92672">&amp;</span>tryaddr);
- <span style="color:#75715e">/* look up a possible route with netbits netmask */</span>
-    route <span style="color:#f92672">=</span> (<span style="color:#66d9ef">struct</span> multi_route <span style="color:#f92672">*</span>) hash_lookup (m<span style="color:#f92672">-&gt;</span>vhash, <span style="color:#f92672">&amp;</span>tryaddr);
-  <span style="color:#66d9ef">if</span> (route <span style="color:#f92672">&amp;&amp;</span> multi_route_defined (m, route)) {
-        <span style="color:#75715e">/* found an applicable route, cache host route */</span>
-        <span style="color:#66d9ef">struct</span> multi_instance <span style="color:#f92672">*</span>mi <span style="color:#f92672">=</span> route<span style="color:#f92672">-&gt;</span>instance;
-        multi_learn_addr (m, mi, addr, MULTI_ROUTE_CACHE<span style="color:#f92672">|</span>MULTI_ROUTE_AGEABLE);
-        ret <span style="color:#f92672">=</span> mi;
-        <span style="color:#66d9ef">break</span>;
-     }
-}
-</code></pre></div><p>该循环就是判断特定客户端是否配置了iroute参数指定的内部路由，如果配置了，那么载荷包的源IP地址是否在iroute参数指定的子网内，如果是，则向tun网卡转发该包，如果不是，则丢弃之。举个例子就是，如果OpenVPN服务器中配置一个特定客户端的iroute参数为：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">10.0.0.0/24
-192.168.0.0/24
-102.168.1.0/24
-</code></pre></div><p>那么只要载荷包的源IP地址在这些网段内，都可以被OpenVPN转发。 我们看看TUN模式下如何来进行配置：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">…</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (multi_get_instance_by_virtual_addr (m, <span style="color:#f92672">&amp;</span>src, true) <span style="color:#f92672">!=</span> m<span style="color:#f92672">-&gt;</span>pending)
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">…</span>
+</span></span></code></pre></div><p>在multi_get_instance_by_virtual_addr里面实现判断是否可以转发。其参数src是载荷包的源IP地址，在multi_get_instance_by_virtual_addr函数中，有以下的循环：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> rh<span style="color:#f92672">-&gt;</span>n_net_len; <span style="color:#f92672">++</span>i) {
+</span></span><span style="display:flex;"><span>tryaddr <span style="color:#f92672">=</span> <span style="color:#f92672">*</span>addr;
+</span></span><span style="display:flex;"><span>tryaddr.type <span style="color:#f92672">|=</span> MR_WITH_NETBITS;
+</span></span><span style="display:flex;"><span>    tryaddr.netbits <span style="color:#f92672">=</span> rh<span style="color:#f92672">-&gt;</span>net_len[i];
+</span></span><span style="display:flex;"><span>    mroute_addr_mask_host_bits (<span style="color:#f92672">&amp;</span>tryaddr);
+</span></span><span style="display:flex;"><span> <span style="color:#75715e">/* look up a possible route with netbits netmask */</span>
+</span></span><span style="display:flex;"><span>    route <span style="color:#f92672">=</span> (<span style="color:#66d9ef">struct</span> multi_route <span style="color:#f92672">*</span>) hash_lookup (m<span style="color:#f92672">-&gt;</span>vhash, <span style="color:#f92672">&amp;</span>tryaddr);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (route <span style="color:#f92672">&amp;&amp;</span> multi_route_defined (m, route)) {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* found an applicable route, cache host route */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">struct</span> multi_instance <span style="color:#f92672">*</span>mi <span style="color:#f92672">=</span> route<span style="color:#f92672">-&gt;</span>instance;
+</span></span><span style="display:flex;"><span>        multi_learn_addr (m, mi, addr, MULTI_ROUTE_CACHE<span style="color:#f92672">|</span>MULTI_ROUTE_AGEABLE);
+</span></span><span style="display:flex;"><span>        ret <span style="color:#f92672">=</span> mi;
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>该循环就是判断特定客户端是否配置了iroute参数指定的内部路由，如果配置了，那么载荷包的源IP地址是否在iroute参数指定的子网内，如果是，则向tun网卡转发该包，如果不是，则丢弃之。举个例子就是，如果OpenVPN服务器中配置一个特定客户端的iroute参数为：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>10.0.0.0/24
+</span></span><span style="display:flex;"><span>192.168.0.0/24
+</span></span><span style="display:flex;"><span>102.168.1.0/24
+</span></span></code></pre></div><p>那么只要载荷包的源IP地址在这些网段内，都可以被OpenVPN转发。 我们看看TUN模式下如何来进行配置：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/14/167abe87c6b40b40~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <h2 id="24-为何说网对网通透拓扑的配置很复杂">2.4. 为何说网对网通透拓扑的配置很复杂</h2>
 <p>上文看下来，配置也不算太复杂。然而复杂性不在于配置本身，而在于和UI的联动。没有几个人会在使用的时候手工去进行配置，少数几个这样做的人几乎都是技术人员，并且要精通IP路由技术，精通防火墙技术等。大多数的人只希望通过人性化设计的配置界面来进行配置，那么界面如何来配置这些参数，就需要大量的自动化脚本，编写这些脚本并且做到没有漏洞，不重复，无缺漏，其本身就是一件很有工作量的事情。</p>
@@ -339,14 +339,14 @@ tryaddr.type <span style="color:#f92672">|=</span> MR_WITH_NETBITS;
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">453</span>
+        <span class="site-state-item-count">454</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
     <div class="site-state-item site-state-categories">    
         <a href="http://shanks.link/categories/">      
          
-        <span class="site-state-item-count">25</span>
+        <span class="site-state-item-count">26</span>
         
         <span class="site-state-item-name">分类</span>
         
@@ -356,7 +356,7 @@ tryaddr.type <span style="color:#f92672">|=</span> MR_WITH_NETBITS;
     <div class="site-state-item site-state-tags">
         <a href="http://shanks.link/tags/">
          
-        <span class="site-state-item-count">31</span>
+        <span class="site-state-item-count">32</span>
         
         <span class="site-state-item-name">标签</span>
         </a>
@@ -399,7 +399,7 @@ tryaddr.type <span style="color:#f92672">|=</span> MR_WITH_NETBITS;
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

@@ -196,596 +196,596 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">4645 字 ~10分钟</span>
+<span class="leancloud-visitors-count">4661 字 ~10分钟</span>
 </span>
       </div>
     </header>
     <div class="post-body" itemprop="articleBody">
-    <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#75715e">/*
-</span><span style="color:#75715e">** $Id: ldo.c,v 2.38.1.4 2012/01/18 02:27:10 roberto Exp $
-</span><span style="color:#75715e">** Stack and Call structure of Lua
-</span><span style="color:#75715e">** See Copyright Notice in lua.h
-</span><span style="color:#75715e">*/</span>
-
-
-<span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;setjmp.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">#define ldo_c
-</span><span style="color:#75715e">#define LUA_CORE
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lua.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldebug.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldo.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lfunc.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lgc.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lmem.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lobject.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lopcodes.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lparser.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstate.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstring.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ltable.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ltm.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lundump.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lvm.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lzio.h&#34;</span><span style="color:#75715e">
-</span><span style="color:#75715e"></span>
-
-
-
-<span style="color:#75715e">/*
-</span><span style="color:#75715e">** {======================================================
-</span><span style="color:#75715e">** Error-recovery functions
-</span><span style="color:#75715e">** =======================================================
-</span><span style="color:#75715e">*/</span>
-
-
-<span style="color:#75715e">/* chain list of long jump buffers */</span>
-<span style="color:#66d9ef">struct</span> lua_longjmp {
-  <span style="color:#66d9ef">struct</span> lua_longjmp <span style="color:#f92672">*</span>previous;
-  luai_jmpbuf b;
-  <span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">int</span> status;  <span style="color:#75715e">/* error code */</span>
-};
-
-
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_seterrorobj</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> errcode, StkId oldtop) {
-  <span style="color:#66d9ef">switch</span> (errcode) {
-    <span style="color:#66d9ef">case</span> LUA_ERRMEM: {
-      setsvalue2s(L, oldtop, luaS_newliteral(L, MEMERRMSG));
-      <span style="color:#66d9ef">break</span>;
-    }
-    <span style="color:#66d9ef">case</span> LUA_ERRERR: {
-      setsvalue2s(L, oldtop, luaS_newliteral(L, <span style="color:#e6db74">&#34;error in error handling&#34;</span>));
-      <span style="color:#66d9ef">break</span>;
-    }
-    <span style="color:#66d9ef">case</span> LUA_ERRSYNTAX:
-    <span style="color:#66d9ef">case</span> LUA_ERRRUN: {
-      setobjs2s(L, oldtop, L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* error message on current top */</span>
-      <span style="color:#66d9ef">break</span>;
-    }
-  }
-  <span style="color:#75715e">/* 这里结合 luaD_pcall 来一起来看 */</span>
-  L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> oldtop <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* correct top */</span>
-}
-
-<span style="color:#75715e">/* 空闲的callInfo过多时，尝试压缩其空间 */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">restore_stack_limit</span> (lua_State <span style="color:#f92672">*</span>L) {
-  lua_assert(L<span style="color:#f92672">-&gt;</span>stack_last <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>stack <span style="color:#f92672">==</span> L<span style="color:#f92672">-&gt;</span>stacksize <span style="color:#f92672">-</span> EXTRA_STACK <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>);
-  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">&gt;</span> LUAI_MAXCALLS) {  <span style="color:#75715e">/* there was an overflow? */</span>
-    <span style="color:#66d9ef">int</span> inuse <span style="color:#f92672">=</span> cast_int(L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>base_ci);
-    <span style="color:#66d9ef">if</span> (inuse <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">&lt;</span> LUAI_MAXCALLS)  <span style="color:#75715e">/* can `undo&#39; overflow? */</span>
-      luaD_reallocCI(L, LUAI_MAXCALLS);
-  }
-}
-
-<span style="color:#75715e">/* 回滚stack到初始状态！！！！ */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">resetstack</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> status) {
-  <span style="color:#75715e">/* 这一下彻底回滚了 */</span>
-  L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base_ci;
-  L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>base;
-  
-  luaF_close(L, L<span style="color:#f92672">-&gt;</span>base);  <span style="color:#75715e">/* close eventual pending closures */</span>
-  luaD_seterrorobj(L, status, L<span style="color:#f92672">-&gt;</span>base);
-  L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>baseCcalls;
-  L<span style="color:#f92672">-&gt;</span>allowhook <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
-  restore_stack_limit(L);
-  L<span style="color:#f92672">-&gt;</span>errfunc <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-  L<span style="color:#f92672">-&gt;</span>errorJmp <span style="color:#f92672">=</span> NULL;
-}
-
-<span style="color:#75715e">/* 尝试调用异常处理函数 
-</span><span style="color:#75715e">** 主要在luaG_errormsg中被间接调用
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_throw</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> errcode) {
-  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>errorJmp) {
-    L<span style="color:#f92672">-&gt;</span>errorJmp<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> errcode;  <span style="color:#75715e">/* !!! 跳出去之前设置status */</span>
-    LUAI_THROW(L, L<span style="color:#f92672">-&gt;</span>errorJmp); 	<span style="color:#75715e">/* 正式跳出 */</span>
-  }
-  <span style="color:#66d9ef">else</span> {	<span style="color:#75715e">/* 没有设置errHdl，调用panic后退出进程 */</span>
-    L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> cast_byte(errcode);	<span style="color:#75715e">/* 无jump点了，在这里设置L的状态，有则由上层业务处理 */</span>
-    <span style="color:#66d9ef">if</span> (G(L)<span style="color:#f92672">-&gt;</span>panic) {
-      resetstack(L, errcode);	<span style="color:#75715e">/* 这里对stack进行收尾 */</span>
-      lua_unlock(L);
-      G(L)<span style="color:#f92672">-&gt;</span>panic(L);
-    }
-    exit(EXIT_FAILURE);
-  }
-}
-
-<span style="color:#75715e">/* 保护模式下(longjump)调用C函数
-</span><span style="color:#75715e">** 但发生错误，则调用了L-&gt;errfunc后(若设置了)，后走到这里而不是直接退出进程
-</span><span style="color:#75715e">** 
-</span><span style="color:#75715e">** RETURN：执行流的执行结果，没有同步到L-&gt;status中(由上层调用决定是否同步)
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_rawrunprotected</span> (lua_State <span style="color:#f92672">*</span>L, Pfunc f, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>ud) {
-  <span style="color:#66d9ef">struct</span> lua_longjmp lj;
-  lj.status <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-  lj.previous <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>errorJmp;  <span style="color:#75715e">/* chain new error handler */</span>
-  L<span style="color:#f92672">-&gt;</span>errorJmp <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>lj;
-  LUAI_TRY(L, <span style="color:#f92672">&amp;</span>lj,
-    (<span style="color:#f92672">*</span>f)(L, ud);
-  );
-  L<span style="color:#f92672">-&gt;</span>errorJmp <span style="color:#f92672">=</span> lj.previous;  <span style="color:#75715e">/* restore old error handler */</span>
-  <span style="color:#66d9ef">return</span> lj.status;	<span style="color:#75715e">/* luaD_throw()中更新了status */</span>
-}
-
-<span style="color:#75715e">/* }====================================================== */</span>
-
-<span style="color:#75715e">/* stack移动后更新upvalues,ci-list和L-&gt;base */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">correctstack</span> (lua_State <span style="color:#f92672">*</span>L, TValue <span style="color:#f92672">*</span>oldstack) {
-  CallInfo <span style="color:#f92672">*</span>ci;
-  GCObject <span style="color:#f92672">*</span>up;
-  L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> (L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
-  <span style="color:#66d9ef">for</span> (up <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>openupval; up <span style="color:#f92672">!=</span> NULL; up <span style="color:#f92672">=</span> up<span style="color:#f92672">-&gt;</span>gch.next)
-    gco2uv(up)<span style="color:#f92672">-&gt;</span>v <span style="color:#f92672">=</span> (gco2uv(up)<span style="color:#f92672">-&gt;</span>v <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
-  <span style="color:#66d9ef">for</span> (ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base_ci; ci <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>ci; ci<span style="color:#f92672">++</span>) {
-    ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> (ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
-    ci<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> (ci<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
-    ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">=</span> (ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
-  }
-  <span style="color:#75715e">/* L-&gt;ci不用调整哈 */</span>
-  L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> (L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
-}
-
-<span style="color:#75715e">/* 重新调整stack的大小 */</span>
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_reallocstack</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> newsize) {
-  TValue <span style="color:#f92672">*</span>oldstack <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>stack;
-  <span style="color:#66d9ef">int</span> realsize <span style="color:#f92672">=</span> newsize <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">+</span> EXTRA_STACK;
-  lua_assert(L<span style="color:#f92672">-&gt;</span>stack_last <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>stack <span style="color:#f92672">==</span> L<span style="color:#f92672">-&gt;</span>stacksize <span style="color:#f92672">-</span> EXTRA_STACK <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>);	<span style="color:#75715e">/* 和stack_init()函数对应 */</span>
-  luaM_reallocvector(L, L<span style="color:#f92672">-&gt;</span>stack, L<span style="color:#f92672">-&gt;</span>stacksize, realsize, TValue);
-  L<span style="color:#f92672">-&gt;</span>stacksize <span style="color:#f92672">=</span> realsize;
-  L<span style="color:#f92672">-&gt;</span>stack_last <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>stack<span style="color:#f92672">+</span>newsize;
-  correctstack(L, oldstack);
-}
-
-<span style="color:#75715e">/* 调整callInfo链的大小 */</span>
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_reallocCI</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> newsize) {
-  CallInfo <span style="color:#f92672">*</span>oldci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base_ci;
-  luaM_reallocvector(L, L<span style="color:#f92672">-&gt;</span>base_ci, L<span style="color:#f92672">-&gt;</span>size_ci, newsize, CallInfo);
-  L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">=</span> newsize;
-  L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">=</span> (L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">-</span> oldci) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>base_ci;
-  L<span style="color:#f92672">-&gt;</span>end_ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base_ci <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
-}
-
-
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_growstack</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> n) {
-  <span style="color:#66d9ef">if</span> (n <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>stacksize)  <span style="color:#75715e">/* double size is enough? */</span>
-    luaD_reallocstack(L, <span style="color:#ae81ff">2</span><span style="color:#f92672">*</span>L<span style="color:#f92672">-&gt;</span>stacksize);
-  <span style="color:#66d9ef">else</span>
-    luaD_reallocstack(L, L<span style="color:#f92672">-&gt;</span>stacksize <span style="color:#f92672">+</span> n);
-}
-
-
-<span style="color:#66d9ef">static</span> CallInfo <span style="color:#f92672">*</span><span style="color:#a6e22e">growCI</span> (lua_State <span style="color:#f92672">*</span>L) {
-  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">&gt;</span> LUAI_MAXCALLS)  <span style="color:#75715e">/* overflow while handling overflow? 嵌套调用层次太深了，直接报错，方便用户检查调用情况 */</span>
-    luaD_throw(L, LUA_ERRERR);
-  <span style="color:#66d9ef">else</span> {
-    luaD_reallocCI(L, <span style="color:#ae81ff">2</span><span style="color:#f92672">*</span>L<span style="color:#f92672">-&gt;</span>size_ci);	<span style="color:#75715e">/* 简单粗暴，直接扩大一倍 */</span>
-    <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">&gt;</span> LUAI_MAXCALLS)
-      luaG_runerror(L, <span style="color:#e6db74">&#34;stack overflow&#34;</span>);
-  }
-  <span style="color:#66d9ef">return</span> <span style="color:#f92672">++</span>L<span style="color:#f92672">-&gt;</span>ci;
-}
-
-  <span style="color:#66d9ef">static</span> StkId <span style="color:#a6e22e">callrethooks</span> (lua_State <span style="color:#f92672">*</span>L, StkId firstResult) {
-  ptrdiff_t fr <span style="color:#f92672">=</span> savestack(L, firstResult);  <span style="color:#75715e">/* next call may change stack */</span>
-  luaD_callhook(L, LUA_HOOKRET, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
-  <span style="color:#66d9ef">if</span> (f_isLua(L<span style="color:#f92672">-&gt;</span>ci)) {  <span style="color:#75715e">/* Lua function? */</span>
-    <span style="color:#66d9ef">while</span> ((L<span style="color:#f92672">-&gt;</span>hookmask <span style="color:#f92672">&amp;</span> LUA_MASKRET) <span style="color:#f92672">&amp;&amp;</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>tailcalls<span style="color:#f92672">--</span>) <span style="color:#75715e">/* tail calls */</span>
-      luaD_callhook(L, LUA_HOOKTAILRET, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
-  }
-  <span style="color:#66d9ef">return</span> restorestack(L, fr);
-}
-
-
-<span style="color:#75715e">/* 调用钩子函数 */</span>
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_callhook</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> event, <span style="color:#66d9ef">int</span> line) {
-  lua_Hook hook <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>hook;
-  <span style="color:#66d9ef">if</span> (hook <span style="color:#f92672">&amp;&amp;</span> L<span style="color:#f92672">-&gt;</span>allowhook) {
-    ptrdiff_t top <span style="color:#f92672">=</span> savestack(L, L<span style="color:#f92672">-&gt;</span>top);
-    ptrdiff_t ci_top <span style="color:#f92672">=</span> savestack(L, L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top);
-    lua_Debug ar;
-    ar.event <span style="color:#f92672">=</span> event;
-    ar.currentline <span style="color:#f92672">=</span> line;
-    <span style="color:#66d9ef">if</span> (event <span style="color:#f92672">==</span> LUA_HOOKTAILRET)
-      ar.i_ci <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* tail call; no debug information about it */</span>
-    <span style="color:#66d9ef">else</span>
-      ar.i_ci <span style="color:#f92672">=</span> cast_int(L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>base_ci);
-    luaD_checkstack(L, LUA_MINSTACK);  <span style="color:#75715e">/* ensure minimum stack size */</span>
-    L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">+</span> LUA_MINSTACK;
-    lua_assert(L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>stack_last);
-    L<span style="color:#f92672">-&gt;</span>allowhook <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* cannot call hooks inside a hook */</span>
-    lua_unlock(L);
-    (<span style="color:#f92672">*</span>hook)(L, <span style="color:#f92672">&amp;</span>ar);	<span style="color:#75715e">/* 正式调用钩子函数 */</span>
-    lua_lock(L);
-    lua_assert(<span style="color:#f92672">!</span>L<span style="color:#f92672">-&gt;</span>allowhook);
-	<span style="color:#75715e">/* !!!! 现场需恢复，别忘了，亲 */</span>
-    L<span style="color:#f92672">-&gt;</span>allowhook <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
-    L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> restorestack(L, ci_top);
-    L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> restorestack(L, top);
-  }
-}
-
-<span style="color:#75715e">/*
-</span><span style="color:#75715e">**补齐固定形参(若实际传入的参数不够)
-</span><span style="color:#75715e">**将传给固定形参的值mv到top之上且纠正top
-</span><span style="color:#75715e">**将剩下(若还有剩下)的参数留给变参...
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">static</span> StkId <span style="color:#a6e22e">adjust_varargs</span> (lua_State <span style="color:#f92672">*</span>L, Proto <span style="color:#f92672">*</span>p, <span style="color:#66d9ef">int</span> actual) {
-  <span style="color:#66d9ef">int</span> i;
-  <span style="color:#66d9ef">int</span> nfixargs <span style="color:#f92672">=</span> p<span style="color:#f92672">-&gt;</span>numparams;
-  Table <span style="color:#f92672">*</span>htab <span style="color:#f92672">=</span> NULL;
-  StkId base, fixed;
-  
-  <span style="color:#75715e">/* 传入的参数数量不够填补fixed参数的，直接补nil：至少得把fixed形参需要的个数补齐 */</span>
-  <span style="color:#66d9ef">for</span> (; actual <span style="color:#f92672">&lt;</span> nfixargs; <span style="color:#f92672">++</span>actual)	
-    setnilvalue(L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">++</span>);
-  
-<span style="color:#75715e">#if defined(LUA_COMPAT_VARARG)	</span><span style="color:#75715e">/* 将留给...的参数信息打包到额外的arg表中 */</span><span style="color:#75715e">
-</span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> (p<span style="color:#f92672">-&gt;</span>is_vararg <span style="color:#f92672">&amp;</span> VARARG_NEEDSARG) { <span style="color:#75715e">/* compat. with old-style vararg? */</span>
-    <span style="color:#66d9ef">int</span> nvar <span style="color:#f92672">=</span> actual <span style="color:#f92672">-</span> nfixargs;  <span style="color:#75715e">/* number of extra arguments */</span>
-    lua_assert(p<span style="color:#f92672">-&gt;</span>is_vararg <span style="color:#f92672">&amp;</span> VARARG_HASARG);
-    luaC_checkGC(L);
-    luaD_checkstack(L, p<span style="color:#f92672">-&gt;</span>maxstacksize);
-    htab <span style="color:#f92672">=</span> luaH_new(L, nvar, <span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* create `arg&#39; table */</span>
-    <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>nvar; i<span style="color:#f92672">++</span>)  <span style="color:#75715e">/* put extra arguments into `arg&#39; table */</span>
-      setobj2n(L, luaH_setnum(L, htab, i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>), L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> nvar <span style="color:#f92672">+</span> i);
-    <span style="color:#75715e">/* store counter in field `n&#39; */</span>
-    setnvalue(luaH_setstr(L, htab, luaS_newliteral(L, <span style="color:#e6db74">&#34;n&#34;</span>)), cast_num(nvar));
-  }
-<span style="color:#75715e">#endif
-</span><span style="color:#75715e"></span>  <span style="color:#75715e">/* move fixed parameters to final position */</span>
-  fixed <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> actual;  <span style="color:#75715e">/* first fixed argument */</span>
-  base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top;  <span style="color:#75715e">/* final position of first argument */</span>
-
-  <span style="color:#75715e">/* 从第一个参数开始移动其值到被调函数的fixed‘arg域,直到给所有的fixed&#39;arg赋值为止
-</span><span style="color:#75715e">  ** 如果还剩下多余的参数，则直接保留下来(留给变参...)，无需移动
-</span><span style="color:#75715e">  */</span>
-  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>nfixargs; i<span style="color:#f92672">++</span>) {	
-    setobjs2s(L, L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">++</span>, fixed<span style="color:#f92672">+</span>i);	<span style="color:#75715e">/* !!!!这里移动了top指针 */</span>
-    setnilvalue(fixed<span style="color:#f92672">+</span>i);
-  }
-  <span style="color:#75715e">/* add `arg&#39; parameter */</span>
-  <span style="color:#66d9ef">if</span> (htab) {
-    sethvalue(L, L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">++</span>, htab);
-    lua_assert(iswhite(obj2gco(htab)));
-  }
-  <span style="color:#66d9ef">return</span> base;
-}
-
-<span style="color:#75715e">/* 直接看代码 */</span>
-<span style="color:#66d9ef">static</span> StkId <span style="color:#a6e22e">tryfuncTM</span> (lua_State <span style="color:#f92672">*</span>L, StkId func) {
-  <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>tm <span style="color:#f92672">=</span> luaT_gettmbyobj(L, func, TM_CALL);
-  StkId p;
-  ptrdiff_t funcr <span style="color:#f92672">=</span> savestack(L, func);
-  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisfunction(tm))
-    luaG_typeerror(L, func, <span style="color:#e6db74">&#34;call&#34;</span>);
-  <span style="color:#75715e">/* Open a hole inside the stack at `func&#39; */</span>
-  <span style="color:#66d9ef">for</span> (p <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top; p <span style="color:#f92672">&gt;</span> func; p<span style="color:#f92672">--</span>) setobjs2s(L, p, p<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
-  incr_top(L);
-  func <span style="color:#f92672">=</span> restorestack(L, funcr);  <span style="color:#75715e">/* previous call may change stack */</span>
-  setobj2s(L, func, tm);  <span style="color:#75715e">/* tag method is the new function to be called */</span>
-  <span style="color:#66d9ef">return</span> func;
-}
-
-
-
-<span style="color:#75715e">#define inc_ci(L) \
-</span><span style="color:#75715e">  ((L-&gt;ci == L-&gt;end_ci) ? growCI(L) : \
-</span><span style="color:#75715e">   (condhardstacktests(luaD_reallocCI(L, L-&gt;size_ci)), ++L-&gt;ci))
-</span><span style="color:#75715e"></span>
-<span style="color:#75715e">/* 先做调用前的准备工作，后进入函数调用(for C,not Lua)
-</span><span style="color:#75715e">** nresults:-1返回所有的返回值
-</span><span style="color:#75715e">** 0：不要返回值
-</span><span style="color:#75715e">** 1：期待一个返回值
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_precall</span> (lua_State <span style="color:#f92672">*</span>L, StkId func, <span style="color:#66d9ef">int</span> nresults) {
-  LClosure <span style="color:#f92672">*</span>cl;
-  ptrdiff_t funcr;	<span style="color:#75715e">/* 当前调用函数的pc距离stack栈底的偏移量 */</span>
-  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisfunction(func)) <span style="color:#75715e">/* `func&#39; is not a function? */</span>
-    func <span style="color:#f92672">=</span> tryfuncTM(L, func);  <span style="color:#75715e">/* check the `function&#39; tag method */</span>
-  
-  <span style="color:#75715e">/* 随着新的调用产生,ci链/stack可能因为增长而移动位置
-</span><span style="color:#75715e">  ** 故不能记住绝地位置而记住相对位置，后面根据此值最终确定ci-&gt;func 
-</span><span style="color:#75715e">  */</span>
-  funcr <span style="color:#f92672">=</span> savestack(L, func);	
-  cl <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>clvalue(func)<span style="color:#f92672">-&gt;</span>l;
-  L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>savedpc;	<span style="color:#75715e">/* 正式调用前，存档L-&gt;savedpc至L-&gt;ci-&gt;savedpc */</span>
-  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>cl<span style="color:#f92672">-&gt;</span>isC) {  <span style="color:#75715e">/* Lua function? prepare its call */</span>
-    CallInfo <span style="color:#f92672">*</span>ci;
-    StkId st, base;
-    Proto <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> cl<span style="color:#f92672">-&gt;</span>p;
-    luaD_checkstack(L, p<span style="color:#f92672">-&gt;</span>maxstacksize);
-    func <span style="color:#f92672">=</span> restorestack(L, funcr);
-    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>p<span style="color:#f92672">-&gt;</span>is_vararg) {  <span style="color:#75715e">/* no varargs?(不是变参函数?即函数参数数量固定) */</span>
-      base <span style="color:#f92672">=</span> func <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;
-      <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">&gt;</span> base <span style="color:#f92672">+</span> p<span style="color:#f92672">-&gt;</span>numparams)	<span style="color:#75715e">/* 删除栈上多余的传入参数 */</span>
-        L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> base <span style="color:#f92672">+</span> p<span style="color:#f92672">-&gt;</span>numparams;
-    }
-    <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* vararg function */</span>
-      <span style="color:#66d9ef">int</span> nargs <span style="color:#f92672">=</span> cast_int(L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> func) <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* 计算实际传入的参数个数 */</span>
-      base <span style="color:#f92672">=</span> adjust_varargs(L, p, nargs);
-      func <span style="color:#f92672">=</span> restorestack(L, funcr);  <span style="color:#75715e">/* previous call may change the stack */</span>
-    }
-    ci <span style="color:#f92672">=</span> inc_ci(L);  <span style="color:#75715e">/* now `enter&#39; new function */</span>
-    ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">=</span> func;
-    L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> base;
-	<span style="color:#75715e">/* 这里可以推导出L-&gt;base----&gt;L-&gt;top之间的区域都是ci的私有栈空间(lua,c均如此) */</span>
-    ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">+</span> p<span style="color:#f92672">-&gt;</span>maxstacksize;
-    lua_assert(ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>stack_last);
-    L<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">=</span> p<span style="color:#f92672">-&gt;</span>code;  <span style="color:#75715e">/* starting point */</span>
-    ci<span style="color:#f92672">-&gt;</span>tailcalls <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-    ci<span style="color:#f92672">-&gt;</span>nresults <span style="color:#f92672">=</span> nresults;
-	
-	<span style="color:#75715e">/* 新的函数的私有栈空间直接补nil(参数的区域除外) */</span>
-    <span style="color:#66d9ef">for</span> (st <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top; st <span style="color:#f92672">&lt;</span> ci<span style="color:#f92672">-&gt;</span>top; st<span style="color:#f92672">++</span>)
-      setnilvalue(st);	
-
-	<span style="color:#75715e">/* 最后调整L-&gt;top使其指向本次ci的栈顶,对于Lua函数而言L-&gt;Base----&gt;(L-&gt;Base+L-&gt;maxstacksize)之间都是我私有的了，且是有效的
-</span><span style="color:#75715e">	** C由于L-&gt;top是动态变化的，故而L-&gt;top的值被设置为传入参数后栈顶的位置，后面会因为push等函数而动态变化-
-</span><span style="color:#75715e">	*/</span>
-    L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>top;
-	
-    <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>hookmask <span style="color:#f92672">&amp;</span> LUA_MASKCALL) {
-      L<span style="color:#f92672">-&gt;</span>savedpc<span style="color:#f92672">++</span>;  <span style="color:#75715e">/* hooks assume &#39;pc&#39; is already incremented */</span>
-      luaD_callhook(L, LUA_HOOKCALL, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
-      L<span style="color:#f92672">-&gt;</span>savedpc<span style="color:#f92672">--</span>;  <span style="color:#75715e">/* correct &#39;pc&#39; */</span>
-    }
-    <span style="color:#66d9ef">return</span> PCRLUA;
-  }
-  <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* if is a C function, call it */</span>
-    CallInfo <span style="color:#f92672">*</span>ci;
-    <span style="color:#66d9ef">int</span> n;
-    luaD_checkstack(L, LUA_MINSTACK);  <span style="color:#75715e">/* ensure minimum stack size */</span>
-	<span style="color:#75715e">/* 填充新的CallInfo */</span>
-    ci <span style="color:#f92672">=</span> inc_ci(L);  <span style="color:#75715e">/* now `enter&#39; new function */</span>
-    ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">=</span> restorestack(L, funcr);
-    L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* C函数没有Lua函数的变参问题，所以这里无需adjust_varargs() */</span>
-	<span style="color:#75715e">/* &#34;OP_CALL指令&#34;已经将L-&gt;top指向了最后一个传入参数的上方 */</span>
-    ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">+</span> LUA_MINSTACK;	<span style="color:#75715e">/* 这里和上面luaD_checkstack呼应 */</span>
-    lua_assert(ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>stack_last);
-    ci<span style="color:#f92672">-&gt;</span>nresults <span style="color:#f92672">=</span> nresults;
-    <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>hookmask <span style="color:#f92672">&amp;</span> LUA_MASKCALL)
-      luaD_callhook(L, LUA_HOOKCALL, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
-    lua_unlock(L);
-	<span style="color:#75715e">// L-&gt;top已经在lvm中准备好了(call和vararg指令)
-</span><span style="color:#75715e"></span>    n <span style="color:#f92672">=</span> (<span style="color:#f92672">*</span>curr_func(L)<span style="color:#f92672">-&gt;</span>c.f)(L);  <span style="color:#75715e">/* do the actual call */</span>
-    lua_lock(L);
-    <span style="color:#66d9ef">if</span> (n <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)  <span style="color:#75715e">/* yielding, co调用yield，co.yeild运行完毕了,co.yeild还不能释放ci-list信息，需等到母thread调用resume，将控制权转移到co，再在co.resume中luaD_poscall()才释放 */</span>
-      <span style="color:#66d9ef">return</span> PCRYIELD;
-    <span style="color:#66d9ef">else</span> {
-      luaD_poscall(L, L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> n);	<span style="color:#75715e">/* 调整子C函数的返回值到指定位置并适配母函数的wanted(results) */</span>
-      <span style="color:#66d9ef">return</span> PCRC;
-    }
-  }
-}
-
-<span style="color:#75715e">/* 函数调用结束后，处理实际返回值和期待返回值的匹配问题
-</span><span style="color:#75715e">** 也处理ci链的嵌套逻辑（本层ci结束往后退一层)
-</span><span style="color:#75715e">**
-</span><span style="color:#75715e">** 即处理C函数调用,也处理Lua函数执行结束即将返回这两种情况
-</span><span style="color:#75715e">** 没有检测C函数说返回了n个参数，当实际上没有返回那么多参数的情况
-</span><span style="color:#75715e">** RETURNS: wanted.cnt: 0:返回多个参数，1：返回0个，2：返回1个。。。
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_poscall</span> (lua_State <span style="color:#f92672">*</span>L, StkId firstResult) {
-  StkId res;
-  <span style="color:#66d9ef">int</span> wanted, i;
-  CallInfo <span style="color:#f92672">*</span>ci;
-  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>hookmask <span style="color:#f92672">&amp;</span> LUA_MASKRET)
-    firstResult <span style="color:#f92672">=</span> callrethooks(L, firstResult);
-  ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">--</span>;
-  res <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>func;  <span style="color:#75715e">/* res == final position of 1st result */</span>
-  wanted <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>nresults;
-  L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> (ci <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>)<span style="color:#f92672">-&gt;</span>base;  <span style="color:#75715e">/* restore base */</span>
-  L<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">=</span> (ci <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>)<span style="color:#f92672">-&gt;</span>savedpc;  <span style="color:#75715e">/* restore savedpc */</span>
-  
-  <span style="color:#75715e">/* move results to correct place */</span>
-  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> wanted; i <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> firstResult <span style="color:#f92672">&lt;</span> L<span style="color:#f92672">-&gt;</span>top; i<span style="color:#f92672">--</span>)	<span style="color:#75715e">/* 这个判断即处理非尾调用，又处理了尾调用 */</span>
-    setobjs2s(L, res<span style="color:#f92672">++</span>, firstResult<span style="color:#f92672">++</span>);	<span style="color:#75715e">/* wanted根据实际返回数量赋值 */</span>
-  <span style="color:#66d9ef">while</span> (i<span style="color:#f92672">--</span> <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>)
-    setnilvalue(res<span style="color:#f92672">++</span>);	<span style="color:#75715e">/* local a, b, c = funcA(...), 针对 funcA的返回值不够则补nil */</span>
-
-  <span style="color:#75715e">/*
-</span><span style="color:#75715e">  ** L-&gt;top恢复到最后一个返回参数在stack的位置，这里和调用函数之前，
-</span><span style="color:#75715e">  ** 将L-&gt;top设置到最后一个传入参数在stack的位置相呼应了！！！
-</span><span style="color:#75715e">  ** 
-</span><span style="color:#75715e">  ** 最终将L-&gt;top恢复到ci-&gt;top是由“OP_CALL”指令负责
-</span><span style="color:#75715e">  */</span>
-  L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> res;	
-  <span style="color:#66d9ef">return</span> (wanted <span style="color:#f92672">-</span> LUA_MULTRET);  <span style="color:#75715e">/* 0 iff wanted == LUA_MULTRET */</span>
-}
-
-
-<span style="color:#75715e">/*
-</span><span style="color:#75715e">** Call a function (C or Lua). The function to be called is at *func.
-</span><span style="color:#75715e">** The arguments are on the stack, right after the function.
-</span><span style="color:#75715e">** When returns, all the results are on the stack, starting at the original
-</span><span style="color:#75715e">** function position.
-</span><span style="color:#75715e">*/</span> 
-<span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_call</span> (lua_State <span style="color:#f92672">*</span>L, StkId func, <span style="color:#66d9ef">int</span> nResults) {
-  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">++</span>L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">&gt;=</span> LUAI_MAXCCALLS) {	<span style="color:#75715e">/* 调用层次太深，进入抛出异常 */</span>
-    <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">==</span> LUAI_MAXCCALLS)
-      luaG_runerror(L, <span style="color:#e6db74">&#34;C stack overflow&#34;</span>);
-    <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">&gt;=</span> (LUAI_MAXCCALLS <span style="color:#f92672">+</span> (LUAI_MAXCCALLS<span style="color:#f92672">&gt;&gt;</span><span style="color:#ae81ff">3</span>)))
-      luaD_throw(L, LUA_ERRERR);  <span style="color:#75715e">/* error while handing stack error */</span>
-  }
-  <span style="color:#66d9ef">if</span> (luaD_precall(L, func, nResults) <span style="color:#f92672">==</span> PCRLUA)  <span style="color:#75715e">/* is a Lua function? */</span>
-    luaV_execute(L, <span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* call it, 这里的1是真的妙啊 */</span>
-  L<span style="color:#f92672">-&gt;</span>nCcalls<span style="color:#f92672">--</span>;
-  luaC_checkGC(L);
-}
-
-<span style="color:#75715e">/* 协程co开始执行co.resume 母thread在lbaselib.auxresume()中交出CPU，等待子co返回 */</span>
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">resume</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>ud) {
-  StkId firstArg <span style="color:#f92672">=</span> cast(StkId, ud);	<span style="color:#75715e">/* 没有传参时firstArg指向top,下面的firstArg&gt;L-&gt;base还是成立 */</span>
-  CallInfo <span style="color:#f92672">*</span>ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci;
-  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {  <span style="color:#75715e">/* start coroutine? */</span>
-    lua_assert(ci <span style="color:#f92672">==</span> L<span style="color:#f92672">-&gt;</span>base_ci);	<span style="color:#75715e">/* 尚未有任何调用链ci生成(或co已运行完毕) */</span>
-	  lua_assert(firstArg <span style="color:#f92672">&gt;</span> L<span style="color:#f92672">-&gt;</span>base);	<span style="color:#75715e">/* 至少还有个参数(是co.fun),意味着不是co运行完毕的状态，运行完毕后不能调用本函数了，co.fun都没有了，ci也是空的，ro不知道该怎么运行了不是 */</span>
-    <span style="color:#75715e">/* 若是崭新的co第一次开始运行resume,则会生成相应的ci（co.initFun),再运行起来和普通的c.main中构建一个thread后第一次运行是一样的 */</span>
-    <span style="color:#66d9ef">if</span> (luaD_precall(L, firstArg <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>, LUA_MULTRET) <span style="color:#f92672">!=</span> PCRLUA)
-        <span style="color:#66d9ef">return</span>;
-  } <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* resuming from previous yield */</span>
-    lua_assert(L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">==</span> LUA_YIELD);	<span style="color:#75715e">/* 非YEILD状态，不能调用resume */</span>
-    L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;	<span style="color:#75715e">/* switch back status */</span>
-    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>f_isLua(ci)) {  <span style="color:#75715e">/* `common&#39; yield? ci这里指向的是baselib.yield */</span>
-      <span style="color:#75715e">/* finish interrupted execution of `OP_CALL&#39; */</span>
-      lua_assert(GET_OPCODE(<span style="color:#f92672">*</span>((ci<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>)) <span style="color:#f92672">==</span> OP_CALL <span style="color:#f92672">||</span>
-                 GET_OPCODE(<span style="color:#f92672">*</span>((ci<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>)) <span style="color:#f92672">==</span> OP_TAILCALL);
-      <span style="color:#66d9ef">if</span> (luaD_poscall(L, firstArg))  <span style="color:#75715e">/* complete it... 结束上述说的baselib.yield的调用流程 */</span>
-        L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top;  <span style="color:#75715e">/* and correct top if not multiple results,如果是 multiple results则由跟在后面的vararg或者setlist来调整L-&gt;top(他们还需要用到L-&gt;top来确定传入参数的个数呢,所以这里不能将其恢复到L-&gt;ci-&gt;top，) */</span>
-    }
-    <span style="color:#66d9ef">else</span>  <span style="color:#75715e">/* yielded inside a hook: just continue its execution */</span>
-      L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>base;
-  }
-  
-  luaV_execute(L, cast_int(L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>base_ci));	<span style="color:#75715e">/* 这里的nexeccalls值得好好推导一下 */</span>
-}
-
-
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">resume_error</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>msg) {
-  L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>base;
-  setsvalue2s(L, L<span style="color:#f92672">-&gt;</span>top, luaS_new(L, msg));
-  incr_top(L);
-  lua_unlock(L);
-  <span style="color:#66d9ef">return</span> LUA_ERRRUN;
-}
-
-
-LUA_API <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">lua_resume</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> nargs) {
-  <span style="color:#66d9ef">int</span> status;
-  lua_lock(L);
-  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">!=</span> LUA_YIELD <span style="color:#f92672">&amp;&amp;</span> (L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">||</span> L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">!=</span> L<span style="color:#f92672">-&gt;</span>base_ci))
-      <span style="color:#66d9ef">return</span> resume_error(L, <span style="color:#e6db74">&#34;cannot resume non-suspended coroutine&#34;</span>);
-  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">&gt;=</span> LUAI_MAXCCALLS)
-    <span style="color:#66d9ef">return</span> resume_error(L, <span style="color:#e6db74">&#34;C stack overflow&#34;</span>);
-  luai_userstateresume(L, nargs);
-  lua_assert(L<span style="color:#f92672">-&gt;</span>errfunc <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>);
-  L<span style="color:#f92672">-&gt;</span>baseCcalls <span style="color:#f92672">=</span> <span style="color:#f92672">++</span>L<span style="color:#f92672">-&gt;</span>nCcalls;
-  <span style="color:#75715e">/* 必须protected状态下call，不然协程出错，整个进程都会被关闭 
-</span><span style="color:#75715e">  ** 本函数还没有为co生成ci链,resume中会生成co的ci调用链（如果是第一次resume）
-</span><span style="color:#75715e">  */</span>
-  status <span style="color:#f92672">=</span> luaD_rawrunprotected(L, resume, L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> nargs);	
-  <span style="color:#66d9ef">if</span> (status <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span>) {  <span style="color:#75715e">/* error? */</span>
-    L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> cast_byte(status);  <span style="color:#75715e">/* mark thread as `dead&#39; */</span>
-    luaD_seterrorobj(L, status, L<span style="color:#f92672">-&gt;</span>top);
-    L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top;	<span style="color:#75715e">/* 上面压入了errMsg这里更新下top */</span>
-  }
-  <span style="color:#66d9ef">else</span> {
-    lua_assert(L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">==</span> L<span style="color:#f92672">-&gt;</span>baseCcalls);
-    status <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>status;	<span style="color:#75715e">/* coroutinue运行中出让则为 LUA_YIELD */</span>
-  }
-  <span style="color:#f92672">--</span>L<span style="color:#f92672">-&gt;</span>nCcalls;
-  lua_unlock(L);
-  <span style="color:#66d9ef">return</span> status;
-}
-
-
-LUA_API <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">lua_yield</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> nresults) {
-  luai_userstateyield(L, nresults);
-  lua_lock(L);
-  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">&gt;</span> L<span style="color:#f92672">-&gt;</span>baseCcalls)
-    luaG_runerror(L, <span style="color:#e6db74">&#34;attempt to yield across metamethod/C-call boundary&#34;</span>);
-  L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> nresults;  <span style="color:#75715e">/* protect stack slots below */</span>
-  L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> LUA_YIELD;
-  lua_unlock(L);
-  <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* note:这是一个特殊的值，用于标识从yield返回 */</span>
-}
-
-<span style="color:#75715e">/* old_top 指向被调用函数slot 
-</span><span style="color:#75715e">** KEYCODE
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_pcall</span> (lua_State <span style="color:#f92672">*</span>L, Pfunc func, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>u,
-                ptrdiff_t old_top, ptrdiff_t ef) {
-  <span style="color:#66d9ef">int</span> status;
-  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">short</span> oldnCcalls <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>nCcalls;
-  
-  <span style="color:#75715e">/* 存档当前的ci,以便发生错误恢复时使用 */</span>
-  ptrdiff_t old_ci <span style="color:#f92672">=</span> saveci(L, L<span style="color:#f92672">-&gt;</span>ci);	<span style="color:#75715e">/* 这里只能记住offset而不是绝对地址(call过程中ci可能会调整!) */</span>
-  
-  lu_byte old_allowhooks <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>allowhook;
-  ptrdiff_t old_errfunc <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>errfunc;
-  L<span style="color:#f92672">-&gt;</span>errfunc <span style="color:#f92672">=</span> ef;
-  status <span style="color:#f92672">=</span> luaD_rawrunprotected(L, func, u);
-
-  <span style="color:#75715e">/* 发生了错误，回滚到存档时刻 */</span>
-  <span style="color:#66d9ef">if</span> (status <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span>) {  <span style="color:#75715e">/* an error occurred? */</span>
-    StkId oldtop <span style="color:#f92672">=</span> restorestack(L, old_top);
-    luaF_close(L, oldtop);  <span style="color:#75715e">/* close eventual pending closures */</span>
-    luaD_seterrorobj(L, status, oldtop);	<span style="color:#75715e">/* 顺带correct了top */</span>
-    L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">=</span> oldnCcalls;
-    L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">=</span> restoreci(L, old_ci);
-    L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>base;
-    L<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>savedpc;
-    L<span style="color:#f92672">-&gt;</span>allowhook <span style="color:#f92672">=</span> old_allowhooks;
-    restore_stack_limit(L);
-  }
-  L<span style="color:#f92672">-&gt;</span>errfunc <span style="color:#f92672">=</span> old_errfunc;
-  <span style="color:#66d9ef">return</span> status;
-}
-
-
-
-<span style="color:#75715e">/*
-</span><span style="color:#75715e">** Execute a protected parser.
-</span><span style="color:#75715e">*/</span>
-<span style="color:#66d9ef">struct</span> SParser {  <span style="color:#75715e">/* data to `f_parser&#39; */</span>
-  ZIO <span style="color:#f92672">*</span>z;
-  Mbuffer buff;  <span style="color:#75715e">/* buffer to be used by the scanner */</span>
-  <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>name;
-};
-
-<span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">f_parser</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>ud) {
-  <span style="color:#66d9ef">int</span> i;
-  Proto <span style="color:#f92672">*</span>tf;
-  Closure <span style="color:#f92672">*</span>cl;
-  <span style="color:#66d9ef">struct</span> SParser <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> cast(<span style="color:#66d9ef">struct</span> SParser <span style="color:#f92672">*</span>, ud);
-  <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> luaZ_lookahead(p<span style="color:#f92672">-&gt;</span>z);
-  luaC_checkGC(L);
-  tf <span style="color:#f92672">=</span> ((c <span style="color:#f92672">==</span> LUA_SIGNATURE[<span style="color:#ae81ff">0</span>]) <span style="color:#f92672">?</span> luaU_undump : luaY_parser)(L, p<span style="color:#f92672">-&gt;</span>z,
-                                                             <span style="color:#f92672">&amp;</span>p<span style="color:#f92672">-&gt;</span>buff, p<span style="color:#f92672">-&gt;</span>name);
-  cl <span style="color:#f92672">=</span> luaF_newLclosure(L, tf<span style="color:#f92672">-&gt;</span>nups, hvalue(gt(L)));	<span style="color:#75715e">/* 新生成的clouse的env直接来自gobal&#39;table而不是上层函数的env */</span>
-  cl<span style="color:#f92672">-&gt;</span>l.p <span style="color:#f92672">=</span> tf;
-  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> tf<span style="color:#f92672">-&gt;</span>nups; i<span style="color:#f92672">++</span>)  <span style="color:#75715e">/* initialize eventual upvalues */</span>
-    cl<span style="color:#f92672">-&gt;</span>l.upvals[i] <span style="color:#f92672">=</span> luaF_newupval(L);
-  setclvalue(L, L<span style="color:#f92672">-&gt;</span>top, cl);
-  incr_top(L);
-}
-
-
-<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_protectedparser</span> (lua_State <span style="color:#f92672">*</span>L, ZIO <span style="color:#f92672">*</span>z, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>name) {
-  <span style="color:#66d9ef">struct</span> SParser p;
-  <span style="color:#66d9ef">int</span> status;
-  p.z <span style="color:#f92672">=</span> z; p.name <span style="color:#f92672">=</span> name;
-  luaZ_initbuffer(L, <span style="color:#f92672">&amp;</span>p.buff);
-  status <span style="color:#f92672">=</span> luaD_pcall(L, f_parser, <span style="color:#f92672">&amp;</span>p, savestack(L, L<span style="color:#f92672">-&gt;</span>top), L<span style="color:#f92672">-&gt;</span>errfunc);
-  luaZ_freebuffer(L, <span style="color:#f92672">&amp;</span>p.buff);
-  <span style="color:#66d9ef">return</span> status;
-}
-</code></pre></div>
+    <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** $Id: ldo.c,v 2.38.1.4 2012/01/18 02:27:10 roberto Exp $
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Stack and Call structure of Lua
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** See Copyright Notice in lua.h
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;setjmp.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;stdlib.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&lt;string.h&gt;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define ldo_c
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define LUA_CORE
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lua.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldebug.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ldo.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lfunc.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lgc.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lmem.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lobject.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lopcodes.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lparser.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstate.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lstring.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ltable.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;ltm.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lundump.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lvm.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;lzio.h&#34;</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** {======================================================
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Error-recovery functions
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** =======================================================
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* chain list of long jump buffers */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> lua_longjmp {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> lua_longjmp <span style="color:#f92672">*</span>previous;
+</span></span><span style="display:flex;"><span>  luai_jmpbuf b;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">volatile</span> <span style="color:#66d9ef">int</span> status;  <span style="color:#75715e">/* error code */</span>
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_seterrorobj</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> errcode, StkId oldtop) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">switch</span> (errcode) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_ERRMEM: {
+</span></span><span style="display:flex;"><span>      setsvalue2s(L, oldtop, luaS_newliteral(L, MEMERRMSG));
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_ERRERR: {
+</span></span><span style="display:flex;"><span>      setsvalue2s(L, oldtop, luaS_newliteral(L, <span style="color:#e6db74">&#34;error in error handling&#34;</span>));
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_ERRSYNTAX:
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">case</span> LUA_ERRRUN: {
+</span></span><span style="display:flex;"><span>      setobjs2s(L, oldtop, L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* error message on current top */</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 这里结合 luaD_pcall 来一起来看 */</span>
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> oldtop <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* correct top */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 空闲的callInfo过多时，尝试压缩其空间 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">restore_stack_limit</span> (lua_State <span style="color:#f92672">*</span>L) {
+</span></span><span style="display:flex;"><span>  lua_assert(L<span style="color:#f92672">-&gt;</span>stack_last <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>stack <span style="color:#f92672">==</span> L<span style="color:#f92672">-&gt;</span>stacksize <span style="color:#f92672">-</span> EXTRA_STACK <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">&gt;</span> LUAI_MAXCALLS) {  <span style="color:#75715e">/* there was an overflow? */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> inuse <span style="color:#f92672">=</span> cast_int(L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>base_ci);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (inuse <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">&lt;</span> LUAI_MAXCALLS)  <span style="color:#75715e">/* can `undo&#39; overflow? */</span>
+</span></span><span style="display:flex;"><span>      luaD_reallocCI(L, LUAI_MAXCALLS);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 回滚stack到初始状态！！！！ */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">resetstack</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> status) {
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 这一下彻底回滚了 */</span>
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base_ci;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>base;
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  luaF_close(L, L<span style="color:#f92672">-&gt;</span>base);  <span style="color:#75715e">/* close eventual pending closures */</span>
+</span></span><span style="display:flex;"><span>  luaD_seterrorobj(L, status, L<span style="color:#f92672">-&gt;</span>base);
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>baseCcalls;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>allowhook <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>  restore_stack_limit(L);
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>errfunc <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>errorJmp <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 尝试调用异常处理函数 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 主要在luaG_errormsg中被间接调用
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_throw</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> errcode) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>errorJmp) {
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>errorJmp<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> errcode;  <span style="color:#75715e">/* !!! 跳出去之前设置status */</span>
+</span></span><span style="display:flex;"><span>    LUAI_THROW(L, L<span style="color:#f92672">-&gt;</span>errorJmp); 	<span style="color:#75715e">/* 正式跳出 */</span>
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {	<span style="color:#75715e">/* 没有设置errHdl，调用panic后退出进程 */</span>
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> cast_byte(errcode);	<span style="color:#75715e">/* 无jump点了，在这里设置L的状态，有则由上层业务处理 */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (G(L)<span style="color:#f92672">-&gt;</span>panic) {
+</span></span><span style="display:flex;"><span>      resetstack(L, errcode);	<span style="color:#75715e">/* 这里对stack进行收尾 */</span>
+</span></span><span style="display:flex;"><span>      lua_unlock(L);
+</span></span><span style="display:flex;"><span>      G(L)<span style="color:#f92672">-&gt;</span>panic(L);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    exit(EXIT_FAILURE);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 保护模式下(longjump)调用C函数
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 但发生错误，则调用了L-&gt;errfunc后(若设置了)，后走到这里而不是直接退出进程
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** RETURN：执行流的执行结果，没有同步到L-&gt;status中(由上层调用决定是否同步)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_rawrunprotected</span> (lua_State <span style="color:#f92672">*</span>L, Pfunc f, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>ud) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> lua_longjmp lj;
+</span></span><span style="display:flex;"><span>  lj.status <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>  lj.previous <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>errorJmp;  <span style="color:#75715e">/* chain new error handler */</span>
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>errorJmp <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>lj;
+</span></span><span style="display:flex;"><span>  LUAI_TRY(L, <span style="color:#f92672">&amp;</span>lj,
+</span></span><span style="display:flex;"><span>    (<span style="color:#f92672">*</span>f)(L, ud);
+</span></span><span style="display:flex;"><span>  );
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>errorJmp <span style="color:#f92672">=</span> lj.previous;  <span style="color:#75715e">/* restore old error handler */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> lj.status;	<span style="color:#75715e">/* luaD_throw()中更新了status */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* }====================================================== */</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* stack移动后更新upvalues,ci-list和L-&gt;base */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">correctstack</span> (lua_State <span style="color:#f92672">*</span>L, TValue <span style="color:#f92672">*</span>oldstack) {
+</span></span><span style="display:flex;"><span>  CallInfo <span style="color:#f92672">*</span>ci;
+</span></span><span style="display:flex;"><span>  GCObject <span style="color:#f92672">*</span>up;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> (L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (up <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>openupval; up <span style="color:#f92672">!=</span> NULL; up <span style="color:#f92672">=</span> up<span style="color:#f92672">-&gt;</span>gch.next)
+</span></span><span style="display:flex;"><span>    gco2uv(up)<span style="color:#f92672">-&gt;</span>v <span style="color:#f92672">=</span> (gco2uv(up)<span style="color:#f92672">-&gt;</span>v <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base_ci; ci <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>ci; ci<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> (ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> (ci<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">=</span> (ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* L-&gt;ci不用调整哈 */</span>
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> (L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">-</span> oldstack) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>stack;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 重新调整stack的大小 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_reallocstack</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> newsize) {
+</span></span><span style="display:flex;"><span>  TValue <span style="color:#f92672">*</span>oldstack <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>stack;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> realsize <span style="color:#f92672">=</span> newsize <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">+</span> EXTRA_STACK;
+</span></span><span style="display:flex;"><span>  lua_assert(L<span style="color:#f92672">-&gt;</span>stack_last <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>stack <span style="color:#f92672">==</span> L<span style="color:#f92672">-&gt;</span>stacksize <span style="color:#f92672">-</span> EXTRA_STACK <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>);	<span style="color:#75715e">/* 和stack_init()函数对应 */</span>
+</span></span><span style="display:flex;"><span>  luaM_reallocvector(L, L<span style="color:#f92672">-&gt;</span>stack, L<span style="color:#f92672">-&gt;</span>stacksize, realsize, TValue);
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>stacksize <span style="color:#f92672">=</span> realsize;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>stack_last <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>stack<span style="color:#f92672">+</span>newsize;
+</span></span><span style="display:flex;"><span>  correctstack(L, oldstack);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 调整callInfo链的大小 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_reallocCI</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> newsize) {
+</span></span><span style="display:flex;"><span>  CallInfo <span style="color:#f92672">*</span>oldci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base_ci;
+</span></span><span style="display:flex;"><span>  luaM_reallocvector(L, L<span style="color:#f92672">-&gt;</span>base_ci, L<span style="color:#f92672">-&gt;</span>size_ci, newsize, CallInfo);
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">=</span> newsize;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">=</span> (L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">-</span> oldci) <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>base_ci;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>end_ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base_ci <span style="color:#f92672">+</span> L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_growstack</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> n) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (n <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>stacksize)  <span style="color:#75715e">/* double size is enough? */</span>
+</span></span><span style="display:flex;"><span>    luaD_reallocstack(L, <span style="color:#ae81ff">2</span><span style="color:#f92672">*</span>L<span style="color:#f92672">-&gt;</span>stacksize);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>    luaD_reallocstack(L, L<span style="color:#f92672">-&gt;</span>stacksize <span style="color:#f92672">+</span> n);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> CallInfo <span style="color:#f92672">*</span><span style="color:#a6e22e">growCI</span> (lua_State <span style="color:#f92672">*</span>L) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">&gt;</span> LUAI_MAXCALLS)  <span style="color:#75715e">/* overflow while handling overflow? 嵌套调用层次太深了，直接报错，方便用户检查调用情况 */</span>
+</span></span><span style="display:flex;"><span>    luaD_throw(L, LUA_ERRERR);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>    luaD_reallocCI(L, <span style="color:#ae81ff">2</span><span style="color:#f92672">*</span>L<span style="color:#f92672">-&gt;</span>size_ci);	<span style="color:#75715e">/* 简单粗暴，直接扩大一倍 */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>size_ci <span style="color:#f92672">&gt;</span> LUAI_MAXCALLS)
+</span></span><span style="display:flex;"><span>      luaG_runerror(L, <span style="color:#e6db74">&#34;stack overflow&#34;</span>);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> <span style="color:#f92672">++</span>L<span style="color:#f92672">-&gt;</span>ci;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">static</span> StkId <span style="color:#a6e22e">callrethooks</span> (lua_State <span style="color:#f92672">*</span>L, StkId firstResult) {
+</span></span><span style="display:flex;"><span>  ptrdiff_t fr <span style="color:#f92672">=</span> savestack(L, firstResult);  <span style="color:#75715e">/* next call may change stack */</span>
+</span></span><span style="display:flex;"><span>  luaD_callhook(L, LUA_HOOKRET, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (f_isLua(L<span style="color:#f92672">-&gt;</span>ci)) {  <span style="color:#75715e">/* Lua function? */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span> ((L<span style="color:#f92672">-&gt;</span>hookmask <span style="color:#f92672">&amp;</span> LUA_MASKRET) <span style="color:#f92672">&amp;&amp;</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>tailcalls<span style="color:#f92672">--</span>) <span style="color:#75715e">/* tail calls */</span>
+</span></span><span style="display:flex;"><span>      luaD_callhook(L, LUA_HOOKTAILRET, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> restorestack(L, fr);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 调用钩子函数 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_callhook</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> event, <span style="color:#66d9ef">int</span> line) {
+</span></span><span style="display:flex;"><span>  lua_Hook hook <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>hook;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (hook <span style="color:#f92672">&amp;&amp;</span> L<span style="color:#f92672">-&gt;</span>allowhook) {
+</span></span><span style="display:flex;"><span>    ptrdiff_t top <span style="color:#f92672">=</span> savestack(L, L<span style="color:#f92672">-&gt;</span>top);
+</span></span><span style="display:flex;"><span>    ptrdiff_t ci_top <span style="color:#f92672">=</span> savestack(L, L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top);
+</span></span><span style="display:flex;"><span>    lua_Debug ar;
+</span></span><span style="display:flex;"><span>    ar.event <span style="color:#f92672">=</span> event;
+</span></span><span style="display:flex;"><span>    ar.currentline <span style="color:#f92672">=</span> line;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (event <span style="color:#f92672">==</span> LUA_HOOKTAILRET)
+</span></span><span style="display:flex;"><span>      ar.i_ci <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* tail call; no debug information about it */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>
+</span></span><span style="display:flex;"><span>      ar.i_ci <span style="color:#f92672">=</span> cast_int(L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>base_ci);
+</span></span><span style="display:flex;"><span>    luaD_checkstack(L, LUA_MINSTACK);  <span style="color:#75715e">/* ensure minimum stack size */</span>
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">+</span> LUA_MINSTACK;
+</span></span><span style="display:flex;"><span>    lua_assert(L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>stack_last);
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>allowhook <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;  <span style="color:#75715e">/* cannot call hooks inside a hook */</span>
+</span></span><span style="display:flex;"><span>    lua_unlock(L);
+</span></span><span style="display:flex;"><span>    (<span style="color:#f92672">*</span>hook)(L, <span style="color:#f92672">&amp;</span>ar);	<span style="color:#75715e">/* 正式调用钩子函数 */</span>
+</span></span><span style="display:flex;"><span>    lua_lock(L);
+</span></span><span style="display:flex;"><span>    lua_assert(<span style="color:#f92672">!</span>L<span style="color:#f92672">-&gt;</span>allowhook);
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* !!!! 现场需恢复，别忘了，亲 */</span>
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>allowhook <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> restorestack(L, ci_top);
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> restorestack(L, top);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">**补齐固定形参(若实际传入的参数不够)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">**将传给固定形参的值mv到top之上且纠正top
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">**将剩下(若还有剩下)的参数留给变参...
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> StkId <span style="color:#a6e22e">adjust_varargs</span> (lua_State <span style="color:#f92672">*</span>L, Proto <span style="color:#f92672">*</span>p, <span style="color:#66d9ef">int</span> actual) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> nfixargs <span style="color:#f92672">=</span> p<span style="color:#f92672">-&gt;</span>numparams;
+</span></span><span style="display:flex;"><span>  Table <span style="color:#f92672">*</span>htab <span style="color:#f92672">=</span> NULL;
+</span></span><span style="display:flex;"><span>  StkId base, fixed;
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 传入的参数数量不够填补fixed参数的，直接补nil：至少得把fixed形参需要的个数补齐 */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (; actual <span style="color:#f92672">&lt;</span> nfixargs; <span style="color:#f92672">++</span>actual)	
+</span></span><span style="display:flex;"><span>    setnilvalue(L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">++</span>);
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#if defined(LUA_COMPAT_VARARG)	</span><span style="color:#75715e">/* 将留给...的参数信息打包到额外的arg表中 */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#66d9ef">if</span> (p<span style="color:#f92672">-&gt;</span>is_vararg <span style="color:#f92672">&amp;</span> VARARG_NEEDSARG) { <span style="color:#75715e">/* compat. with old-style vararg? */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> nvar <span style="color:#f92672">=</span> actual <span style="color:#f92672">-</span> nfixargs;  <span style="color:#75715e">/* number of extra arguments */</span>
+</span></span><span style="display:flex;"><span>    lua_assert(p<span style="color:#f92672">-&gt;</span>is_vararg <span style="color:#f92672">&amp;</span> VARARG_HASARG);
+</span></span><span style="display:flex;"><span>    luaC_checkGC(L);
+</span></span><span style="display:flex;"><span>    luaD_checkstack(L, p<span style="color:#f92672">-&gt;</span>maxstacksize);
+</span></span><span style="display:flex;"><span>    htab <span style="color:#f92672">=</span> luaH_new(L, nvar, <span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* create `arg&#39; table */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>nvar; i<span style="color:#f92672">++</span>)  <span style="color:#75715e">/* put extra arguments into `arg&#39; table */</span>
+</span></span><span style="display:flex;"><span>      setobj2n(L, luaH_setnum(L, htab, i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>), L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> nvar <span style="color:#f92672">+</span> i);
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* store counter in field `n&#39; */</span>
+</span></span><span style="display:flex;"><span>    setnvalue(luaH_setstr(L, htab, luaS_newliteral(L, <span style="color:#e6db74">&#34;n&#34;</span>)), cast_num(nvar));
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">/* move fixed parameters to final position */</span>
+</span></span><span style="display:flex;"><span>  fixed <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> actual;  <span style="color:#75715e">/* first fixed argument */</span>
+</span></span><span style="display:flex;"><span>  base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top;  <span style="color:#75715e">/* final position of first argument */</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 从第一个参数开始移动其值到被调函数的fixed‘arg域,直到给所有的fixed&#39;arg赋值为止
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 如果还剩下多余的参数，则直接保留下来(留给变参...)，无需移动
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span>; i<span style="color:#f92672">&lt;</span>nfixargs; i<span style="color:#f92672">++</span>) {	
+</span></span><span style="display:flex;"><span>    setobjs2s(L, L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">++</span>, fixed<span style="color:#f92672">+</span>i);	<span style="color:#75715e">/* !!!!这里移动了top指针 */</span>
+</span></span><span style="display:flex;"><span>    setnilvalue(fixed<span style="color:#f92672">+</span>i);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* add `arg&#39; parameter */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (htab) {
+</span></span><span style="display:flex;"><span>    sethvalue(L, L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">++</span>, htab);
+</span></span><span style="display:flex;"><span>    lua_assert(iswhite(obj2gco(htab)));
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> base;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 直接看代码 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> StkId <span style="color:#a6e22e">tryfuncTM</span> (lua_State <span style="color:#f92672">*</span>L, StkId func) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">const</span> TValue <span style="color:#f92672">*</span>tm <span style="color:#f92672">=</span> luaT_gettmbyobj(L, func, TM_CALL);
+</span></span><span style="display:flex;"><span>  StkId p;
+</span></span><span style="display:flex;"><span>  ptrdiff_t funcr <span style="color:#f92672">=</span> savestack(L, func);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisfunction(tm))
+</span></span><span style="display:flex;"><span>    luaG_typeerror(L, func, <span style="color:#e6db74">&#34;call&#34;</span>);
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* Open a hole inside the stack at `func&#39; */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (p <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top; p <span style="color:#f92672">&gt;</span> func; p<span style="color:#f92672">--</span>) setobjs2s(L, p, p<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>  incr_top(L);
+</span></span><span style="display:flex;"><span>  func <span style="color:#f92672">=</span> restorestack(L, funcr);  <span style="color:#75715e">/* previous call may change stack */</span>
+</span></span><span style="display:flex;"><span>  setobj2s(L, func, tm);  <span style="color:#75715e">/* tag method is the new function to be called */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> func;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">#define inc_ci(L) \
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ((L-&gt;ci == L-&gt;end_ci) ? growCI(L) : \
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">   (condhardstacktests(luaD_reallocCI(L, L-&gt;size_ci)), ++L-&gt;ci))
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 先做调用前的准备工作，后进入函数调用(for C,not Lua)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** nresults:-1返回所有的返回值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 0：不要返回值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 1：期待一个返回值
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_precall</span> (lua_State <span style="color:#f92672">*</span>L, StkId func, <span style="color:#66d9ef">int</span> nresults) {
+</span></span><span style="display:flex;"><span>  LClosure <span style="color:#f92672">*</span>cl;
+</span></span><span style="display:flex;"><span>  ptrdiff_t funcr;	<span style="color:#75715e">/* 当前调用函数的pc距离stack栈底的偏移量 */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>ttisfunction(func)) <span style="color:#75715e">/* `func&#39; is not a function? */</span>
+</span></span><span style="display:flex;"><span>    func <span style="color:#f92672">=</span> tryfuncTM(L, func);  <span style="color:#75715e">/* check the `function&#39; tag method */</span>
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 随着新的调用产生,ci链/stack可能因为增长而移动位置
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 故不能记住绝地位置而记住相对位置，后面根据此值最终确定ci-&gt;func 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
+</span></span><span style="display:flex;"><span>  funcr <span style="color:#f92672">=</span> savestack(L, func);	
+</span></span><span style="display:flex;"><span>  cl <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span>clvalue(func)<span style="color:#f92672">-&gt;</span>l;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>savedpc;	<span style="color:#75715e">/* 正式调用前，存档L-&gt;savedpc至L-&gt;ci-&gt;savedpc */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>cl<span style="color:#f92672">-&gt;</span>isC) {  <span style="color:#75715e">/* Lua function? prepare its call */</span>
+</span></span><span style="display:flex;"><span>    CallInfo <span style="color:#f92672">*</span>ci;
+</span></span><span style="display:flex;"><span>    StkId st, base;
+</span></span><span style="display:flex;"><span>    Proto <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> cl<span style="color:#f92672">-&gt;</span>p;
+</span></span><span style="display:flex;"><span>    luaD_checkstack(L, p<span style="color:#f92672">-&gt;</span>maxstacksize);
+</span></span><span style="display:flex;"><span>    func <span style="color:#f92672">=</span> restorestack(L, funcr);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>p<span style="color:#f92672">-&gt;</span>is_vararg) {  <span style="color:#75715e">/* no varargs?(不是变参函数?即函数参数数量固定) */</span>
+</span></span><span style="display:flex;"><span>      base <span style="color:#f92672">=</span> func <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">&gt;</span> base <span style="color:#f92672">+</span> p<span style="color:#f92672">-&gt;</span>numparams)	<span style="color:#75715e">/* 删除栈上多余的传入参数 */</span>
+</span></span><span style="display:flex;"><span>        L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> base <span style="color:#f92672">+</span> p<span style="color:#f92672">-&gt;</span>numparams;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* vararg function */</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">int</span> nargs <span style="color:#f92672">=</span> cast_int(L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> func) <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* 计算实际传入的参数个数 */</span>
+</span></span><span style="display:flex;"><span>      base <span style="color:#f92672">=</span> adjust_varargs(L, p, nargs);
+</span></span><span style="display:flex;"><span>      func <span style="color:#f92672">=</span> restorestack(L, funcr);  <span style="color:#75715e">/* previous call may change the stack */</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    ci <span style="color:#f92672">=</span> inc_ci(L);  <span style="color:#75715e">/* now `enter&#39; new function */</span>
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">=</span> func;
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> base;
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* 这里可以推导出L-&gt;base----&gt;L-&gt;top之间的区域都是ci的私有栈空间(lua,c均如此) */</span>
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">+</span> p<span style="color:#f92672">-&gt;</span>maxstacksize;
+</span></span><span style="display:flex;"><span>    lua_assert(ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>stack_last);
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">=</span> p<span style="color:#f92672">-&gt;</span>code;  <span style="color:#75715e">/* starting point */</span>
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>tailcalls <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>nresults <span style="color:#f92672">=</span> nresults;
+</span></span><span style="display:flex;"><span>	
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* 新的函数的私有栈空间直接补nil(参数的区域除外) */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (st <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top; st <span style="color:#f92672">&lt;</span> ci<span style="color:#f92672">-&gt;</span>top; st<span style="color:#f92672">++</span>)
+</span></span><span style="display:flex;"><span>      setnilvalue(st);	
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* 最后调整L-&gt;top使其指向本次ci的栈顶,对于Lua函数而言L-&gt;Base----&gt;(L-&gt;Base+L-&gt;maxstacksize)之间都是我私有的了，且是有效的
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	** C由于L-&gt;top是动态变化的，故而L-&gt;top的值被设置为传入参数后栈顶的位置，后面会因为push等函数而动态变化-
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">	*/</span>
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>top;
+</span></span><span style="display:flex;"><span>	
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>hookmask <span style="color:#f92672">&amp;</span> LUA_MASKCALL) {
+</span></span><span style="display:flex;"><span>      L<span style="color:#f92672">-&gt;</span>savedpc<span style="color:#f92672">++</span>;  <span style="color:#75715e">/* hooks assume &#39;pc&#39; is already incremented */</span>
+</span></span><span style="display:flex;"><span>      luaD_callhook(L, LUA_HOOKCALL, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>      L<span style="color:#f92672">-&gt;</span>savedpc<span style="color:#f92672">--</span>;  <span style="color:#75715e">/* correct &#39;pc&#39; */</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> PCRLUA;
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* if is a C function, call it */</span>
+</span></span><span style="display:flex;"><span>    CallInfo <span style="color:#f92672">*</span>ci;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> n;
+</span></span><span style="display:flex;"><span>    luaD_checkstack(L, LUA_MINSTACK);  <span style="color:#75715e">/* ensure minimum stack size */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* 填充新的CallInfo */</span>
+</span></span><span style="display:flex;"><span>    ci <span style="color:#f92672">=</span> inc_ci(L);  <span style="color:#75715e">/* now `enter&#39; new function */</span>
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">=</span> restorestack(L, funcr);
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>func <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* C函数没有Lua函数的变参问题，所以这里无需adjust_varargs() */</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">/* &#34;OP_CALL指令&#34;已经将L-&gt;top指向了最后一个传入参数的上方 */</span>
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">+</span> LUA_MINSTACK;	<span style="color:#75715e">/* 这里和上面luaD_checkstack呼应 */</span>
+</span></span><span style="display:flex;"><span>    lua_assert(ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">&lt;=</span> L<span style="color:#f92672">-&gt;</span>stack_last);
+</span></span><span style="display:flex;"><span>    ci<span style="color:#f92672">-&gt;</span>nresults <span style="color:#f92672">=</span> nresults;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>hookmask <span style="color:#f92672">&amp;</span> LUA_MASKCALL)
+</span></span><span style="display:flex;"><span>      luaD_callhook(L, LUA_HOOKCALL, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
+</span></span><span style="display:flex;"><span>    lua_unlock(L);
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// L-&gt;top已经在lvm中准备好了(call和vararg指令)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    n <span style="color:#f92672">=</span> (<span style="color:#f92672">*</span>curr_func(L)<span style="color:#f92672">-&gt;</span>c.f)(L);  <span style="color:#75715e">/* do the actual call */</span>
+</span></span><span style="display:flex;"><span>    lua_lock(L);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (n <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)  <span style="color:#75715e">/* yielding, co调用yield，co.yeild运行完毕了,co.yeild还不能释放ci-list信息，需等到母thread调用resume，将控制权转移到co，再在co.resume中luaD_poscall()才释放 */</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> PCRYIELD;
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>      luaD_poscall(L, L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> n);	<span style="color:#75715e">/* 调整子C函数的返回值到指定位置并适配母函数的wanted(results) */</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> PCRC;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 函数调用结束后，处理实际返回值和期待返回值的匹配问题
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 也处理ci链的嵌套逻辑（本层ci结束往后退一层)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 即处理C函数调用,也处理Lua函数执行结束即将返回这两种情况
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** 没有检测C函数说返回了n个参数，当实际上没有返回那么多参数的情况
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** RETURNS: wanted.cnt: 0:返回多个参数，1：返回0个，2：返回1个。。。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_poscall</span> (lua_State <span style="color:#f92672">*</span>L, StkId firstResult) {
+</span></span><span style="display:flex;"><span>  StkId res;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> wanted, i;
+</span></span><span style="display:flex;"><span>  CallInfo <span style="color:#f92672">*</span>ci;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>hookmask <span style="color:#f92672">&amp;</span> LUA_MASKRET)
+</span></span><span style="display:flex;"><span>    firstResult <span style="color:#f92672">=</span> callrethooks(L, firstResult);
+</span></span><span style="display:flex;"><span>  ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>  res <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>func;  <span style="color:#75715e">/* res == final position of 1st result */</span>
+</span></span><span style="display:flex;"><span>  wanted <span style="color:#f92672">=</span> ci<span style="color:#f92672">-&gt;</span>nresults;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> (ci <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>)<span style="color:#f92672">-&gt;</span>base;  <span style="color:#75715e">/* restore base */</span>
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">=</span> (ci <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>)<span style="color:#f92672">-&gt;</span>savedpc;  <span style="color:#75715e">/* restore savedpc */</span>
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* move results to correct place */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> wanted; i <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> firstResult <span style="color:#f92672">&lt;</span> L<span style="color:#f92672">-&gt;</span>top; i<span style="color:#f92672">--</span>)	<span style="color:#75715e">/* 这个判断即处理非尾调用，又处理了尾调用 */</span>
+</span></span><span style="display:flex;"><span>    setobjs2s(L, res<span style="color:#f92672">++</span>, firstResult<span style="color:#f92672">++</span>);	<span style="color:#75715e">/* wanted根据实际返回数量赋值 */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">while</span> (i<span style="color:#f92672">--</span> <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>    setnilvalue(res<span style="color:#f92672">++</span>);	<span style="color:#75715e">/* local a, b, c = funcA(...), 针对 funcA的返回值不够则补nil */</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** L-&gt;top恢复到最后一个返回参数在stack的位置，这里和调用函数之前，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 将L-&gt;top设置到最后一个传入参数在stack的位置相呼应了！！！
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 最终将L-&gt;top恢复到ci-&gt;top是由“OP_CALL”指令负责
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> res;	
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> (wanted <span style="color:#f92672">-</span> LUA_MULTRET);  <span style="color:#75715e">/* 0 iff wanted == LUA_MULTRET */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Call a function (C or Lua). The function to be called is at *func.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** The arguments are on the stack, right after the function.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** When returns, all the results are on the stack, starting at the original
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** function position.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span> 
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">luaD_call</span> (lua_State <span style="color:#f92672">*</span>L, StkId func, <span style="color:#66d9ef">int</span> nResults) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (<span style="color:#f92672">++</span>L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">&gt;=</span> LUAI_MAXCCALLS) {	<span style="color:#75715e">/* 调用层次太深，进入抛出异常 */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">==</span> LUAI_MAXCCALLS)
+</span></span><span style="display:flex;"><span>      luaG_runerror(L, <span style="color:#e6db74">&#34;C stack overflow&#34;</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">&gt;=</span> (LUAI_MAXCCALLS <span style="color:#f92672">+</span> (LUAI_MAXCCALLS<span style="color:#f92672">&gt;&gt;</span><span style="color:#ae81ff">3</span>)))
+</span></span><span style="display:flex;"><span>      luaD_throw(L, LUA_ERRERR);  <span style="color:#75715e">/* error while handing stack error */</span>
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (luaD_precall(L, func, nResults) <span style="color:#f92672">==</span> PCRLUA)  <span style="color:#75715e">/* is a Lua function? */</span>
+</span></span><span style="display:flex;"><span>    luaV_execute(L, <span style="color:#ae81ff">1</span>);  <span style="color:#75715e">/* call it, 这里的1是真的妙啊 */</span>
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>nCcalls<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>  luaC_checkGC(L);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* 协程co开始执行co.resume 母thread在lbaselib.auxresume()中交出CPU，等待子co返回 */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">resume</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>ud) {
+</span></span><span style="display:flex;"><span>  StkId firstArg <span style="color:#f92672">=</span> cast(StkId, ud);	<span style="color:#75715e">/* 没有传参时firstArg指向top,下面的firstArg&gt;L-&gt;base还是成立 */</span>
+</span></span><span style="display:flex;"><span>  CallInfo <span style="color:#f92672">*</span>ci <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {  <span style="color:#75715e">/* start coroutine? */</span>
+</span></span><span style="display:flex;"><span>    lua_assert(ci <span style="color:#f92672">==</span> L<span style="color:#f92672">-&gt;</span>base_ci);	<span style="color:#75715e">/* 尚未有任何调用链ci生成(或co已运行完毕) */</span>
+</span></span><span style="display:flex;"><span>	  lua_assert(firstArg <span style="color:#f92672">&gt;</span> L<span style="color:#f92672">-&gt;</span>base);	<span style="color:#75715e">/* 至少还有个参数(是co.fun),意味着不是co运行完毕的状态，运行完毕后不能调用本函数了，co.fun都没有了，ci也是空的，ro不知道该怎么运行了不是 */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* 若是崭新的co第一次开始运行resume,则会生成相应的ci（co.initFun),再运行起来和普通的c.main中构建一个thread后第一次运行是一样的 */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (luaD_precall(L, firstArg <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>, LUA_MULTRET) <span style="color:#f92672">!=</span> PCRLUA)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>  } <span style="color:#66d9ef">else</span> {  <span style="color:#75715e">/* resuming from previous yield */</span>
+</span></span><span style="display:flex;"><span>    lua_assert(L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">==</span> LUA_YIELD);	<span style="color:#75715e">/* 非YEILD状态，不能调用resume */</span>
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;	<span style="color:#75715e">/* switch back status */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>f_isLua(ci)) {  <span style="color:#75715e">/* `common&#39; yield? ci这里指向的是baselib.yield */</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#75715e">/* finish interrupted execution of `OP_CALL&#39; */</span>
+</span></span><span style="display:flex;"><span>      lua_assert(GET_OPCODE(<span style="color:#f92672">*</span>((ci<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>)) <span style="color:#f92672">==</span> OP_CALL <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                 GET_OPCODE(<span style="color:#f92672">*</span>((ci<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>)) <span style="color:#f92672">==</span> OP_TAILCALL);
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> (luaD_poscall(L, firstArg))  <span style="color:#75715e">/* complete it... 结束上述说的baselib.yield的调用流程 */</span>
+</span></span><span style="display:flex;"><span>        L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top;  <span style="color:#75715e">/* and correct top if not multiple results,如果是 multiple results则由跟在后面的vararg或者setlist来调整L-&gt;top(他们还需要用到L-&gt;top来确定传入参数的个数呢,所以这里不能将其恢复到L-&gt;ci-&gt;top，) */</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>  <span style="color:#75715e">/* yielded inside a hook: just continue its execution */</span>
+</span></span><span style="display:flex;"><span>      L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>base;
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  luaV_execute(L, cast_int(L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">-</span> L<span style="color:#f92672">-&gt;</span>base_ci));	<span style="color:#75715e">/* 这里的nexeccalls值得好好推导一下 */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">resume_error</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>msg) {
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>base;
+</span></span><span style="display:flex;"><span>  setsvalue2s(L, L<span style="color:#f92672">-&gt;</span>top, luaS_new(L, msg));
+</span></span><span style="display:flex;"><span>  incr_top(L);
+</span></span><span style="display:flex;"><span>  lua_unlock(L);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> LUA_ERRRUN;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>LUA_API <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">lua_resume</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> nargs) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> status;
+</span></span><span style="display:flex;"><span>  lua_lock(L);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">!=</span> LUA_YIELD <span style="color:#f92672">&amp;&amp;</span> (L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">||</span> L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">!=</span> L<span style="color:#f92672">-&gt;</span>base_ci))
+</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">return</span> resume_error(L, <span style="color:#e6db74">&#34;cannot resume non-suspended coroutine&#34;</span>);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">&gt;=</span> LUAI_MAXCCALLS)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> resume_error(L, <span style="color:#e6db74">&#34;C stack overflow&#34;</span>);
+</span></span><span style="display:flex;"><span>  luai_userstateresume(L, nargs);
+</span></span><span style="display:flex;"><span>  lua_assert(L<span style="color:#f92672">-&gt;</span>errfunc <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>);
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>baseCcalls <span style="color:#f92672">=</span> <span style="color:#f92672">++</span>L<span style="color:#f92672">-&gt;</span>nCcalls;
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 必须protected状态下call，不然协程出错，整个进程都会被关闭 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  ** 本函数还没有为co生成ci链,resume中会生成co的ci调用链（如果是第一次resume）
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">  */</span>
+</span></span><span style="display:flex;"><span>  status <span style="color:#f92672">=</span> luaD_rawrunprotected(L, resume, L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> nargs);	
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (status <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span>) {  <span style="color:#75715e">/* error? */</span>
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> cast_byte(status);  <span style="color:#75715e">/* mark thread as `dead&#39; */</span>
+</span></span><span style="display:flex;"><span>    luaD_seterrorobj(L, status, L<span style="color:#f92672">-&gt;</span>top);
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top;	<span style="color:#75715e">/* 上面压入了errMsg这里更新下top */</span>
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>    lua_assert(L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">==</span> L<span style="color:#f92672">-&gt;</span>baseCcalls);
+</span></span><span style="display:flex;"><span>    status <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>status;	<span style="color:#75715e">/* coroutinue运行中出让则为 LUA_YIELD */</span>
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">--</span>L<span style="color:#f92672">-&gt;</span>nCcalls;
+</span></span><span style="display:flex;"><span>  lua_unlock(L);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> status;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>LUA_API <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">lua_yield</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">int</span> nresults) {
+</span></span><span style="display:flex;"><span>  luai_userstateyield(L, nresults);
+</span></span><span style="display:flex;"><span>  lua_lock(L);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">&gt;</span> L<span style="color:#f92672">-&gt;</span>baseCcalls)
+</span></span><span style="display:flex;"><span>    luaG_runerror(L, <span style="color:#e6db74">&#34;attempt to yield across metamethod/C-call boundary&#34;</span>);
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>top <span style="color:#f92672">-</span> nresults;  <span style="color:#75715e">/* protect stack slots below */</span>
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>status <span style="color:#f92672">=</span> LUA_YIELD;
+</span></span><span style="display:flex;"><span>  lua_unlock(L);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;	<span style="color:#75715e">/* note:这是一个特殊的值，用于标识从yield返回 */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/* old_top 指向被调用函数slot 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** KEYCODE
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_pcall</span> (lua_State <span style="color:#f92672">*</span>L, Pfunc func, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>u,
+</span></span><span style="display:flex;"><span>                ptrdiff_t old_top, ptrdiff_t ef) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> status;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">short</span> oldnCcalls <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>nCcalls;
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 存档当前的ci,以便发生错误恢复时使用 */</span>
+</span></span><span style="display:flex;"><span>  ptrdiff_t old_ci <span style="color:#f92672">=</span> saveci(L, L<span style="color:#f92672">-&gt;</span>ci);	<span style="color:#75715e">/* 这里只能记住offset而不是绝对地址(call过程中ci可能会调整!) */</span>
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  lu_byte old_allowhooks <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>allowhook;
+</span></span><span style="display:flex;"><span>  ptrdiff_t old_errfunc <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>errfunc;
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>errfunc <span style="color:#f92672">=</span> ef;
+</span></span><span style="display:flex;"><span>  status <span style="color:#f92672">=</span> luaD_rawrunprotected(L, func, u);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">/* 发生了错误，回滚到存档时刻 */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> (status <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span>) {  <span style="color:#75715e">/* an error occurred? */</span>
+</span></span><span style="display:flex;"><span>    StkId oldtop <span style="color:#f92672">=</span> restorestack(L, old_top);
+</span></span><span style="display:flex;"><span>    luaF_close(L, oldtop);  <span style="color:#75715e">/* close eventual pending closures */</span>
+</span></span><span style="display:flex;"><span>    luaD_seterrorobj(L, status, oldtop);	<span style="color:#75715e">/* 顺带correct了top */</span>
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>nCcalls <span style="color:#f92672">=</span> oldnCcalls;
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>ci <span style="color:#f92672">=</span> restoreci(L, old_ci);
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>base <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>base;
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>savedpc <span style="color:#f92672">=</span> L<span style="color:#f92672">-&gt;</span>ci<span style="color:#f92672">-&gt;</span>savedpc;
+</span></span><span style="display:flex;"><span>    L<span style="color:#f92672">-&gt;</span>allowhook <span style="color:#f92672">=</span> old_allowhooks;
+</span></span><span style="display:flex;"><span>    restore_stack_limit(L);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  L<span style="color:#f92672">-&gt;</span>errfunc <span style="color:#f92672">=</span> old_errfunc;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> status;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">** Execute a protected parser.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">*/</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> SParser {  <span style="color:#75715e">/* data to `f_parser&#39; */</span>
+</span></span><span style="display:flex;"><span>  ZIO <span style="color:#f92672">*</span>z;
+</span></span><span style="display:flex;"><span>  Mbuffer buff;  <span style="color:#75715e">/* buffer to be used by the scanner */</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>name;
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">f_parser</span> (lua_State <span style="color:#f92672">*</span>L, <span style="color:#66d9ef">void</span> <span style="color:#f92672">*</span>ud) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span>  Proto <span style="color:#f92672">*</span>tf;
+</span></span><span style="display:flex;"><span>  Closure <span style="color:#f92672">*</span>cl;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> SParser <span style="color:#f92672">*</span>p <span style="color:#f92672">=</span> cast(<span style="color:#66d9ef">struct</span> SParser <span style="color:#f92672">*</span>, ud);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> c <span style="color:#f92672">=</span> luaZ_lookahead(p<span style="color:#f92672">-&gt;</span>z);
+</span></span><span style="display:flex;"><span>  luaC_checkGC(L);
+</span></span><span style="display:flex;"><span>  tf <span style="color:#f92672">=</span> ((c <span style="color:#f92672">==</span> LUA_SIGNATURE[<span style="color:#ae81ff">0</span>]) <span style="color:#f92672">?</span> luaU_undump : luaY_parser)(L, p<span style="color:#f92672">-&gt;</span>z,
+</span></span><span style="display:flex;"><span>                                                             <span style="color:#f92672">&amp;</span>p<span style="color:#f92672">-&gt;</span>buff, p<span style="color:#f92672">-&gt;</span>name);
+</span></span><span style="display:flex;"><span>  cl <span style="color:#f92672">=</span> luaF_newLclosure(L, tf<span style="color:#f92672">-&gt;</span>nups, hvalue(gt(L)));	<span style="color:#75715e">/* 新生成的clouse的env直接来自gobal&#39;table而不是上层函数的env */</span>
+</span></span><span style="display:flex;"><span>  cl<span style="color:#f92672">-&gt;</span>l.p <span style="color:#f92672">=</span> tf;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> tf<span style="color:#f92672">-&gt;</span>nups; i<span style="color:#f92672">++</span>)  <span style="color:#75715e">/* initialize eventual upvalues */</span>
+</span></span><span style="display:flex;"><span>    cl<span style="color:#f92672">-&gt;</span>l.upvals[i] <span style="color:#f92672">=</span> luaF_newupval(L);
+</span></span><span style="display:flex;"><span>  setclvalue(L, L<span style="color:#f92672">-&gt;</span>top, cl);
+</span></span><span style="display:flex;"><span>  incr_top(L);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">luaD_protectedparser</span> (lua_State <span style="color:#f92672">*</span>L, ZIO <span style="color:#f92672">*</span>z, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>name) {
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">struct</span> SParser p;
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">int</span> status;
+</span></span><span style="display:flex;"><span>  p.z <span style="color:#f92672">=</span> z; p.name <span style="color:#f92672">=</span> name;
+</span></span><span style="display:flex;"><span>  luaZ_initbuffer(L, <span style="color:#f92672">&amp;</span>p.buff);
+</span></span><span style="display:flex;"><span>  status <span style="color:#f92672">=</span> luaD_pcall(L, f_parser, <span style="color:#f92672">&amp;</span>p, savestack(L, L<span style="color:#f92672">-&gt;</span>top), L<span style="color:#f92672">-&gt;</span>errfunc);
+</span></span><span style="display:flex;"><span>  luaZ_freebuffer(L, <span style="color:#f92672">&amp;</span>p.buff);
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">return</span> status;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div>
     </div>
     <footer class="post-footer">
      
@@ -860,14 +860,14 @@ LUA_API <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">lua_y
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">453</span>
+        <span class="site-state-item-count">454</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
     <div class="site-state-item site-state-categories">    
         <a href="http://shanks.link/categories/">      
          
-        <span class="site-state-item-count">25</span>
+        <span class="site-state-item-count">26</span>
         
         <span class="site-state-item-name">分类</span>
         
@@ -877,7 +877,7 @@ LUA_API <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">lua_y
     <div class="site-state-item site-state-tags">
         <a href="http://shanks.link/tags/">
          
-        <span class="site-state-item-count">31</span>
+        <span class="site-state-item-count">32</span>
         
         <span class="site-state-item-name">标签</span>
         </a>
@@ -920,7 +920,7 @@ LUA_API <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">lua_y
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

@@ -212,18 +212,18 @@
 <p>We call this association of a C function with its upvalues a closure. Remember that, in Lua code, a closure is a function that uses local variables from an outer function. A C closure is a C approximation to a Lua closure. One interesting fact about closures is that you can create different closures using the same function code, but with different upvalues.</p>
 </blockquote>
 <p>简单的文字，并不能给我们具象化的展示，这里通过几个例子，来直观感受一下，什么是upvalue：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local upval = 1
-local upval2 = 2
-function test()
-	local locvar = 3
-	print(upval)
-
-	local function aaa()
-		print(upval+upval2+locvar)
-	end
-	aaa()
-end
-</code></pre></div><p>在上面这个例子中，test函数的外层，一共有两个变量，upval和upval2。test函数内，有一行打印upval的代码，因为有这个操作，test函数需要引用到外层函数的upval这个变量，因此upval是test函数的一个upvavle。而上面这个例子，在test函数内，又定义了一个aaa函数，在aaa函数内，因为使用了upval、upval2和locvar几个变量，因此aaa函数的upvalue有upval、upval2和locvar。由于aaa是test的内层定义的函数，test是aaa的外层函数，因此test函数的upvalue也包括了，upval、upval2。现在，只是给大家一个直观的概念，其实很多读者对此已经耳熟能详了，在后面的章节内容中，我会更细致地论述这个机制的原理。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local upval = 1
+</span></span><span style="display:flex;"><span>local upval2 = 2
+</span></span><span style="display:flex;"><span>function test()
+</span></span><span style="display:flex;"><span>	local locvar = 3
+</span></span><span style="display:flex;"><span>	print(upval)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	local function aaa()
+</span></span><span style="display:flex;"><span>		print(upval+upval2+locvar)
+</span></span><span style="display:flex;"><span>	end
+</span></span><span style="display:flex;"><span>	aaa()
+</span></span><span style="display:flex;"><span>end
+</span></span></code></pre></div><p>在上面这个例子中，test函数的外层，一共有两个变量，upval和upval2。test函数内，有一行打印upval的代码，因为有这个操作，test函数需要引用到外层函数的upval这个变量，因此upval是test函数的一个upvavle。而上面这个例子，在test函数内，又定义了一个aaa函数，在aaa函数内，因为使用了upval、upval2和locvar几个变量，因此aaa函数的upvalue有upval、upval2和locvar。由于aaa是test的内层定义的函数，test是aaa的外层函数，因此test函数的upvalue也包括了，upval、upval2。现在，只是给大家一个直观的概念，其实很多读者对此已经耳熟能详了，在后面的章节内容中，我会更细致地论述这个机制的原理。</p>
 <h1 id="lua函数探索">Lua函数探索</h1>
 <p>​    要彻底搞明白upvalue的概念，首先，我们要捋清楚lua函数的概念，前面也提到过，带upvalue的函数就是closure（实际上每个lua函数都至少包含一个upvalue）。从类型上来看，lua一共有3种函数，分别是light c function、c closure和lua closure。关于第一种，light c function的概念，操作和调用流程，在<a href="http://manistein.club/post/program/let-us-build-a-lua-interpreter/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part1/">第一章</a>有着非常详细的阐述。至于第二种c closure，它有自己独立的数据结构，包含一个函数指针，以及一个upvalue列表，c closure实例受gc管控，c closure的创建流程，和运行流程，可以luabase.c文件里的luaB_openbase函数，以及<a href="http://manistein.club/post/program/let-us-build-a-lua-interpreter/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part5/">第5章</a>调用函数的流程里找到。现在，我将集中篇幅，来探讨lua closure。</p>
 <h4 id="chunk的概念">Chunk的概念</h4>
@@ -234,56 +234,56 @@ end
 <p>chunk本质是一个文件里的所有代码，或是交互模式下的一个字符串，其实质就是statement流的集合。</p>
 <h4 id="lua的函数层次">Lua的函数层次</h4>
 <p>​    现在，我要来论述一下Lua的函数层次了。前面已经探讨了chunk的概念，那么什么是lua的函数层次，它和chunk又有什么关系呢？现在假设，我们有个脚本test.lua，代码如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1  -- test.lua
-2  local a = 1
-3  local b = 2
-4  function xxx()
-5  		print(a + b)
-6  end
-</code></pre></div><p>chunk是什么？chunk就是test.lua文件内的所有代码(第1~第6行)，它和函数层次有什么关系呢？实际上，一个chunk（上面例子中的第1~第6行代码）实际上就是一个lua函数，只是它没有函数名，不需要通过function关键字来修饰，这个chunk所代表的函数，被称之为top-level function，也是level 1函数。而xxx函数是在top-level function里定义的，因此它是level 2函数(top-level function是level1)，如果函数xxx内，如果还有定义其他函数，那么这个函数的level就是3，以此类推。实际上，level的级别，代表了函数定义嵌套的层次。最关键的还是top-level function和chunk的关系。函数的层次关系，对于后续理解upvalue机制，非常重要。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1  -- test.lua
+</span></span><span style="display:flex;"><span>2  local a = 1
+</span></span><span style="display:flex;"><span>3  local b = 2
+</span></span><span style="display:flex;"><span>4  function xxx()
+</span></span><span style="display:flex;"><span>5  		print(a + b)
+</span></span><span style="display:flex;"><span>6  end
+</span></span></code></pre></div><p>chunk是什么？chunk就是test.lua文件内的所有代码(第1~第6行)，它和函数层次有什么关系呢？实际上，一个chunk（上面例子中的第1~第6行代码）实际上就是一个lua函数，只是它没有函数名，不需要通过function关键字来修饰，这个chunk所代表的函数，被称之为top-level function，也是level 1函数。而xxx函数是在top-level function里定义的，因此它是level 2函数(top-level function是level1)，如果函数xxx内，如果还有定义其他函数，那么这个函数的level就是3，以此类推。实际上，level的级别，代表了函数定义嵌套的层次。最关键的还是top-level function和chunk的关系。函数的层次关系，对于后续理解upvalue机制，非常重要。
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/function-level.png" alt="img">图1
 图1展示了上面例子中，函数的层次关系。除去top-level function，其他层次的函数，在定义上实际上可以有多重表示含义，比如我们的xxx函数的定义，其实质可以替换为如下所示的形式：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">xxx = function()
-	print(a + b)
-end 
-</code></pre></div><p>因为在lua中，function是first-class类型，因此函数本身就是一种变量类型，因此这样的语法是成立且合理的。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>xxx = function()
+</span></span><span style="display:flex;"><span>	print(a + b)
+</span></span><span style="display:flex;"><span>end 
+</span></span></code></pre></div><p>因为在lua中，function是first-class类型，因此函数本身就是一种变量类型，因此这样的语法是成立且合理的。</p>
 <h4 id="lua-closure的数据结构">Lua Closure的数据结构</h4>
 <p>​    我在<a href="http://manistein.club/post/program/let-us-build-a-lua-interpreter/%E6%9E%84%E5%BB%BAlua%E8%A7%A3%E9%87%8A%E5%99%A8part8/">第8章</a>，详细论述了函数体编译的流程，对lua函数的数据结构也有非常详细的论述，因此过多的细节，在这里不再赘述，只在抽象层面复习一下它的数据结构。我们前面提过，什么是闭包(Closure)了，不管是c函数还是lua函数，只要带有upvalue的就是闭包，实际上，每个lua函数，至少带有一个upvalue，我将在后面的内容中，着重阐述这一点。先来回顾一下LClosure的数据结构：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">// luaobject.h
-...
-
-#define CommonHeader struct GCObject* next; lu_byte tt_; lu_byte marked
-
-...
-
-// Closure
-#define ClosureHeader CommonHeader; int nupvalues; struct GCObject* gclist
-...
-
-typedef struct LClosure {
-    ClosureHeader;
-    Proto* p;
-    UpVal* upvals[1];
-} LClosure;
-</code></pre></div><p>CommonHeader是需要被gc的类型的公共头部，LClosure还包含了一个变量，nupvalues。这个变量记录着Upvals列表的实际大小。Proto结构，前面章节也详细论述过，它是存放lua函数编译结果的结构体。我们现在通过图2，来感受一下：
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>#define CommonHeader struct GCObject* next; lu_byte tt_; lu_byte marked
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>// Closure
+</span></span><span style="display:flex;"><span>#define ClosureHeader CommonHeader; int nupvalues; struct GCObject* gclist
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>typedef struct LClosure {
+</span></span><span style="display:flex;"><span>    ClosureHeader;
+</span></span><span style="display:flex;"><span>    Proto* p;
+</span></span><span style="display:flex;"><span>    UpVal* upvals[1];
+</span></span><span style="display:flex;"><span>} LClosure;
+</span></span></code></pre></div><p>CommonHeader是需要被gc的类型的公共头部，LClosure还包含了一个变量，nupvalues。这个变量记录着Upvals列表的实际大小。Proto结构，前面章节也详细论述过，它是存放lua函数编译结果的结构体。我们现在通过图2，来感受一下：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/upvalue-diagram.png" alt="img">图2
 如图2所示，xxx函数的LClosure，包含两个主要的部分，一个是proto部分，还有一个是upvalue部分，xxx函数，就是整个函数编译的结果，upvalue列表指向了外层函数的变量a和b。现在，我们还没法直观感受到，xxx函数，在虚拟机层面，如何引用到自己的upvalue，还是通过上面的例子来感知一下，当xxx函数完成编译后，虚拟机指令会存在proto结构的code列表中，我们可以通过图3来表示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/upvalue-diagram-vm-code-1.png" alt="img">图3
 我们现在通过执行列表中的指令，来感受一下，xxx函数是如何使用自己的upvalue的。先看第一步：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/upvalue-diagram-vm-code-2.png" alt="img">图4
 此时执行的指令是使用红色标记的指令，它实际表达的含义，可以归纳为：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">R(A) := UpValue[B][RK( C )]
-</code></pre></div><p>这里的UpValue的含义，就是LClosure实例中，upval列表。B代表，取UpValue列表里的哪个值，RK[C]的含义，之前的章节也有提到过，当C的值&lt;256的时候，它需要到栈上查找。当C的值&gt;=256的时候，它直接到Proto结构变量，k中查找，取出k[C-256]的变量，在本例中是k[0]。而此时，代表我们寄存器的值R(A)中，A的值为0，这代表了，我们要将k[0]，要存储的位置，R(A)的位置，就是base+A的位置，因为A为0，因此，存放目标位置，就是base所指向的位置。于是，我们的推导就变成了：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">R(A) := UpValue[B][RK[C]]
-==&gt;
-R(0) := UpValue[0][k[0]]
-==&gt;
-R(0) := UpValue[0][&#34;print&#34;]
-==&gt;
-base := _ENV[&#34;print&#34;]
-==&gt;
-base := _G[&#34;print&#34;]
-</code></pre></div><p>任何一个lua函数，都至少有一个upvalue，而这个upvalue就是以_ENV为upvalue名称的table，它默认指向了_G。接下来，虚拟机就执行第二和第三个步骤，它直接将UpValue[1]和UpValue[2]的值（分别是top-level函数中，变量a和变量b），分别赋值到了base+1，和base+2的位置上，于是我们得到了图5的结果：
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>R(A) := UpValue[B][RK( C )]
+</span></span></code></pre></div><p>这里的UpValue的含义，就是LClosure实例中，upval列表。B代表，取UpValue列表里的哪个值，RK[C]的含义，之前的章节也有提到过，当C的值&lt;256的时候，它需要到栈上查找。当C的值&gt;=256的时候，它直接到Proto结构变量，k中查找，取出k[C-256]的变量，在本例中是k[0]。而此时，代表我们寄存器的值R(A)中，A的值为0，这代表了，我们要将k[0]，要存储的位置，R(A)的位置，就是base+A的位置，因为A为0，因此，存放目标位置，就是base所指向的位置。于是，我们的推导就变成了：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>R(A) := UpValue[B][RK[C]]
+</span></span><span style="display:flex;"><span>==&gt;
+</span></span><span style="display:flex;"><span>R(0) := UpValue[0][k[0]]
+</span></span><span style="display:flex;"><span>==&gt;
+</span></span><span style="display:flex;"><span>R(0) := UpValue[0][&#34;print&#34;]
+</span></span><span style="display:flex;"><span>==&gt;
+</span></span><span style="display:flex;"><span>base := _ENV[&#34;print&#34;]
+</span></span><span style="display:flex;"><span>==&gt;
+</span></span><span style="display:flex;"><span>base := _G[&#34;print&#34;]
+</span></span></code></pre></div><p>任何一个lua函数，都至少有一个upvalue，而这个upvalue就是以_ENV为upvalue名称的table，它默认指向了_G。接下来，虚拟机就执行第二和第三个步骤，它直接将UpValue[1]和UpValue[2]的值（分别是top-level函数中，变量a和变量b），分别赋值到了base+1，和base+2的位置上，于是我们得到了图5的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/upvalue-diagram-vm-code-3.png" alt="img">图5
 接下来执行OP_ADD指令，得到图6的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/upvalue-diagram-vm-code-4.png" alt="img">图6
@@ -293,19 +293,19 @@ base := _G[&#34;print&#34;]
 <p>​    章节前面的内容，我们已经了解到了upvalue的定义。本节，就是要在概念层面，论述清楚，upvalue是如何生成的。</p>
 <h4 id="首个upvalue">首个upvalue</h4>
 <p>​    每个lua函数，都至少拥有一个upvalue，这个upvalue就是位于第0个位置的那个upvalue，这个upvalue的名称是_ENV，我们现在通过一个例子来观察一下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">-- test.lua
-local a = 1
-local b = 2
-function xxx()
-	local c = 3
-	local d = 4
-	print(a + b)
-
-	function yyy()
-		print(c + d)
-	end 
-end
-</code></pre></div><p>上面这个例子的upvalue关系图，可以通过图7来展示：
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>-- test.lua
+</span></span><span style="display:flex;"><span>local a = 1
+</span></span><span style="display:flex;"><span>local b = 2
+</span></span><span style="display:flex;"><span>function xxx()
+</span></span><span style="display:flex;"><span>	local c = 3
+</span></span><span style="display:flex;"><span>	local d = 4
+</span></span><span style="display:flex;"><span>	print(a + b)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	function yyy()
+</span></span><span style="display:flex;"><span>		print(c + d)
+</span></span><span style="display:flex;"><span>	end 
+</span></span><span style="display:flex;"><span>end
+</span></span></code></pre></div><p>上面这个例子的upvalue关系图，可以通过图7来展示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/upvalue-relationship.png" alt="img">图7
 我们可以看到，每个lua函数，都有一个upvalue列表，并且他们首个upvalue，都是一个名为_ENV的upvalue，内层lua函数的_ENV指向外层lua函数的_ENV，而最外层的top-level函数，则将值指向了全局表_G。为什么lua要用这种组织方式？将_ENV作为每个lua函数的第0个upvalue呢？我认为，这是为了效率，同时也能是的逻辑更为清晰，lua函数去查找一个变量的方式，如下所示：</p>
 <ul>
@@ -316,66 +316,66 @@ end
 <p>在虚拟机运行层面，查找一个变量要简单的多。每个函数，只要在自己lclosure实例中，包含的变量集合（local列表，upvalue列表，_ENV）中查找即可，不需要直接到外层函数去查找，逻辑清晰。我们现在还是以上面的例子为例，yyy函数的逻辑很简单，就是去打印c+d的值，首先yyy函数要获取的是一个名为print的函数，它首先会尝试去查找，是否有一个名为print的local变量，因为没找到，所以去upvalue列表中查找。由于在yyy函数的upvalue列表中，找不到一个名为print的变量，所以就去_ENV[“print”]中查找，因为_ENV默认指向_G所以，从全局表_G中获取了print函数，并压入lua栈中。接下来就是以同样的方式，去获取c和d的值，因为c和d是外层函数xxx的local变量，因此他们被当做upvalue，存在了yyy函数的upvalue列表中了，最后通过print函数，打印了c+d的值。</p>
 <h4 id="upvalue生成过程">upvalue生成过程</h4>
 <p>​    通过前面的内容，其实我们已经可以了解到，upvalue是什么？它们存放的位置在哪里，以及怎么去获取他们的值。本节的主要任务，就是要搞清楚，upvalue具体是怎么生成的。实际上，查阅了源码后，不难发现，upvalue实际上是在编译时确定（位置信息，和外层函数的关联等），在运行时生成，什么意思呢？意思就是，在编译脚本阶段，就要确定lua函数的upvalue有哪些，在哪里。在虚拟机运行阶段，再去生成对应的upvalue。实际上，用来表示upvalue的有两个数据结构，一个是编译时期，存储upvalue信息的Upvaldesc（这个结构并不存储upvalue的实际值，只是用来标记upvalue的位置信息），还有一个是在运行期，实际存储upvalue值的UpVal结构。它们的结构定义如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">// luaobject.h
-typedef struct Upvaldesc {
-    int in_stack; 	// 本函数的upvalue，是否指向外层函数的栈(不是则指向外层函数的某个upvalue值)
-    int idx;  		// upvalue在外层函数中的位置(栈的位置或upval列表中的位置，根据in_stack确定)
-    TString* name;  // upvalue的名称
-} Upvaldesc;
-
-// luafunc.h
-struct UpVal {
-	TValue* v;  // 指向外层函数的local变量(open upvalue)，或者指向自己(upvalue关闭时)
-	int refcount; // UpVal实例，被引用的次数
-	union {
-		struct {
-			struct UpVal* next; // next open upvalue
-			int touched;
-		} open;
-		TValue value;		// its value (when closed)
-	} u;
-};
-</code></pre></div><p>Upvaldesc的每一个字段，都很清晰，也比较容易理解，只是UpVal结构就要复杂得多了，我会慢慢来解释，我相信通过这篇文章，读者能够彻底搞清楚upvalue到底是什么。写到这里，我们不得不回顾一下，Proto的数据结构了：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">// luaobject.h
-typedef struct Proto {
-    CommonHeader;
-	int* line;
-	int sizeline;
-    int is_vararg;
-    int nparam;
-    Instruction* code;  // array of opcodes
-    int sizecode;
-    TValue* k;
-    int sizek;
-    LocVar* locvars;
-    int sizelocvar;
-    Upvaldesc* upvalues;  // upvaluedesc列表
-    int sizeupvalues;
-    struct Proto** p;
-    int sizep;
-    TString* source;
-    struct GCObject* gclist;
-	int maxstacksize;
-} Proto;
-</code></pre></div><p>由于前面章节，已经详细介绍过Proto的结构了，之类不再赘述，本章只关注Proto和Upvalue之间的关系。我们都知道，lua脚本的编译信息，会被存储到Proto结构实例之中，当一个lua函数的某个变量，不是local变量时，我们希望获取它的值，实际上就是要查找这个变量的位置，如果local列表中找不到，则进入到如下流程：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+</span></span><span style="display:flex;"><span>typedef struct Upvaldesc {
+</span></span><span style="display:flex;"><span>    int in_stack; 	// 本函数的upvalue，是否指向外层函数的栈(不是则指向外层函数的某个upvalue值)
+</span></span><span style="display:flex;"><span>    int idx;  		// upvalue在外层函数中的位置(栈的位置或upval列表中的位置，根据in_stack确定)
+</span></span><span style="display:flex;"><span>    TString* name;  // upvalue的名称
+</span></span><span style="display:flex;"><span>} Upvaldesc;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>// luafunc.h
+</span></span><span style="display:flex;"><span>struct UpVal {
+</span></span><span style="display:flex;"><span>	TValue* v;  // 指向外层函数的local变量(open upvalue)，或者指向自己(upvalue关闭时)
+</span></span><span style="display:flex;"><span>	int refcount; // UpVal实例，被引用的次数
+</span></span><span style="display:flex;"><span>	union {
+</span></span><span style="display:flex;"><span>		struct {
+</span></span><span style="display:flex;"><span>			struct UpVal* next; // next open upvalue
+</span></span><span style="display:flex;"><span>			int touched;
+</span></span><span style="display:flex;"><span>		} open;
+</span></span><span style="display:flex;"><span>		TValue value;		// its value (when closed)
+</span></span><span style="display:flex;"><span>	} u;
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>Upvaldesc的每一个字段，都很清晰，也比较容易理解，只是UpVal结构就要复杂得多了，我会慢慢来解释，我相信通过这篇文章，读者能够彻底搞清楚upvalue到底是什么。写到这里，我们不得不回顾一下，Proto的数据结构了：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+</span></span><span style="display:flex;"><span>typedef struct Proto {
+</span></span><span style="display:flex;"><span>    CommonHeader;
+</span></span><span style="display:flex;"><span>	int* line;
+</span></span><span style="display:flex;"><span>	int sizeline;
+</span></span><span style="display:flex;"><span>    int is_vararg;
+</span></span><span style="display:flex;"><span>    int nparam;
+</span></span><span style="display:flex;"><span>    Instruction* code;  // array of opcodes
+</span></span><span style="display:flex;"><span>    int sizecode;
+</span></span><span style="display:flex;"><span>    TValue* k;
+</span></span><span style="display:flex;"><span>    int sizek;
+</span></span><span style="display:flex;"><span>    LocVar* locvars;
+</span></span><span style="display:flex;"><span>    int sizelocvar;
+</span></span><span style="display:flex;"><span>    Upvaldesc* upvalues;  // upvaluedesc列表
+</span></span><span style="display:flex;"><span>    int sizeupvalues;
+</span></span><span style="display:flex;"><span>    struct Proto** p;
+</span></span><span style="display:flex;"><span>    int sizep;
+</span></span><span style="display:flex;"><span>    TString* source;
+</span></span><span style="display:flex;"><span>    struct GCObject* gclist;
+</span></span><span style="display:flex;"><span>	int maxstacksize;
+</span></span><span style="display:flex;"><span>} Proto;
+</span></span></code></pre></div><p>由于前面章节，已经详细介绍过Proto的结构了，之类不再赘述，本章只关注Proto和Upvalue之间的关系。我们都知道，lua脚本的编译信息，会被存储到Proto结构实例之中，当一个lua函数的某个变量，不是local变量时，我们希望获取它的值，实际上就是要查找这个变量的位置，如果local列表中找不到，则进入到如下流程：</p>
 <ul>
 <li>到自己的upvaldesc列表中，根据变量名查找，是否存在某个upvalue存在，如果存在则使用它，否则进入下一步</li>
 <li>到外层函数，查找local变量，如果找到，那么将它作为自己的upvalue，否则查找它的upvaldesc表，找到就将其生成为自己的upvalue，否则进入外层函数，重复这一步</li>
 <li>如果一直到top-level函数都找不到，那么表示这个upvalue不存在，此时需要去_ENV中查找</li>
 </ul>
 <p>这里，我们需要通过一个例子，来理解这个流程，需要注意的是，这个过程，是在lua脚本的编译阶段进行的：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">-- test.lua
-local a = 1
-local b = 2
-
-function xxx()
-	local c = 3
-	print(a)
-	function yyy()
-		print(a + b + c)
-	end
-end
-</code></pre></div><p>上面这个例子，我们可以通过图8来展示：
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>-- test.lua
+</span></span><span style="display:flex;"><span>local a = 1
+</span></span><span style="display:flex;"><span>local b = 2
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>function xxx()
+</span></span><span style="display:flex;"><span>	local c = 3
+</span></span><span style="display:flex;"><span>	print(a)
+</span></span><span style="display:flex;"><span>	function yyy()
+</span></span><span style="display:flex;"><span>		print(a + b + c)
+</span></span><span style="display:flex;"><span>	end
+</span></span><span style="display:flex;"><span>end
+</span></span></code></pre></div><p>上面这个例子，我们可以通过图8来展示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/find-upvalue.png" alt="img">图8
 当我们的解释器，对这个脚本进行编译时，首先会从top-level function开始。本章我们只关注upvalue的编译流程和结果，所以中间会略过大量的细节。在top-level function中，变量a和b均是它的local变量。按照它们定义的顺序，在虚拟机运行期间，a会在栈中第0个位置，而b则在第1个位置。对脚本的编译开始之后，编译器首先会对top-level函数，会往自己的upvaldesc列表的第0个位置，填充_ENV的信息，得到图9的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/find-upvalue-2.png" alt="img">图9
@@ -395,18 +395,18 @@ name为b，in_stack=1，表示upvalue b，在top-level函数的栈上，前面�
 前面的论述，主要在集中论述脚本编译期间，upvalue的位置信息生成。现在我们来在概念层面，观察一下，运行期间如何生成虚拟机运行过程中，真实被用到的upvalue值。还是用上面的例子，假设前面的top-level函数开始执行，首先会执行两个赋值操作，于是得到图16的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/find-upvalue-9.png" alt="img">图16
 两个local变量的定义和初始化操作，虚拟机会将它们放入栈中，接下来往下执行，我们前面也提到过，在lua中，函数是first-class类型，因此它本身也是一种变量类型，所以前面的例子，其实质等价于如下形式：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">-- test.lua
-local a = 1
-local b = 2
-
-xxx = function()
-	local c = 3
-	print(a)
-	yyy = function()
-		print(a + b + c)
-	end
-end
-</code></pre></div><p>所以逻辑接着往下执行，是对一个名为xxx的变量，赋值一个函数变量。要完成这个操作，首先要创建一个函数实例，并填充它的upvalue值信息，最后再赋值给变量xxx，于是得到图17的结果：
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>-- test.lua
+</span></span><span style="display:flex;"><span>local a = 1
+</span></span><span style="display:flex;"><span>local b = 2
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>xxx = function()
+</span></span><span style="display:flex;"><span>	local c = 3
+</span></span><span style="display:flex;"><span>	print(a)
+</span></span><span style="display:flex;"><span>	yyy = function()
+</span></span><span style="display:flex;"><span>		print(a + b + c)
+</span></span><span style="display:flex;"><span>	end
+</span></span><span style="display:flex;"><span>end
+</span></span></code></pre></div><p>所以逻辑接着往下执行，是对一个名为xxx的变量，赋值一个函数变量。要完成这个操作，首先要创建一个函数实例，并填充它的upvalue值信息，最后再赋值给变量xxx，于是得到图17的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/find-upvalue-10.png" alt="img">图17
 我们可以看到，此时，已经开始往xxx函数的upval列表填充信息了，首先它的第一个变量是_ENV，这里不包含任何upvalue名称，而是直接将upval的指针，指向了外层函数的第一个upval。回顾一下图7，他们实际上是同一个UpVal* 实例。接下来，它会创建一个UpVal实例，并且upval-&gt;v指向了外层函数的local变量a，然后是local变量b。执行到这里，这个逻辑流程就结束了。可能有读者会问，那yyy函数没做处理吗？答案是是的，因为我们没有调用xxx函数，因此yyy变量的赋值操作，也就不会进行，并且该LClosure实例也不会被创建，xxx函数会被创建，是因为它是在top-level函数里定义的，大家可以回顾一下上面替换成等式的例子。如果，我们在top-level函数里，调用xxx函数，那么，xxx函数里的逻辑也会被创建，yyy函数被创建的逻辑，也会被执行到，于是得到图18的结果。
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/find-upvalue-11.png" alt="img">图18
@@ -414,39 +414,39 @@ xxx函数被调时，它会被压入栈中，同时局部变量也会被压入�
 本节，我精心挑选了一个例子，基本把upvalue生成的几种情况都涵盖到了。这里需要注意的是，上面示例图里的LClosure图集，只是为了展示一个关系层次，并不是在编译阶段，就会创建LClosure实例，编译阶段，只会生成Proto实例，并将编译结果存到这个结构中。只有执行脚本逻辑阶段，才会将LClosure实例创建。</p>
 <h1 id="open-upvalue和closed-upvalue">Open Upvalue和Closed Upvalue</h1>
 <p>​    我们已经完成了upvalue生成流程的讨论了，现在来关注一下open upvalue和closed upvalue。可能很多读者，对这两个概念非常陌生，但是理解它，对于解释一些和upvalue有关的现象，是非常有帮助的。open upvalue和closed upvalue这两个概念，是针对一个函数的upvalue是外层函数local变量的情况。关于upvalue的使用，最难理解的也是这个部分。接下来，我将通过两个例子来说明这个概念，先看例1：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local var1 = 1
-function aaa()
-	local var2 = 1
-	function bbb()
-		var1 = var1 + 1
-		var2 = var2 + 1
-		print(&#34;bbb:&#34;, var1, var2)
-	end 
-
-	function ccc()
-		var1 = var1 + 1
-		var2 = var2 + 1
-		print(&#34;ccc:&#34;, var1, var2)
-	end
-
-	bbb()
-	print(&#34;hahaha&#34;)
-end
-
-aaa()
-bbb()
-bbb()
-ccc()
-ccc()
-</code></pre></div><p>例1
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local var1 = 1
+</span></span><span style="display:flex;"><span>function aaa()
+</span></span><span style="display:flex;"><span>	local var2 = 1
+</span></span><span style="display:flex;"><span>	function bbb()
+</span></span><span style="display:flex;"><span>		var1 = var1 + 1
+</span></span><span style="display:flex;"><span>		var2 = var2 + 1
+</span></span><span style="display:flex;"><span>		print(&#34;bbb:&#34;, var1, var2)
+</span></span><span style="display:flex;"><span>	end 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	function ccc()
+</span></span><span style="display:flex;"><span>		var1 = var1 + 1
+</span></span><span style="display:flex;"><span>		var2 = var2 + 1
+</span></span><span style="display:flex;"><span>		print(&#34;ccc:&#34;, var1, var2)
+</span></span><span style="display:flex;"><span>	end
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	bbb()
+</span></span><span style="display:flex;"><span>	print(&#34;hahaha&#34;)
+</span></span><span style="display:flex;"><span>end
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>aaa()
+</span></span><span style="display:flex;"><span>bbb()
+</span></span><span style="display:flex;"><span>bbb()
+</span></span><span style="display:flex;"><span>ccc()
+</span></span><span style="display:flex;"><span>ccc()
+</span></span></code></pre></div><p>例1
 例1的输出结果如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">bbb:	2	2
-hahaha
-bbb:	3	3
-bbb:	4	4
-ccc:	5	5
-ccc:	6	6
-</code></pre></div><p>这个例子中，函数bbb和函数ccc是在aaa里定义的，也就是说，只有调用执行了函数aaa，bbb和ccc两个函数才会被创建。我们现在来看一下，执行这段脚本时的情况，图19是该脚本完成编译时的状态：
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>bbb:	2	2
+</span></span><span style="display:flex;"><span>hahaha
+</span></span><span style="display:flex;"><span>bbb:	3	3
+</span></span><span style="display:flex;"><span>bbb:	4	4
+</span></span><span style="display:flex;"><span>ccc:	5	5
+</span></span><span style="display:flex;"><span>ccc:	6	6
+</span></span></code></pre></div><p>这个例子中，函数bbb和函数ccc是在aaa里定义的，也就是说，只有调用执行了函数aaa，bbb和ccc两个函数才会被创建。我们现在来看一下，执行这段脚本时的情况，图19是该脚本完成编译时的状态：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/open-closed-upvalue-1.png" alt="img">图19
 这里的upvalue生成，前面已经花费了相当篇幅去论述了，因此这里留给读者自己去推导，这里不再赘述。接下来，我们就进入到了执行环节，先从top-level函数的第一行代码开始，于是得到图20的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/open-closed-upvalue-2.png" alt="img">图20
@@ -457,52 +457,52 @@ ccc:	6	6
 这里我们可以看到，执行aaa函数之后，它的内部逻辑会创建函数bbb和函数ccc（创建LClosure实例），并且初始化它们的upvalue列表。这里需要注意的是，函数bbb和函数ccc的第2个（var2 upvalue）UpVal* 指针指向了同一个UpVal* 实例。图22中所示的，包含的值，指向LuaStack中的两个Upvalue，此时是Open Upvalue。当我们的逻辑继续往下走，执行到调用第一个bbb函数的时候，此时结果如图23所示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/open-closed-upvalue-5.png" alt="img">图23
 此时，aaa函数已经执行完毕，因此它的局部变量需要从栈中清退，而在执行aaa函数的过程中，已经将函数对象（LClosure实例），bbb和ccc创建，他们的var2变量，共享同一个UpVal<em>实例。在aaa函数执行完毕时，他们的UpVal</em>实例，会进行close操作，什么意思呢，就是原来的upval-&gt;v指向栈的某个位置，现在这个关联将被破除，并且upval-&gt;v的值，赋值为upval-&gt;u.value的地址，同时，upval-&gt;v原来指向的值，会被赋值到upval-&gt;u.value上。为什么此时，填入upval-&gt;u.value内的值是2呢？因为aaa函数内调用了一次bbb函数，因此，此时我们的控制台会输出如下结果：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">bbb:	2	2
-hahaha
-</code></pre></div><p>而接下来，要执行的函数，就是图23中，黑色箭头所指的函数调用，此时调用的函数是bbb函数。这个函数，会分别将var1和var2的值加1，最后再打印他们，我们可以看到，var1仍然在栈上，因此var1的值会变成3，而var2的值，指向了一个UpVal* 实例，而其原来的值是2，自增1后，就变成了3，此时得到的输出结果为：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">bbb:	2	2
-hahaha
-bbb:	3	3
-</code></pre></div><p>而与结果相对应的图，如图24所示：
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>bbb:	2	2
+</span></span><span style="display:flex;"><span>hahaha
+</span></span></code></pre></div><p>而接下来，要执行的函数，就是图23中，黑色箭头所指的函数调用，此时调用的函数是bbb函数。这个函数，会分别将var1和var2的值加1，最后再打印他们，我们可以看到，var1仍然在栈上，因此var1的值会变成3，而var2的值，指向了一个UpVal* 实例，而其原来的值是2，自增1后，就变成了3，此时得到的输出结果为：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>bbb:	2	2
+</span></span><span style="display:flex;"><span>hahaha
+</span></span><span style="display:flex;"><span>bbb:	3	3
+</span></span></code></pre></div><p>而与结果相对应的图，如图24所示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/open-closed-upvalue-6.png" alt="img">图24
 接下来，执行第二个bbb函数的调用，var1的值仍然在栈上，var2的值，仍然在那个UpVal*实例里，于是得到如下的结果：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">bbb:	2	2
-hahaha
-bbb:	3	3
-bbb:	4	4
-</code></pre></div><p><img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/open-closed-upvalue-7.png" alt="img">图25
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>bbb:	2	2
+</span></span><span style="display:flex;"><span>hahaha
+</span></span><span style="display:flex;"><span>bbb:	3	3
+</span></span><span style="display:flex;"><span>bbb:	4	4
+</span></span></code></pre></div><p><img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/open-closed-upvalue-7.png" alt="img">图25
 接下来，则是执行第一个ccc函数，通过观察ccc函数的upvalue列表，我们可以看到，不论是var1还是var2，他们引用的都是同一个UpVal*实例，因此bbb函数的执行结果，会影响到ccc。第一个ccc函数执行完以后，得到如下的结果：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">bbb:	2	2
-hahaha
-bbb:	3	3
-bbb:	4	4
-ccc:	5	5
-</code></pre></div><p>执行完第二个ccc函数得到的结果，则如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">bbb:	2	2
-hahaha
-bbb:	3	3
-bbb:	4	4
-ccc:	5	5
-ccc:	6	6
-</code></pre></div><p>到现在为止，我就完成了例1的论述了，读者通过这个例子，可以理解到，在运行阶段，不同的函数，引用到了同一个Upvalue，那他们upvalue列表里对应的实例，实际上是共享的。读者可以通过多次阅读上面的例子，来感受一下open upvalue变为closed upvalue的流程。接下来，我们要看的是例2。
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>bbb:	2	2
+</span></span><span style="display:flex;"><span>hahaha
+</span></span><span style="display:flex;"><span>bbb:	3	3
+</span></span><span style="display:flex;"><span>bbb:	4	4
+</span></span><span style="display:flex;"><span>ccc:	5	5
+</span></span></code></pre></div><p>执行完第二个ccc函数得到的结果，则如下所示：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>bbb:	2	2
+</span></span><span style="display:flex;"><span>hahaha
+</span></span><span style="display:flex;"><span>bbb:	3	3
+</span></span><span style="display:flex;"><span>bbb:	4	4
+</span></span><span style="display:flex;"><span>ccc:	5	5
+</span></span><span style="display:flex;"><span>ccc:	6	6
+</span></span></code></pre></div><p>到现在为止，我就完成了例1的论述了，读者通过这个例子，可以理解到，在运行阶段，不同的函数，引用到了同一个Upvalue，那他们upvalue列表里对应的实例，实际上是共享的。读者可以通过多次阅读上面的例子，来感受一下open upvalue变为closed upvalue的流程。接下来，我们要看的是例2。
 例1展示的是，两个同级函数，引用了同一个外层函数local变量，并且经历从open upvalue到closed upvalue转变的流程。我们现在要看的是第二个例子：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">local var1 = 1
-local function aaa()
-	local var2 = 1
-	return function()
-		var1 = var1 + 1
-		var2 = var2 + 1
-
-		print(var1, var2)
-	end
-end
-
-local f1 = aaa()
-local f2 = aaa()
-
-f1()
-f2()
-</code></pre></div><p>例2
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>local var1 = 1
+</span></span><span style="display:flex;"><span>local function aaa()
+</span></span><span style="display:flex;"><span>	local var2 = 1
+</span></span><span style="display:flex;"><span>	return function()
+</span></span><span style="display:flex;"><span>		var1 = var1 + 1
+</span></span><span style="display:flex;"><span>		var2 = var2 + 1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>		print(var1, var2)
+</span></span><span style="display:flex;"><span>	end
+</span></span><span style="display:flex;"><span>end
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>local f1 = aaa()
+</span></span><span style="display:flex;"><span>local f2 = aaa()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>f1()
+</span></span><span style="display:flex;"><span>f2()
+</span></span></code></pre></div><p>例2
 现在我们通过图文的方式，来展现这个逻辑流程，首先执行脚本的第一行逻辑，得到图26的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/open-closed-upvalue-8.png" alt="img">图26
 接下来，就会执行函数aaa的创建逻辑，此时我们会创建一个LClosure实例，并存放在local变量aaa中，得到图27的结果：
@@ -516,9 +516,9 @@ f2()
 我们可以看到，var2的upvalue中，upval-&gt;v指针，从之前指向栈上，专向了指向自身的结构之中，并且将原来栈上的值，赋值给了它。与此同时，局部变量f1也被压入栈中，它的值，就是从aaa函数中创建并返回的函数实例（LClosure实例）。接下来，黑色箭头会继续往下走，此时会重复上面的逻辑，于是得到图31的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part11/open-closed-upvalue-13.png" alt="img">图31
 我们可以观察到，aaa函数，又重新创建了一个新的函数实例，并且赋值到local变量f2中，f1和f2的var1 upvalue，引用了同一个UpVal<em>实例，而var2这个upvalue，则是每个都独立一份，这里需要和例1的情况进行区别，例1的upvalue var2是共享的，因为调用aaa函数时，在同一次调用时创建的，而例2的情况则是，分两次调用创建，因此UpVal</em>实例是各自独立一份。接下来，例2的代码会继续往下执行，分别执行了f1和f2两个函数，于是得到如下的输出。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">2	2
-3	2
-</code></pre></div><p>因为var1是共享的，所以f2执行的时候，输出3，但是var2是f1和f2各自独立有一个UpVal*实例的，因此，f1和f2调用的结果都是2。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>2	2
+</span></span><span style="display:flex;"><span>3	2
+</span></span></code></pre></div><p>因为var1是共享的，所以f2执行的时候，输出3，但是var2是f1和f2各自独立有一个UpVal*实例的，因此，f1和f2调用的结果都是2。</p>
 <h1 id="结束语">结束语</h1>
 <p>​    到这里，我就完成了整个upvalue的论述了，后面还有几个重要章节，它们分别是weektable、coroutine和require机制，我将在接下来的几个月内完成这个系列。</p>
 <h1 id="reference">Reference</h1>
@@ -599,14 +599,14 @@ f2()
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">453</span>
+        <span class="site-state-item-count">454</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
     <div class="site-state-item site-state-categories">    
         <a href="http://shanks.link/categories/">      
          
-        <span class="site-state-item-count">25</span>
+        <span class="site-state-item-count">26</span>
         
         <span class="site-state-item-name">分类</span>
         
@@ -616,7 +616,7 @@ f2()
     <div class="site-state-item site-state-tags">
         <a href="http://shanks.link/tags/">
          
-        <span class="site-state-item-count">31</span>
+        <span class="site-state-item-count">32</span>
         
         <span class="site-state-item-name">标签</span>
         </a>
@@ -659,7 +659,7 @@ f2()
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT

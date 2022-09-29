@@ -220,55 +220,55 @@
 <p>以小菜刀的电脑为例，以下是系统报告</p>
 <p><img src="http://shanks.link/img/CPU%E7%BC%93%E5%AD%98%E4%BD%93%E7%B3%BB%E5%AF%B9%E7%A8%8B%E5%BA%8F%E7%9A%84%E5%BD%B1%E5%93%8D/3.png" alt="图片"></p>
 <p>但是，这里没有展示出L1 Cache及其缓存行的大小，我们可通过以下命令方式获取，得知本机的缓存行大小为64字节。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1$ sysctl -a | egrep &#39;cachesize|cachelinesize&#39;
-2hw.cachesize: 8589934592 32768 262144 6291456 0 0 0 0 0 0
-3hw.cachelinesize: 64
-4hw.l1icachesize: 32768
-5hw.l1dcachesize: 32768
-6hw.l2cachesize: 262144
-7hw.l3cachesize: 6291456
-</code></pre></div><p>这意味着，如果处理器需要拷贝一个int64类型组成的Go切片到缓存中时，它会单次一起拷贝8个元素，而不是单个拷贝。如果我们的程序能让数据是以连续内存的方式存储（例如数组），这样当处理器访问数据元素时，缓存命中率就会很高。通过减少从内存中读取数据的频率，从而提高程序的性能。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1$ sysctl -a | egrep &#39;cachesize|cachelinesize&#39;
+</span></span><span style="display:flex;"><span>2hw.cachesize: 8589934592 32768 262144 6291456 0 0 0 0 0 0
+</span></span><span style="display:flex;"><span>3hw.cachelinesize: 64
+</span></span><span style="display:flex;"><span>4hw.l1icachesize: 32768
+</span></span><span style="display:flex;"><span>5hw.l1dcachesize: 32768
+</span></span><span style="display:flex;"><span>6hw.l2cachesize: 262144
+</span></span><span style="display:flex;"><span>7hw.l3cachesize: 6291456
+</span></span></code></pre></div><p>这意味着，如果处理器需要拷贝一个int64类型组成的Go切片到缓存中时，它会单次一起拷贝8个元素，而不是单个拷贝。如果我们的程序能让数据是以连续内存的方式存储（例如数组），这样当处理器访问数据元素时，缓存命中率就会很高。通过减少从内存中读取数据的频率，从而提高程序的性能。</p>
 <p><strong>缓存行在Go程序中的具体应用</strong></p>
 <p>来看一个具体的例子，该例为我们展示了利用CPU缓存带来的好处。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func createMatrix(size int) [][]int64 {
- 2    matrix := make([][]int64, size)
- 3    for i := 0; i &lt; size; i++ {
- 4        matrix[i] = make([]int64, size)
- 5    }
- 6    return matrix
- 7}
- 8
- 9const matrixLength = 6400
-10
-11func BenchmarkMatrixCombination(b *testing.B) {
-12    matrixA := createMatrix(matrixLength)
-13    matrixB := createMatrix(matrixLength)
-14
-15    for n := 0; n &lt; b.N; n++ {
-16        for i := 0; i &lt; matrixLength; i++ {
-17            for j := 0; j &lt; matrixLength; j++ {
-18                matrixA[i][j] = matrixA[i][j] + matrixB[i][j]
-19            }
-20        }
-21    }
-22}
-23
-24func BenchmarkMatrixReversedCombination(b *testing.B) {
-25    matrixA := createMatrix(matrixLength)
-26    matrixB := createMatrix(matrixLength)
-27
-28    for n := 0; n &lt; b.N; n++ {
-29        for i := 0; i &lt; matrixLength; i++ {
-30            for j := 0; j &lt; matrixLength; j++ {
-31                matrixA[i][j] = matrixA[i][j] + matrixB[j][i]
-32            }
-33        }
-34    }
-35}
-</code></pre></div><p>在上述的代码中，有两个6400*6400的初始化数组矩阵A和B，将A和B的元素进行相加，第一种方式是对应行列坐标相加，即<code>matrixA[i][j] = matrixA[i][j] + matrixB[i][j]</code>，第二种方式是对称行列坐标相加，即<code>matrixA[i][j] = matrixA[i][j] + matrixB[j][i]</code>。那这两种不同的相加方式，会有什么样的结果呢？</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1BenchmarkMatrixCombination-8                     16      67211689 ns/op
-2BenchmarkMatrixReversedCombination-8              3     480798925 ns/op
-</code></pre></div><p>可以看到，两种相加方式，<strong>性能差异竟然接近十倍</strong>，这是为什么呢？</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func createMatrix(size int) [][]int64 {
+</span></span><span style="display:flex;"><span> 2    matrix := make([][]int64, size)
+</span></span><span style="display:flex;"><span> 3    for i := 0; i &lt; size; i++ {
+</span></span><span style="display:flex;"><span> 4        matrix[i] = make([]int64, size)
+</span></span><span style="display:flex;"><span> 5    }
+</span></span><span style="display:flex;"><span> 6    return matrix
+</span></span><span style="display:flex;"><span> 7}
+</span></span><span style="display:flex;"><span> 8
+</span></span><span style="display:flex;"><span> 9const matrixLength = 6400
+</span></span><span style="display:flex;"><span>10
+</span></span><span style="display:flex;"><span>11func BenchmarkMatrixCombination(b *testing.B) {
+</span></span><span style="display:flex;"><span>12    matrixA := createMatrix(matrixLength)
+</span></span><span style="display:flex;"><span>13    matrixB := createMatrix(matrixLength)
+</span></span><span style="display:flex;"><span>14
+</span></span><span style="display:flex;"><span>15    for n := 0; n &lt; b.N; n++ {
+</span></span><span style="display:flex;"><span>16        for i := 0; i &lt; matrixLength; i++ {
+</span></span><span style="display:flex;"><span>17            for j := 0; j &lt; matrixLength; j++ {
+</span></span><span style="display:flex;"><span>18                matrixA[i][j] = matrixA[i][j] + matrixB[i][j]
+</span></span><span style="display:flex;"><span>19            }
+</span></span><span style="display:flex;"><span>20        }
+</span></span><span style="display:flex;"><span>21    }
+</span></span><span style="display:flex;"><span>22}
+</span></span><span style="display:flex;"><span>23
+</span></span><span style="display:flex;"><span>24func BenchmarkMatrixReversedCombination(b *testing.B) {
+</span></span><span style="display:flex;"><span>25    matrixA := createMatrix(matrixLength)
+</span></span><span style="display:flex;"><span>26    matrixB := createMatrix(matrixLength)
+</span></span><span style="display:flex;"><span>27
+</span></span><span style="display:flex;"><span>28    for n := 0; n &lt; b.N; n++ {
+</span></span><span style="display:flex;"><span>29        for i := 0; i &lt; matrixLength; i++ {
+</span></span><span style="display:flex;"><span>30            for j := 0; j &lt; matrixLength; j++ {
+</span></span><span style="display:flex;"><span>31                matrixA[i][j] = matrixA[i][j] + matrixB[j][i]
+</span></span><span style="display:flex;"><span>32            }
+</span></span><span style="display:flex;"><span>33        }
+</span></span><span style="display:flex;"><span>34    }
+</span></span><span style="display:flex;"><span>35}
+</span></span></code></pre></div><p>在上述的代码中，有两个6400*6400的初始化数组矩阵A和B，将A和B的元素进行相加，第一种方式是对应行列坐标相加，即<code>matrixA[i][j] = matrixA[i][j] + matrixB[i][j]</code>，第二种方式是对称行列坐标相加，即<code>matrixA[i][j] = matrixA[i][j] + matrixB[j][i]</code>。那这两种不同的相加方式，会有什么样的结果呢？</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1BenchmarkMatrixCombination-8                     16      67211689 ns/op
+</span></span><span style="display:flex;"><span>2BenchmarkMatrixReversedCombination-8              3     480798925 ns/op
+</span></span></code></pre></div><p>可以看到，两种相加方式，<strong>性能差异竟然接近十倍</strong>，这是为什么呢？</p>
 <p>接下来，我们通过几幅图来更直观地理解中间发生了什么。蓝色圆圈代表矩阵A的当前元素坐标，粉红色圆圈代表了矩阵B的当前元素坐标。在第二种相加方式中，由于程序的操作是 <code>matrixA[i][j] = matrixA[i][j] + matrixB[j][i]</code> ，所以当矩阵A的元素坐标为 (4,0) 时，矩阵B对应的元素坐标就是 (0,4)。</p>
 <p><img src="http://shanks.link/img/CPU%E7%BC%93%E5%AD%98%E4%BD%93%E7%B3%BB%E5%AF%B9%E7%A8%8B%E5%BA%8F%E7%9A%84%E5%BD%B1%E5%93%8D/4.png" alt="图片"></p>
 <p>**注：**<strong>在此图中，我们用横坐标和纵坐标表示矩阵，并且（0,0）代表是矩阵的左上角坐标。在实际的计算机存储中，一个矩阵所有的行将会被分配到一片连续的内存上。不过为了更直观地表示，我们这里还是按照数学的表示方法。</strong></p>
@@ -280,42 +280,42 @@
 <p>如果矩阵的大小与L1 Cache的大小相比足够小，那么答案是肯定的，坐标 (0,5)处的元素已经在L1 Cache中。否则，该缓存行就会在访问坐标 (0,5) 之前就被清出 L1。此时，将会产生一个缓存缺失，然后处理器就不得不通过别的方式访问该变量 (比如从 L2 里去取)。此时，程序的状态将会是这样的：</p>
 <p><img src="http://shanks.link/img/CPU%E7%BC%93%E5%AD%98%E4%BD%93%E7%B3%BB%E5%AF%B9%E7%A8%8B%E5%BA%8F%E7%9A%84%E5%BD%B1%E5%93%8D/6.png" alt="图片"></p>
 <p>那么，矩阵的大小应该是多大才能从充分利用L1 Cache呢？让我们做一些数学运算。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1$ sysctl hw.l1dcachesize
-2hw.l1dcachesize: 32768
-</code></pre></div><p>以小菜刀的机器为例，L1 的数据缓存大小为32kb。但L1缓存行的大小为64字节。因此，我可以在L1 数据缓存中存储多达512条缓存行。那么，我们如果将上例中的矩阵大小<code>matrixLength</code>改为512会怎样？以下是基准测试结果。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1BenchmarkMatrixCombination-8                   3379        360017 ns/op
-2BenchmarkMatrixReversedCombination-8           1801        585807 ns/op
-</code></pre></div><p>尽管我们已经将两中测试用例的性能差距缩小了很多 (用 6400 大小的矩阵测的时候，第二个要慢了大约 700%)，但我们还是可以看到会有明显的差距。那是哪里有问题呢？</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1$ sysctl hw.l1dcachesize
+</span></span><span style="display:flex;"><span>2hw.l1dcachesize: 32768
+</span></span></code></pre></div><p>以小菜刀的机器为例，L1 的数据缓存大小为32kb。但L1缓存行的大小为64字节。因此，我可以在L1 数据缓存中存储多达512条缓存行。那么，我们如果将上例中的矩阵大小<code>matrixLength</code>改为512会怎样？以下是基准测试结果。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1BenchmarkMatrixCombination-8                   3379        360017 ns/op
+</span></span><span style="display:flex;"><span>2BenchmarkMatrixReversedCombination-8           1801        585807 ns/op
+</span></span></code></pre></div><p>尽管我们已经将两中测试用例的性能差距缩小了很多 (用 6400 大小的矩阵测的时候，第二个要慢了大约 700%)，但我们还是可以看到会有明显的差距。那是哪里有问题呢？</p>
 <p>在基准测试中，我们处理的是两个矩阵，因此CPU必须为两者均存储缓存行。在完全理想的环境下（在压测时没有其他任何程序在运行，但这是肯定不可能的），L1缓存将用一半的容量来存储第一个矩阵，另外一半的容量存储第二个矩阵。那我们再对两个矩阵大小进行4倍压缩，即<code>matrixLength</code>为128（原文中是256时接近相等，但在小菜刀机器上实测是128个元素才接近相等），看看此时的基准测试情况。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1BenchmarkMatrixCombination-8                  64750         17665 ns/op
-2BenchmarkMatrixReversedCombination-8          57712         20404 ns/op
-</code></pre></div><p>此时，我们终于到达了两个结果（接近）相等的地步。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1BenchmarkMatrixCombination-8                  64750         17665 ns/op
+</span></span><span style="display:flex;"><span>2BenchmarkMatrixReversedCombination-8          57712         20404 ns/op
+</span></span></code></pre></div><p>此时，我们终于到达了两个结果（接近）相等的地步。</p>
 <p>通过上面的尝试，我们应该知道在处理大容量矩阵时，应该如何减少CPU缓存带来的影响。这里介绍一种循环嵌套优化的技术（loop nest optimization）：在遍历矩阵时，每次都以一个固定大小的矩阵块为单位来遍历，以此最大化利用CPU缓存。</p>
 <p>在以下示例中，我们将一个矩阵块定义为4*4元素大小。在第一个矩阵中，我们从 (4,0)  遍历至 (4,3)，然后再切换到下一行。在第二个矩阵中从 (0,4) 遍历至 (3,4) ，然后切换到下一列。</p>
 <p><img src="http://shanks.link/img/CPU%E7%BC%93%E5%AD%98%E4%BD%93%E7%B3%BB%E5%AF%B9%E7%A8%8B%E5%BA%8F%E7%9A%84%E5%BD%B1%E5%93%8D/7.png" alt="图片"></p>
 <p>当粉红色圆圈遍历完第一列时，处理器将相应的所有存储行都存储到L1中去了。因此，对矩形块其他元素的遍历就是直接从L1里访问了，这能明显提高访问速度。</p>
 <p>我们将上述技术通过Go实现。首先，我们必须谨慎选择块的大小。在前面的示例中，我们矩阵一行元素的内存大小等于缓存行的容量。它不应该比这再小了，否则的话我们的缓存行中会存储一些不会被访问的元素数据，这浪费缓存行的空间。在Go基准测试中，我们存储的元素类型为int64（8个字节）。因为缓存行的大小是64字节，即8个元素大小。那么，矩形块的大小应该至少为8。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func BenchmarkMatrixReversedCombinationPerBlock(b *testing.B) {
- 2    matrixA := createMatrix(matrixLength)
- 3    matrixB := createMatrix(matrixLength)
- 4    blockSize := 8
- 5
- 6    for n := 0; n &lt; b.N; n++ {
- 7        for i := 0; i &lt; matrixLength; i += blockSize {
- 8            for j := 0; j &lt; matrixLength; j += blockSize {
- 9                for ii := i; ii &lt; i+blockSize; ii++ {
-10                    for jj := j; jj &lt; j+blockSize; jj++ {
-11                        matrixA[ii][jj] = matrixA[ii][jj] + matrixB[jj][ii]
-12                    }
-13                }
-14            }
-15        }
-16    }
-17}
-</code></pre></div><p>此时<code>matrixLength</code>为6400，它与最初直接遍历的方式相比结果如下。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1BenchmarkMatrixReversedCombinationPerBlock-8              6     184520538 ns/op
-2BenchmarkMatrixReversedCombination-8                      3     480904016 ns/op
-</code></pre></div><p>可以看到，通过加入小的遍历矩形块后，我们的整体遍历速度已经是最初版本的3倍了，充分利用CPU缓存特性能够潜在帮助我们设计更高效的算法。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func BenchmarkMatrixReversedCombinationPerBlock(b *testing.B) {
+</span></span><span style="display:flex;"><span> 2    matrixA := createMatrix(matrixLength)
+</span></span><span style="display:flex;"><span> 3    matrixB := createMatrix(matrixLength)
+</span></span><span style="display:flex;"><span> 4    blockSize := 8
+</span></span><span style="display:flex;"><span> 5
+</span></span><span style="display:flex;"><span> 6    for n := 0; n &lt; b.N; n++ {
+</span></span><span style="display:flex;"><span> 7        for i := 0; i &lt; matrixLength; i += blockSize {
+</span></span><span style="display:flex;"><span> 8            for j := 0; j &lt; matrixLength; j += blockSize {
+</span></span><span style="display:flex;"><span> 9                for ii := i; ii &lt; i+blockSize; ii++ {
+</span></span><span style="display:flex;"><span>10                    for jj := j; jj &lt; j+blockSize; jj++ {
+</span></span><span style="display:flex;"><span>11                        matrixA[ii][jj] = matrixA[ii][jj] + matrixB[jj][ii]
+</span></span><span style="display:flex;"><span>12                    }
+</span></span><span style="display:flex;"><span>13                }
+</span></span><span style="display:flex;"><span>14            }
+</span></span><span style="display:flex;"><span>15        }
+</span></span><span style="display:flex;"><span>16    }
+</span></span><span style="display:flex;"><span>17}
+</span></span></code></pre></div><p>此时<code>matrixLength</code>为6400，它与最初直接遍历的方式相比结果如下。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1BenchmarkMatrixReversedCombinationPerBlock-8              6     184520538 ns/op
+</span></span><span style="display:flex;"><span>2BenchmarkMatrixReversedCombination-8                      3     480904016 ns/op
+</span></span></code></pre></div><p>可以看到，通过加入小的遍历矩形块后，我们的整体遍历速度已经是最初版本的3倍了，充分利用CPU缓存特性能够潜在帮助我们设计更高效的算法。</p>
 <p>​     <strong>缓存一致性与伪共享问题</strong></p>
 <p><strong><em>*Cache Coherency*</em> &amp; *<em>False Sharing*</em></strong></p>
 <p>注意，第一个例子呈现的是一个单线程程序，当使用多线程时，我们会遇到缓存伪共享的问题。首先，理解伪共享，需要先理解缓存一致性。</p>
@@ -356,83 +356,83 @@
 <p>虽然变量 A 和 B 之间其实并没有任何的关系，但是因为归属于一个缓存行 ，这个缓存行中的任意数据被修改后，它们都会相互影响。因此，这种因为多核线程同时读写同一个 Cache Line 的不同变量，而导致 CPU 缓存失效的现象就是<strong>伪共享</strong>。</p>
 <h5 id="内存填充">内存填充</h5>
 <p>那有没有什么办法规避这种伪共享呢？<strong>答案是有的：内存填充（Memory Padding）</strong>。它的做法是在两个变量之间填充足够多的空间，以保证它们属于不同的缓存行。下面，我们看一个具体的例子。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1// 这里M需要足够大，否则会存在goroutine 1已经执行完成，而goroutine 2还未启动的情况
- 2const M = 1000000
- 3
- 4type SimpleStruct struct {
- 5    n int
- 6}
- 7
- 8func BenchmarkStructureFalseSharing(b *testing.B) {
- 9    structA := SimpleStruct{}
-10    structB := SimpleStruct{}
-11    wg := sync.WaitGroup{}
-12
-13    b.ResetTimer()
-14    for i := 0; i &lt; b.N; i++ {
-15        wg.Add(2)
-16        go func() {
-17            for j := 0; j &lt; M; j++ {
-18                structA.n += 1
-19            }
-20            wg.Done()
-21        }()
-22        go func() {
-23            for j := 0; j &lt; M; j++ {
-24                structB.n += 1
-25            }
-26            wg.Done()
-27        }()
-28        wg.Wait()
-29    }
-30}
-</code></pre></div><p>在该例中，我们相继实例化了两个结构体对象structA和structB，因此，这两个结构体应该会在内存中被连续分配。之后，我们创建两个goroutine，分别去访问这两个结构体对象。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// 这里M需要足够大，否则会存在goroutine 1已经执行完成，而goroutine 2还未启动的情况
+</span></span><span style="display:flex;"><span> 2const M = 1000000
+</span></span><span style="display:flex;"><span> 3
+</span></span><span style="display:flex;"><span> 4type SimpleStruct struct {
+</span></span><span style="display:flex;"><span> 5    n int
+</span></span><span style="display:flex;"><span> 6}
+</span></span><span style="display:flex;"><span> 7
+</span></span><span style="display:flex;"><span> 8func BenchmarkStructureFalseSharing(b *testing.B) {
+</span></span><span style="display:flex;"><span> 9    structA := SimpleStruct{}
+</span></span><span style="display:flex;"><span>10    structB := SimpleStruct{}
+</span></span><span style="display:flex;"><span>11    wg := sync.WaitGroup{}
+</span></span><span style="display:flex;"><span>12
+</span></span><span style="display:flex;"><span>13    b.ResetTimer()
+</span></span><span style="display:flex;"><span>14    for i := 0; i &lt; b.N; i++ {
+</span></span><span style="display:flex;"><span>15        wg.Add(2)
+</span></span><span style="display:flex;"><span>16        go func() {
+</span></span><span style="display:flex;"><span>17            for j := 0; j &lt; M; j++ {
+</span></span><span style="display:flex;"><span>18                structA.n += 1
+</span></span><span style="display:flex;"><span>19            }
+</span></span><span style="display:flex;"><span>20            wg.Done()
+</span></span><span style="display:flex;"><span>21        }()
+</span></span><span style="display:flex;"><span>22        go func() {
+</span></span><span style="display:flex;"><span>23            for j := 0; j &lt; M; j++ {
+</span></span><span style="display:flex;"><span>24                structB.n += 1
+</span></span><span style="display:flex;"><span>25            }
+</span></span><span style="display:flex;"><span>26            wg.Done()
+</span></span><span style="display:flex;"><span>27        }()
+</span></span><span style="display:flex;"><span>28        wg.Wait()
+</span></span><span style="display:flex;"><span>29    }
+</span></span><span style="display:flex;"><span>30}
+</span></span></code></pre></div><p>在该例中，我们相继实例化了两个结构体对象structA和structB，因此，这两个结构体应该会在内存中被连续分配。之后，我们创建两个goroutine，分别去访问这两个结构体对象。</p>
 <p>structA上的变量n被goroutine 1访问，structB上的变量n被goroutine 2访问。然后，由于这两个结构体在内存上的地址是连续的，所以两个n会存在于两个CPU缓存行中（假设两个goroutine会被调度分配到不同CPU核上的线程，当然，这不是一定保证的），压测结果如下。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1BenchmarkStructureFalseSharing-8            538       2245798 ns/op
-</code></pre></div><p>下面我们使用内存填充：在结构体中填充一个为缓存行大小的占位对象CacheLinePad。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1type PaddedStruct struct {
- 2    n int
- 3    _ CacheLinePad
- 4}
- 5
- 6type CacheLinePad struct {
- 7    _ [CacheLinePadSize]byte
- 8}
- 9
-10const CacheLinePadSize = 64
-</code></pre></div><p>然后，我们实例化这两个结构体，并继续在单独的goroutine中访问两个变量。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1// 这里M需要足够大，否则会存在goroutine 1已经执行完成，而goroutine 2还未启动的情况
- 2const M = 1000000
- 3
- 4func BenchmarkStructurePadding(b *testing.B) {
- 5    structA := PaddedStruct{}
- 6    structB := SimpleStruct{}
- 7    wg := sync.WaitGroup{}
- 8
- 9    b.ResetTimer()
-10    for i := 0; i &lt; b.N; i++ {
-11        wg.Add(2)
-12        go func() {
-13            for j := 0; j &lt; M; j++ {
-14                structA.n += 1
-15            }
-16            wg.Done()
-17        }()
-18        go func() {
-19            for j := 0; j &lt; M; j++ {
-20                structB.n += 1
-21            }
-22            wg.Done()
-23        }()
-24        wg.Wait()
-25    }
-26}
-</code></pre></div><p>在CPU Cache中，内存分布应该如下图所示，因为两个变量之间有足够多的内存填充，所以它们只会存在于不同CPU核心的缓存行。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1BenchmarkStructureFalseSharing-8            538       2245798 ns/op
+</span></span></code></pre></div><p>下面我们使用内存填充：在结构体中填充一个为缓存行大小的占位对象CacheLinePad。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1type PaddedStruct struct {
+</span></span><span style="display:flex;"><span> 2    n int
+</span></span><span style="display:flex;"><span> 3    _ CacheLinePad
+</span></span><span style="display:flex;"><span> 4}
+</span></span><span style="display:flex;"><span> 5
+</span></span><span style="display:flex;"><span> 6type CacheLinePad struct {
+</span></span><span style="display:flex;"><span> 7    _ [CacheLinePadSize]byte
+</span></span><span style="display:flex;"><span> 8}
+</span></span><span style="display:flex;"><span> 9
+</span></span><span style="display:flex;"><span>10const CacheLinePadSize = 64
+</span></span></code></pre></div><p>然后，我们实例化这两个结构体，并继续在单独的goroutine中访问两个变量。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// 这里M需要足够大，否则会存在goroutine 1已经执行完成，而goroutine 2还未启动的情况
+</span></span><span style="display:flex;"><span> 2const M = 1000000
+</span></span><span style="display:flex;"><span> 3
+</span></span><span style="display:flex;"><span> 4func BenchmarkStructurePadding(b *testing.B) {
+</span></span><span style="display:flex;"><span> 5    structA := PaddedStruct{}
+</span></span><span style="display:flex;"><span> 6    structB := SimpleStruct{}
+</span></span><span style="display:flex;"><span> 7    wg := sync.WaitGroup{}
+</span></span><span style="display:flex;"><span> 8
+</span></span><span style="display:flex;"><span> 9    b.ResetTimer()
+</span></span><span style="display:flex;"><span>10    for i := 0; i &lt; b.N; i++ {
+</span></span><span style="display:flex;"><span>11        wg.Add(2)
+</span></span><span style="display:flex;"><span>12        go func() {
+</span></span><span style="display:flex;"><span>13            for j := 0; j &lt; M; j++ {
+</span></span><span style="display:flex;"><span>14                structA.n += 1
+</span></span><span style="display:flex;"><span>15            }
+</span></span><span style="display:flex;"><span>16            wg.Done()
+</span></span><span style="display:flex;"><span>17        }()
+</span></span><span style="display:flex;"><span>18        go func() {
+</span></span><span style="display:flex;"><span>19            for j := 0; j &lt; M; j++ {
+</span></span><span style="display:flex;"><span>20                structB.n += 1
+</span></span><span style="display:flex;"><span>21            }
+</span></span><span style="display:flex;"><span>22            wg.Done()
+</span></span><span style="display:flex;"><span>23        }()
+</span></span><span style="display:flex;"><span>24        wg.Wait()
+</span></span><span style="display:flex;"><span>25    }
+</span></span><span style="display:flex;"><span>26}
+</span></span></code></pre></div><p>在CPU Cache中，内存分布应该如下图所示，因为两个变量之间有足够多的内存填充，所以它们只会存在于不同CPU核心的缓存行。</p>
 <p><img src="http://shanks.link/img/CPU%E7%BC%93%E5%AD%98%E4%BD%93%E7%B3%BB%E5%AF%B9%E7%A8%8B%E5%BA%8F%E7%9A%84%E5%BD%B1%E5%93%8D/13.png" alt="图片"></p>
 <p>下面是两种方式的压测结果对比</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1BenchmarkStructureFalseSharing-8            538       2245798 ns/op
-2BenchmarkStructurePadding-8                 793       1506534 ns/op
-</code></pre></div><p>可以看到，在该例中使用填充的比最初的实现会快30%左右，这是一种以空间换时间的做法。需要注意的是，内存填充的确能提升执行速度，但是同时会导致更多的内存分配与浪费。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1BenchmarkStructureFalseSharing-8            538       2245798 ns/op
+</span></span><span style="display:flex;"><span>2BenchmarkStructurePadding-8                 793       1506534 ns/op
+</span></span></code></pre></div><p>可以看到，在该例中使用填充的比最初的实现会快30%左右，这是一种以空间换时间的做法。需要注意的是，内存填充的确能提升执行速度，但是同时会导致更多的内存分配与浪费。</p>
 <p><strong>结语</strong></p>
 <p>机械同理心（Mechanical sympathy）是软件开发领域的一个重要概念，其源自三届世界冠军 F1赛车手 Jackie Stewart 的一句名言：</p>
 <p><strong>You don’t have to be an engineer to be a racing driver, but you do have to have Mechanical Sympathy. （若想成为一名赛车手，你不必成为一名工程师，但必须要有机械同理心。）</strong></p>
@@ -517,14 +517,14 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">453</span>
+        <span class="site-state-item-count">454</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
     <div class="site-state-item site-state-categories">    
         <a href="http://shanks.link/categories/">      
          
-        <span class="site-state-item-count">25</span>
+        <span class="site-state-item-count">26</span>
         
         <span class="site-state-item-name">分类</span>
         
@@ -534,7 +534,7 @@
     <div class="site-state-item site-state-tags">
         <a href="http://shanks.link/tags/">
          
-        <span class="site-state-item-count">31</span>
+        <span class="site-state-item-count">32</span>
         
         <span class="site-state-item-name">标签</span>
         </a>
@@ -577,7 +577,7 @@
   <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
 </div>
 <div class="powered-by">
-  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.92.1</a>
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
 </div>
 <div class="theme-info">
   Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
