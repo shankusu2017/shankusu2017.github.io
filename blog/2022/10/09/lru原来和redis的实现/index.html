@@ -1,0 +1,609 @@
+<!DOCTYPE HTML>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
+    <title>LRU原来和Redis的实现 - 愿星光伴你左右</title>
+    <meta name="keywords" content="git,Git,Lua,lua,Golang,go">
+    
+    <meta property="og:title" content="LRU原来和Redis的实现">
+    <meta property="og:site_name" content="愿星光伴你左右">
+    <meta property="og:image" content="/img/author.jpg"> 
+    <meta name="title" content="LRU原来和Redis的实现 - 愿星光伴你左右" />
+    <meta name="description" content="愿星光伴你左右"> 
+    <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
+    <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="http://shanks.link/img/apple-touch-icon.png" />
+    <link href="http://shanks.link/js/vendor/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/js/vendor/fancybox/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/main.css" rel="stylesheet" type="text/css" />
+    <link href="http://shanks.link/css/syntax.css" rel="stylesheet" type="text/css" />
+    <script type="text/javascript" id="hexo.configuration">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    scheme: 'Pisces',
+    sidebar: {"position":"left","display":"post"},
+     fancybox: true, 
+    motion: true
+  };
+</script>
+</head>
+<body itemscope itemtype="http://schema.org/WebPage" lang="zh-Hans">
+<div class="container one-collumn sidebar-position-left page-home  ">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"> <div class="site-meta  custom-logo ">
+
+  <div class="custom-logo-site-title">
+    <a href="http://shanks.link/"  class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <span class="site-title">愿星光伴你左右</span>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+  <p class="site-subtitle"></p>
+</div>
+
+<div class="site-nav-toggle">
+  <button>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+    <span class="btn-bar"></span>
+  </button>
+</div>
+
+<nav class="site-nav">
+    <ul id="menu" class="menu">
+      
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/post/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />首页
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/thinking/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />随想录
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/prose/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />散文
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E7%94%9F%E6%B4%BB/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />生活
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/os/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />OS
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/lua/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />lua
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/redis/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />redis
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/go/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />Golang
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/openvpn/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />OpenVPN
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/%E8%BF%90%E7%BB%B4/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />运维
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/git/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />Git
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/categories/it/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />IT杂谈
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/about/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />About Me
+          </a>
+        </li>
+      
+        <li class="menu-item ">
+          <a href="http://shanks.link/links/" rel="section">
+              <i class="menu-item-icon fa fa-fw fa-book"></i> <br />友情链接
+          </a>
+        </li>
+      
+      <li class="menu-item menu-item-search">
+        <a href="javascript:;" class="popup-trigger"> <i class="menu-item-icon fa fa-search fa-fw"></i> <br /> 搜索</a>
+      </li>
+    </ul>
+    <div class="site-search">
+      <div class="popup">
+ <span class="search-icon fa fa-search"></span>
+ <input type="text" id="local-search-input">
+ <div id="local-search-result"></div>
+ <span class="popup-btn-close">close</span>
+</div>
+
+    </div>
+</nav>
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+<section id="posts" class="posts-expand">
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2022/10/09/lru%E5%8E%9F%E6%9D%A5%E5%92%8Credis%E7%9A%84%E5%AE%9E%E7%8E%B0/" itemprop="url">
+        LRU原来和Redis的实现
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2022-10-09">
+    2022-10-09
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/algorithm" itemprop="url" rel="index">
+        <span itemprop="name">algorithm</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">2346 字 ~5分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p>很久前参加过今日头条的面试，遇到一个题，目前半部分是如何实现 LRU，后半部分是 Redis 中如何实现 LRU。</p>
+<p>我的第一反应是操作系统课程里学过，应该是内存不够的场景下，淘汰旧内容的策略。LRU &hellip; Least Recent Used，淘汰掉最不经常使用的。可以稍微多补充两句，因为计算机体系结构中，最大的最可靠的存储是硬盘，它容量很大，并且内容可以固化，但是访问速度很慢，所以需要把使用的内容载入内存中；内存速度很快，但是容量有限，并且断电后内容会丢失，并且为了进一步提升性能，还有CPU内部的 L1 Cache，L2 Cache等概念。因为速度越快的地方，它的单位成本越高，容量越小，新的内容不断被载入，旧的内容肯定要被淘汰，所以就有这样的使用背景。</p>
+<h2 id="lru原理">LRU原理</h2>
+<p>在一般标准的操作系统教材里，会用下面的方式来演示 LRU 原理，假设内存只能容纳3个页大小，按照 7 0 1 2 0 3 0 4 的次序访问页。假设内存按照栈的方式来描述访问时间，在上面的，是最近访问的，在下面的是，最远时间访问的，LRU就是这样工作的。</p>
+<p><img src="https://pic1.zhimg.com/80/v2-584ed398c35ba76250cfb2f01b20ec0c_720w.webp" alt="img"></p>
+<p>但是如果让我们自己设计一个基于 LRU 的缓存，这样设计可能问题很多，这段内存按照访问时间进行了排序，会有大量的内存拷贝操作，所以性能肯定是不能接受的。</p>
+<p>那么如何设计一个LRU缓存，使得放入和移除都是 O(1) 的，我们需要把访问次序维护起来，但是不能通过内存中的真实排序来反应，有一种方案就是使用双向链表。</p>
+<h2 id="基于-hashmap-和-双向链表实现-lru-的">基于 HashMap 和 双向链表实现 LRU 的</h2>
+<p>整体的设计思路是，可以使用 HashMap 存储 key，这样可以做到 save 和 get key的时间都是 O(1)，而 HashMap 的 Value 指向双向链表实现的 LRU 的 Node 节点，如图所示。</p>
+<p><img src="https://pic4.zhimg.com/80/v2-09f037608b1b2de70b52d1312ef3b307_720w.webp" alt="img"></p>
+<p>LRU 存储是基于双向链表实现的，下面的图演示了它的原理。其中 head 代表双向链表的表头，tail 代表尾部。首先预先设置 LRU 的容量，如果存储满了，可以通过 O(1) 的时间淘汰掉双向链表的尾部，每次新增和访问数据，都可以通过 O(1)的效率把新的节点增加到对头，或者把已经存在的节点移动到队头。</p>
+<p>下面展示了，预设大小是 3 的，LRU存储的在存储和访问过程中的变化。为了简化图复杂度，图中没有展示 HashMap部分的变化，仅仅演示了上图 LRU 双向链表的变化。我们对这个LRU缓存的操作序列如下：</p>
+<p>save(&ldquo;key1&rdquo;, 7)</p>
+<p>save(&ldquo;key2&rdquo;, 0)</p>
+<p>save(&ldquo;key3&rdquo;, 1)</p>
+<p>save(&ldquo;key4&rdquo;, 2)</p>
+<p>get(&ldquo;key2&rdquo;)</p>
+<p>save(&ldquo;key5&rdquo;, 3)</p>
+<p>get(&ldquo;key2&rdquo;)</p>
+<p>save(&ldquo;key6&rdquo;, 4)</p>
+<p>相应的 LRU 双向链表部分变化如下：</p>
+<p><img src="https://pic3.zhimg.com/80/v2-e9a42fee5cdbf9e4e4d23015112fad4e_720w.webp" alt="img">s = save, g = get</p>
+<p>总结一下核心操作的步骤:</p>
+<ol>
+<li>save(key, value)，首先在 HashMap 找到 Key 对应的节点，如果节点存在，更新节点的值，并把这个节点移动队头。如果不存在，需要构造新的节点，并且尝试把节点塞到队头，如果LRU空间不足，则通过 tail 淘汰掉队尾的节点，同时在 HashMap 中移除 Key。</li>
+<li>get(key)，通过 HashMap 找到 LRU 链表节点，因为根据LRU 原理，这个节点是最新访问的，所以要把节点插入到队头，然后返回缓存的值。</li>
+</ol>
+<p>完整基于 Java 的代码参考如下</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">class</span> <span style="color:#a6e22e">DLinkedNode</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>	String key<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">int</span> value<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>	DLinkedNode pre<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>	DLinkedNode post<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>LRU Cache</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-java" data-lang="java"><span style="display:flex;"><span><span style="color:#66d9ef">public</span> <span style="color:#66d9ef">class</span> <span style="color:#a6e22e">LRUCache</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> Hashtable<span style="color:#f92672">&lt;</span>Integer<span style="color:#f92672">,</span> DLinkedNode<span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>            cache <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> Hashtable<span style="color:#f92672">&lt;</span>Integer<span style="color:#f92672">,</span> DLinkedNode<span style="color:#f92672">&gt;();</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> count<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">int</span> capacity<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> DLinkedNode head<span style="color:#f92672">,</span> tail<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#a6e22e">LRUCache</span><span style="color:#f92672">(</span><span style="color:#66d9ef">int</span> capacity<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">count</span> <span style="color:#f92672">=</span> 0<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">capacity</span> <span style="color:#f92672">=</span> capacity<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        head <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> DLinkedNode<span style="color:#f92672">();</span>
+</span></span><span style="display:flex;"><span>        head<span style="color:#f92672">.</span><span style="color:#a6e22e">pre</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        tail <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> DLinkedNode<span style="color:#f92672">();</span>
+</span></span><span style="display:flex;"><span>        tail<span style="color:#f92672">.</span><span style="color:#a6e22e">post</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        head<span style="color:#f92672">.</span><span style="color:#a6e22e">post</span> <span style="color:#f92672">=</span> tail<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>        tail<span style="color:#f92672">.</span><span style="color:#a6e22e">pre</span> <span style="color:#f92672">=</span> head<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">get</span><span style="color:#f92672">(</span>String key<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        DLinkedNode node <span style="color:#f92672">=</span> cache<span style="color:#f92672">.</span><span style="color:#a6e22e">get</span><span style="color:#f92672">(</span>key<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span><span style="color:#f92672">(</span>node <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">){</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span>1<span style="color:#f92672">;</span> <span style="color:#75715e">// should raise exception here.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// move the accessed node to the head;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">moveToHead</span><span style="color:#f92672">(</span>node<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> node<span style="color:#f92672">.</span><span style="color:#a6e22e">value</span><span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">public</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">set</span><span style="color:#f92672">(</span>String key<span style="color:#f92672">,</span> <span style="color:#66d9ef">int</span> value<span style="color:#f92672">)</span> <span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>        DLinkedNode node <span style="color:#f92672">=</span> cache<span style="color:#f92672">.</span><span style="color:#a6e22e">get</span><span style="color:#f92672">(</span>key<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span><span style="color:#f92672">(</span>node <span style="color:#f92672">==</span> <span style="color:#66d9ef">null</span><span style="color:#f92672">){</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            DLinkedNode newNode <span style="color:#f92672">=</span> <span style="color:#66d9ef">new</span> DLinkedNode<span style="color:#f92672">();</span>
+</span></span><span style="display:flex;"><span>            newNode<span style="color:#f92672">.</span><span style="color:#a6e22e">key</span> <span style="color:#f92672">=</span> key<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>            newNode<span style="color:#f92672">.</span><span style="color:#a6e22e">value</span> <span style="color:#f92672">=</span> value<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">cache</span><span style="color:#f92672">.</span><span style="color:#a6e22e">put</span><span style="color:#f92672">(</span>key<span style="color:#f92672">,</span> newNode<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">addNode</span><span style="color:#f92672">(</span>newNode<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">++</span>count<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span><span style="color:#f92672">(</span>count <span style="color:#f92672">&gt;</span> capacity<span style="color:#f92672">){</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// pop the tail
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                DLinkedNode tail <span style="color:#f92672">=</span> <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">popTail</span><span style="color:#f92672">();</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">cache</span><span style="color:#f92672">.</span><span style="color:#a6e22e">remove</span><span style="color:#f92672">(</span>tail<span style="color:#f92672">.</span><span style="color:#a6e22e">key</span><span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#f92672">--</span>count<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span><span style="color:#66d9ef">else</span><span style="color:#f92672">{</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// update the value.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            node<span style="color:#f92672">.</span><span style="color:#a6e22e">value</span> <span style="color:#f92672">=</span> value<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">moveToHead</span><span style="color:#f92672">(</span>node<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Always add the new node right after head;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">addNode</span><span style="color:#f92672">(</span>DLinkedNode node<span style="color:#f92672">){</span>
+</span></span><span style="display:flex;"><span>        node<span style="color:#f92672">.</span><span style="color:#a6e22e">pre</span> <span style="color:#f92672">=</span> head<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>        node<span style="color:#f92672">.</span><span style="color:#a6e22e">post</span> <span style="color:#f92672">=</span> head<span style="color:#f92672">.</span><span style="color:#a6e22e">post</span><span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        head<span style="color:#f92672">.</span><span style="color:#a6e22e">post</span><span style="color:#f92672">.</span><span style="color:#a6e22e">pre</span> <span style="color:#f92672">=</span> node<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>        head<span style="color:#f92672">.</span><span style="color:#a6e22e">post</span> <span style="color:#f92672">=</span> node<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Remove an existing node from the linked list.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">removeNode</span><span style="color:#f92672">(</span>DLinkedNode node<span style="color:#f92672">){</span>
+</span></span><span style="display:flex;"><span>        DLinkedNode pre <span style="color:#f92672">=</span> node<span style="color:#f92672">.</span><span style="color:#a6e22e">pre</span><span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>        DLinkedNode post <span style="color:#f92672">=</span> node<span style="color:#f92672">.</span><span style="color:#a6e22e">post</span><span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        pre<span style="color:#f92672">.</span><span style="color:#a6e22e">post</span> <span style="color:#f92672">=</span> post<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>        post<span style="color:#f92672">.</span><span style="color:#a6e22e">pre</span> <span style="color:#f92672">=</span> pre<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/**
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * Move certain node in between to the head.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">private</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">moveToHead</span><span style="color:#f92672">(</span>DLinkedNode node<span style="color:#f92672">){</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">removeNode</span><span style="color:#f92672">(</span>node<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">addNode</span><span style="color:#f92672">(</span>node<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// pop the current tail.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">private</span> DLinkedNode <span style="color:#a6e22e">popTail</span><span style="color:#f92672">(){</span>
+</span></span><span style="display:flex;"><span>        DLinkedNode res <span style="color:#f92672">=</span> tail<span style="color:#f92672">.</span><span style="color:#a6e22e">pre</span><span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">this</span><span style="color:#f92672">.</span><span style="color:#a6e22e">removeNode</span><span style="color:#f92672">(</span>res<span style="color:#f92672">);</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> res<span style="color:#f92672">;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">}</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">}</span>
+</span></span></code></pre></div><p>那么问题的后半部分，是 Redis 如何实现，这个问题这么问肯定是有坑的，那就是redis肯定不是这样实现的。</p>
+<h2 id="redis的lru实现">Redis的LRU实现</h2>
+<p>如果按照HashMap和双向链表实现，需要额外的存储存放 next 和 prev 指针，牺牲比较大的存储空间，显然是不划算的。所以Redis采用了一个近似的做法，就是随机取出若干个key，然后按照访问时间排序后，淘汰掉最不经常使用的，具体分析如下：</p>
+<p>为了支持LRU，Redis 2.8.19中使用了一个全局的LRU时钟，<code>server.lruclock</code>，定义如下，</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#75715e">#define REDIS_LRU_BITS 24
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">unsigned</span> lruclock:REDIS_LRU_BITS; <span style="color:#75715e">/* Clock for LRU eviction */</span>
+</span></span></code></pre></div><p>默认的LRU时钟的分辨率是1秒，可以通过改变<code>REDIS_LRU_CLOCK_RESOLUTION</code>宏的值来改变，Redis会在<code>serverCron()</code>中调用<code>updateLRUClock</code>定期的更新LRU时钟，更新的频率和hz参数有关，默认为<code>100ms</code>一次，如下，</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#75715e">#define REDIS_LRU_CLOCK_MAX ((1&lt;&lt;REDIS_LRU_BITS)-1) </span><span style="color:#75715e">/* Max value of obj-&gt;lru */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#define REDIS_LRU_CLOCK_RESOLUTION 1 </span><span style="color:#75715e">/* LRU clock resolution in seconds */</span><span style="color:#75715e">
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">updateLRUClock</span>(<span style="color:#66d9ef">void</span>) {
+</span></span><span style="display:flex;"><span>    server.lruclock <span style="color:#f92672">=</span> (server.unixtime <span style="color:#f92672">/</span> REDIS_LRU_CLOCK_RESOLUTION) <span style="color:#f92672">&amp;</span>
+</span></span><span style="display:flex;"><span>                                                REDIS_LRU_CLOCK_MAX;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>server.unixtime</code>是系统当前的unix时间戳，当 lruclock 的值超出REDIS_LRU_CLOCK_MAX时，会从头开始计算，所以在计算一个key的最长没有访问时间时，可能key本身保存的lru访问时间会比当前的lrulock还要大，这个时候需要计算额外时间，如下，</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#75715e">/* Given an object returns the min number of seconds the object was never
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * requested, using an approximated LRU algorithm. */</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">estimateObjectIdleTime</span>(robj <span style="color:#f92672">*</span>o) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (server.lruclock <span style="color:#f92672">&gt;=</span> o<span style="color:#f92672">-&gt;</span>lru) {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> (server.lruclock <span style="color:#f92672">-</span> o<span style="color:#f92672">-&gt;</span>lru) <span style="color:#f92672">*</span> REDIS_LRU_CLOCK_RESOLUTION;
+</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> ((REDIS_LRU_CLOCK_MAX <span style="color:#f92672">-</span> o<span style="color:#f92672">-&gt;</span>lru) <span style="color:#f92672">+</span> server.lruclock) <span style="color:#f92672">*</span>
+</span></span><span style="display:flex;"><span>                    REDIS_LRU_CLOCK_RESOLUTION;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Redis支持和LRU相关淘汰策略包括，</p>
+<ul>
+<li><code>volatile-lru</code> 设置了过期时间的key参与近似的lru淘汰策略</li>
+<li><code>allkeys-lru</code> 所有的key均参与近似的lru淘汰策略</li>
+</ul>
+<p>当进行LRU淘汰时，Redis按如下方式进行的，</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">/* volatile-lru and allkeys-lru policy */</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> (server.maxmemory_policy <span style="color:#f92672">==</span> REDIS_MAXMEMORY_ALLKEYS_LRU <span style="color:#f92672">||</span>
+</span></span><span style="display:flex;"><span>                server.maxmemory_policy <span style="color:#f92672">==</span> REDIS_MAXMEMORY_VOLATILE_LRU)
+</span></span><span style="display:flex;"><span>            {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">for</span> (k <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; k <span style="color:#f92672">&lt;</span> server.maxmemory_samples; k<span style="color:#f92672">++</span>) {
+</span></span><span style="display:flex;"><span>                    sds thiskey;
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">long</span> thisval;
+</span></span><span style="display:flex;"><span>                    robj <span style="color:#f92672">*</span>o;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                    de <span style="color:#f92672">=</span> dictGetRandomKey(dict);
+</span></span><span style="display:flex;"><span>                    thiskey <span style="color:#f92672">=</span> dictGetKey(de);
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">/* When policy is volatile-lru we need an additional lookup
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">                     * to locate the real key, as dict is set to db-&gt;expires. */</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (server.maxmemory_policy <span style="color:#f92672">==</span> REDIS_MAXMEMORY_VOLATILE_LRU)
+</span></span><span style="display:flex;"><span>                        de <span style="color:#f92672">=</span> dictFind(db<span style="color:#f92672">-&gt;</span>dict, thiskey);
+</span></span><span style="display:flex;"><span>                    o <span style="color:#f92672">=</span> dictGetVal(de);
+</span></span><span style="display:flex;"><span>                    thisval <span style="color:#f92672">=</span> estimateObjectIdleTime(o);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#75715e">/* Higher idle time is better candidate for deletion */</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">if</span> (bestkey <span style="color:#f92672">==</span> NULL <span style="color:#f92672">||</span> thisval <span style="color:#f92672">&gt;</span> bestval) {
+</span></span><span style="display:flex;"><span>                        bestkey <span style="color:#f92672">=</span> thiskey;
+</span></span><span style="display:flex;"><span>                        bestval <span style="color:#f92672">=</span> thisval;
+</span></span><span style="display:flex;"><span>                    }
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            ......
+</span></span></code></pre></div><p>Redis会基于<code>server.maxmemory_samples</code>配置选取固定数目的key，然后比较它们的lru访问时间，然后淘汰最近最久没有访问的key，maxmemory_samples的值越大，Redis的近似LRU算法就越接近于严格LRU算法，但是相应消耗也变高，对性能有一定影响，样本值默认为5。</p>
+<h2 id="总结">总结</h2>
+<p>看来，虽然一个简单的概念，在工业界的产品中，为了追求空间的利用率，也会采用权衡的实现方案。</p>
+<p><a href="https://zhuanlan.zhihu.com/p/34133067">以上内容参考自网友的blog，若有侵权请链接站长</a></p>
+<ul>
+<li></li>
+</ul>
+
+    </div>
+    <footer class="post-footer">
+     
+ 
+<div class="post-tags">     
+     
+    <a href="http://shanks.link/tags/algorithm" rel="tag" title="algorithm">#algorithm#</a>
+    
+</div>
+
+
+
+     <div class="post-nav">
+    <div class="post-nav-next post-nav-item">
+    
+        <a href="http://shanks.link/blog/2022/06/22/%E4%B8%8D%E8%A6%81%E5%9B%A0%E4%B8%BA%E8%B5%B0%E5%BE%97%E5%A4%AA%E8%BF%9C%E8%80%8C%E5%BF%98%E8%AE%B0%E4%B8%BA%E4%BB%80%E4%B9%88%E5%87%BA%E5%8F%91/" rel="next" title="不要因为走得太远而忘记为什么出发">
+        <i class="fa fa-chevron-left"></i> 不要因为走得太远而忘记为什么出发
+        </a>
+    
+    </div>
+
+    <div class="post-nav-prev post-nav-item">
+    
+        <a href="http://shanks.link/blog/2022/10/08/%E5%B0%86git%E5%AD%98%E5%82%A8%E5%BA%93%E4%BB%8E%E4%B8%80%E4%B8%AA%E5%B9%B3%E5%8F%B0fork%E5%88%B0%E5%8F%A6%E5%A4%96%E4%B8%80%E4%B8%AA%E5%B9%B3%E5%8F%B0/" rel="prev" title="将Git存储库从一个平台fork到另外一个平台">
+        将Git存储库从一个平台fork到另外一个平台 <i class="fa fa-chevron-right"></i>
+        </a>
+    
+    </div>
+</div>
+      
+     
+     
+     
+
+
+
+
+
+<script src="https://utteranc.es/client.js"
+        repo="shankusu2017@gmail.com/"
+        issue-term="pathname"
+        theme="github-light"
+        crossorigin="anonymous"
+        async>
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://github.com/utterance">comments powered by utterances.</a></noscript>
+
+    </footer>
+  </article>
+</section>
+
+          </div>
+        </div>
+        <div class="sidebar-toggle">
+  <div class="sidebar-toggle-line-wrap">
+    <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+    <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+  </div>
+</div>
+<aside id="sidebar" class="sidebar">
+  <div class="sidebar-inner">
+
+    <section class="site-overview sidebar-panel  sidebar-panel-active ">
+      <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image"
+        src="http://shanks.link/img/logo.jpg"
+        alt="shankusu2017@gmail.com" />
+    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+    <p class="site-description motion-element" itemprop="description"> </p>
+</div>
+      <nav class="site-state motion-element">
+    <div class="site-state-item site-state-posts">
+      <a href="http://shanks.link/post/">
+        <span class="site-state-item-count">473</span>
+        <span class="site-state-item-name">日志</span>
+      </a>
+    </div>
+    <div class="site-state-item site-state-categories">    
+        <a href="http://shanks.link/categories/">      
+         
+        <span class="site-state-item-count">29</span>
+        
+        <span class="site-state-item-name">分类</span>
+        
+        </a>
+    </div>
+
+    <div class="site-state-item site-state-tags">
+        <a href="http://shanks.link/tags/">
+         
+        <span class="site-state-item-count">34</span>
+        
+        <span class="site-state-item-name">标签</span>
+        </a>
+    </div>
+</nav>
+      
+      
+<div class="links-of-author motion-element">
+    
+        <span class="links-of-author-item">
+        <a href="https://github.com/shankusu2017" target="_blank" title="GitHub">
+            <i class="fa fa-fw fa-github"></i>
+            GitHub
+        </a>
+        </span>
+    
+</div>
+
+
+      
+
+      <div class="links-of-blogroll motion-element inline">
+<script type="text/javascript" src="//rf.revolvermaps.com/0/0/8.js?i=5b4f2ucxar6&amp;m=0&amp;s=220&amp;c=ff0000&amp;cr1=ffffff&amp;f=arial&amp;l=33&amp;bv=35" async="async"></script>
+</div>
+
+    </section>
+    
+  </div>
+</aside>
+
+      </div>
+    </main>
+   
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright" >
+  <span itemprop="copyrightYear">  &copy; 
+  2009 - 2022</span>
+  <span class="with-love"><i class="fa fa-heart"></i></span>
+  <span class="author" itemprop="copyrightHolder">愿星光伴你左右</span>
+</div>
+<div class="powered-by">
+  Powered by - <a class="theme-link" href="http://gohugo.io" target="_blank" title="hugo" >Hugo v0.101.0</a>
+</div>
+<div class="theme-info">
+  Theme by - <a class="theme-link" href="https://github.com/xtfly/hugo-theme-next" target="_blank"> NexT
+  </a>
+</div>
+
+
+      </div>
+    </footer>
+
+    <div class="back-to-top">
+      <i class="fa fa-arrow-up"></i>
+      <span id="scrollpercent"><span>0</span>%</span>
+    </div>
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery/index.js?v=2.1.3"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/fastclick/lib/fastclick.min.js?v=1.0.6"></script> 
+<script type="text/javascript" src="http://shanks.link/js/vendor/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.min.js?v=1.2.1"></script>
+<script type="text/javascript" src="http://shanks.link/js/vendor/velocity/velocity.ui.min.js?v=1.2.1"></script>
+<script src="http://shanks.link/js/vendor/ua-parser-js/dist/ua-parser.min.js?v=0.7.9"></script>
+
+<script src="http://shanks.link/js/vendor/fancybox/jquery.fancybox.pack.js?v=2.1.5"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/utils.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/motion.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/affix.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/schemes/pisces.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/scrollspy.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/post-details.js"></script>
+<script type="text/javascript" src="http://shanks.link/js/toc.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/bootstrap.js"></script>
+
+<script type="text/javascript" src="http://shanks.link/js/search.js"></script>
+<script type="text/x-mathjax-config">
+  MathJax.Hub.Config({
+    extensions: ["tex2jax.js"],
+    jax: ["input/TeX", "output/HTML-CSS"],
+    tex2jax: {
+      inlineMath: [ ['$','$'] ],
+      displayMath: [ ['$$','$$'] ],
+      processEscapes: true
+    },
+    "HTML-CSS": { fonts: ["TeX"] }
+  });
+</script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML' async></script>
+</body>
+</html>
