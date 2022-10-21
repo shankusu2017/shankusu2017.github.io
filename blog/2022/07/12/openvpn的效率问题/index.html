@@ -232,16 +232,16 @@
     </header>
     <div class="post-body" itemprop="articleBody">
     <p>OpenVPN由于其设计问题，速度很慢，有人认为是由于加密解密导致了速度变慢，当将cipher设置成none之后，发现效率并没有提升，并且使用最慢的cipher，使用比较好的cpu，设置比较大的txqueuelen，使用比较快的网卡&ndash;100baseT-FD，OpenVPN的效率还是不行，cpu使用率没多少，那么可以认为提升cpu性能已经于事无补了，后来才发现是OpenVPN自身的问题，通过源代码看得出OpenVPN是一个单进程单线程的程序，整个程序启动后就是一个大的循环，结构如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">while</span> (true) {
-</span></span><span style="display:flex;"><span>    select<span style="color:#f92672">/</span>poll<span style="color:#f92672">/</span>epoll
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">do</span><span style="color:#f92672">-</span>io[tun<span style="color:#f92672">-</span>io<span style="color:#f92672">/</span>socket<span style="color:#f92672">-</span>io]
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">while</span> (true) {
+</span></span><span style="display:flex;"><span>    select/poll/epoll
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">do</span>-io[tun-io/socket-io]
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>这样的结构效率肯定不会太高，因此就不要再想从配置上寻找优化的突破口了，然而修改源代码又太麻烦，于是考虑多进程的方式，那就是在客户端和服务器分别启动数量相同的N多个OpenVPN进程，一对一的连接，这就相当于建立了N条隧道，单条隧道不宽，但是可以有多条隧道，然后大流量由所有这些隧道分担，我们需要建立多条隧道，然后想办法将数据平均地(也可以使用别的策略，具体可以由OpenVPN的&ndash;shaper选项控制)放入这些隧道，这就用到了基于包的负载均衡，我们的粒度应该足够细(万事有个度，不要太细)，基于流的肯定不行，因为即使是同一个流的数据我们也希望在数据量大的情况下将数据进行分割，然后放入不同的隧道，只因为OpenVPN建立的一条隧道太窄了。于是肯定要使用基于包的负载均衡方案了，《MASQUERADE target在负载均衡中引出的问题》已经说了，对隧道进行NAT或者多路径路由并不会影响隧道中的数据，因此基于包的负载均衡在这里起码在这里可以应用，那么怎么实现呢？还是要打补丁，并入mainline希望不大，我的实现思路利用了EQUALIZE补丁的一部分思想，就是为多路径(可以理解成需要负载均衡的)路由打上RTCF_EQUALIZE标记，然而并不是只要打有标记的路由都直接查找路由表而不cache，而是将所有的这些需要均衡的路由作为一个整体考虑，只有有一个被读则全部读入cache(很简单，用next字段即可)，然后在查找hash链表的时候，发现打有均衡标记的路由则在这些cache中按照策略查找一个路由使用，如果实现基于包的负载均衡路由。</p>
 <p>仅仅实现以上这些还不够，可能还需要修改conntrack模块的代码，因为如果做nat的话，按照原先的conntrack逻辑则会找到该流第一个包的nat项，因此就会出错。我们这次可能由于负载均衡查找到了一个不同的出口，在该出口上应该使用不同的SNAT，可是通过conntrack找到的流中保存的nat却是第一个包的SNAT项，于是就会乱掉，修改方案是在conntrack中也检查均衡标记，对有该标记的流进行“特殊照顾”，比如既然该流可能会被均衡到不同的出口，那么就为之建立多个NAT项之类的。(PS：实现一个patch吧)</p>
 <p>实现了基于包的负载均衡patch之后，配置OpenVPN就简单了，服务器监听X，X+1&hellip;X+N这些端口，客户端连接这些端口，这样就建立了N+1条隧道，然后在客户端做SNAT(也可以不做，NAT主要是为了隔离网段，在目的主机之前的最后一个路由器的目的主机网段接口做SNAT是为了不修改目的主机的配置，比如默认网关)：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>SNAT <span style="color:#f92672">--</span>to<span style="color:#f92672">-</span>source tun0的虚拟网络地址
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>SNAT --to-source tun0的虚拟网络地址
 </span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>SNAT <span style="color:#f92672">--</span>to<span style="color:#f92672">-</span>source tunN的虚拟网络地址
+</span></span><span style="display:flex;"><span>SNAT --to-source tunN的虚拟网络地址
 </span></span></code></pre></div><p>如果使用基于流的负载均衡，也就是linux内核中现在实现的那个，那么只有在不同的机器访问同一个机器的时候才会均衡，因为它们虽然使用一条路由，但却是不同的流，理论上总的速度会是单个OpenVPN的速度乘以进程数量，但是也要受限于物理网卡的速度；如果通过在用户空间定期flush掉内核路由cache的方式，则在负载均衡SNAT的情况下会出错，因为虽然由于负载均衡同一流的数据包可能被路由到不同的出口，但是由于同一流只有一个nat项被cache，因此就会出错，速度不但不会提高而且会降低，可是峰值可能会很高。</p>
 <p>为何linux内核的mainline中没有实现这些负载均衡，看看这里为何实现之，为了提升OpenVPN的性能，如果有一天OpenVPN的性能提高了，彻底修正了那个丑陋的while大循环，试问还需要在内核做文章吗？打patch只因为隧道窄，针对隧道窄的问题最好的解决办法是把隧道变宽，而不是挖多条隧道。</p>
 <p><a href="https://juejin.cn/post/6844903737572458510">以上内容转载自笑叶林的blog</a></p>
@@ -320,7 +320,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

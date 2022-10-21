@@ -243,7 +243,7 @@
 </blockquote>
 <p>本篇解析基于<a href="https://github.com/antirez/redis">redis</a> 5.0.0版本，本篇涉及源码文件为t_zset.c, server.h。</p>
 <h2 id="什么是跳跃表">什么是跳跃表</h2>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>跳表是一个随机化的数据结构，实质就是一种可以进行二分查找的有序链表。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>跳表是一个随机化的数据结构，实质就是一种可以进行二分查找的有序链表。
 </span></span></code></pre></div><p>我们都知道在有序数组中进行查找，可以使用二分查找，将时间复杂度降为O(log n)。但是有序链表做不到，是因为有序链表获取某元素复杂度为O(n)，无法通过二分的思想去跳过一些元素的访问。</p>
 <p>例如下图要查找元素50,就必须 5 -&gt; 6 -&gt; 10 -&gt; 30 -&gt; 49 这样去找，而不能说先看 中心元素49小于50，则开始从中心右边开始查找，跳过元素5，6，10， 30的访问。</p>
 <p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly91c2VyLWdvbGQtY2RuLnhpdHUuaW8vMjAxOS8xMS8yNC8xNmU5Yzg4MzBjNmY1MmNj?x-oss-process=image/format,png" alt="img">
@@ -252,46 +252,46 @@
 <p>这时查找元素50变成了 5 -&gt; 49,略过了中间元素6，10， 30。上图中通过首节点存储不同步长的指针将链表完美二分，但是实际上的跳表却类似与下面这张图的结构,大部分情况不是完美二分的：</p>
 <p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly91c2VyLWdvbGQtY2RuLnhpdHUuaW8vMjAxOS8xMS8yNC8xNmU5YzhhOGYyMGQ5ZGYx?x-oss-process=image/format,png" alt="img"></p>
 <p>跳跃表采用了随机算法(层高越高概率越小)来决定层高，相同层之间通过指针相连。redis实现中某节点层高为i的概率为 ( 1 − p ) ∗ p i − 1 (1-p) * p^{i-1}(1−<em>p</em>)∗<em>p**i</em>−1。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>为什么不采用最完美的二分结构？
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>为什么不采用最完美的二分结构？
 </span></span></code></pre></div><p>考虑一下，插入节点的情况。当中间插入一个节点，此时的二分结构会被打破，所以需要不断的进行调整。想想平衡树，红黑树复杂的再平衡操作，而此处的再平衡调整比之有过之而无不及。而使用随机算法进行层高选择的方法也可以实现O(logN)的平均复杂度，而且操作也相对简化的很多。</p>
 <h2 id="跳跃表redis实现的空间复杂度">跳跃表(redis实现)的空间复杂度</h2>
 <h3 id="相关定义">相关定义</h3>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// 层高最大值限制
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define ZSKIPLIST_MAXLEVEL 64 </span><span style="color:#75715e">/* Should be enough for 2^64 elements */</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">// 层高是否继续增长的概率
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#define ZSKIPLIST_P 0.25      </span><span style="color:#75715e">/* Skiplist P = 1/4 */</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">// 跳表节点定义
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> zskiplistNode {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 存储内容
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    sds ele;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 分值,用于排序
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">double</span> score;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 后退指针
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">struct</span> zskiplistNode <span style="color:#f92672">*</span>backward;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 变长数组，记录层信息。层高越高跳过的节点越多(因为层高越高概率越低)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">struct</span> zskiplistLevel {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 指向当前层下一个节点
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">struct</span> zskiplistNode <span style="color:#f92672">*</span>forward;
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 当前节点与forward所指节点中间节点数
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> span;
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 层高最大值限制
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#f00;font-style:italic">#define ZSKIPLIST_MAXLEVEL 64 </span><span style="color:#f00;font-style:italic">/* Should be enough for 2^64 elements */</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#f00;font-style:italic">// 层高是否继续增长的概率
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#f00;font-style:italic">#define ZSKIPLIST_P 0.25      </span><span style="color:#f00;font-style:italic">/* Skiplist P = 1/4 */</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#f00;font-style:italic">// 跳表节点定义
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> zskiplistNode {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 存储内容
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    sds ele;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 分值,用于排序
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">double</span> score;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 后退指针
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">struct</span> zskiplistNode *backward;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 变长数组，记录层信息。层高越高跳过的节点越多(因为层高越高概率越低)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">struct</span> zskiplistLevel {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 指向当前层下一个节点
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">struct</span> zskiplistNode *forward;
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 当前节点与forward所指节点中间节点数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> span;
 </span></span><span style="display:flex;"><span>    } level[];
 </span></span><span style="display:flex;"><span>} zskiplistNode;
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// 跳表结构管理节点
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> zskiplist {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> zskiplistNode <span style="color:#f92672">*</span>header, <span style="color:#f92672">*</span>tail;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 长度
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> length;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 跳表高度(所有节点最高层高)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">int</span> level;
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 跳表结构管理节点
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> zskiplist {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> zskiplistNode *header, *tail;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 长度
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> length;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 跳表高度(所有节点最高层高)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> level;
 </span></span><span style="display:flex;"><span>} zskiplist;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">zslRandomLevel</span>(<span style="color:#66d9ef">void</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 计算当前插入元素层高的随机函数
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">int</span> level <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// (random()&amp;0xFFFF) &lt; (ZSKIPLIST_P * 0xFFFF) 概率为1/4
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">while</span> ((random()<span style="color:#f92672">&amp;</span><span style="color:#ae81ff">0xFFFF</span>) <span style="color:#f92672">&lt;</span> (ZSKIPLIST_P <span style="color:#f92672">*</span> <span style="color:#ae81ff">0xFFFF</span>))
-</span></span><span style="display:flex;"><span>        level <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> (level<span style="color:#f92672">&lt;</span>ZSKIPLIST_MAXLEVEL) <span style="color:#f92672">?</span> level : ZSKIPLIST_MAXLEVEL;
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">zslRandomLevel</span>(<span style="color:#00f">void</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 计算当前插入元素层高的随机函数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> level = 1;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// (random()&amp;0xFFFF) &lt; (ZSKIPLIST_P * 0xFFFF) 概率为1/4
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">while</span> ((random()&amp;0xFFFF) &lt; (ZSKIPLIST_P * 0xFFFF))
+</span></span><span style="display:flex;"><span>        level += 1;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> (level&lt;ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>层高为1概率为 1-p(不进while)</p>
 <p>层高为2的概率为 p(进一次while) * (1 - p)(不进while)</p>
@@ -299,105 +299,105 @@
 <p>…</p>
 <p>层高为n的概率为 ( 1 − p ) ∗ p n − 1 (1-p) * p^{n-1}(1−<em>p</em>)∗<em>p**n</em>−1</p>
 <p>层高的期望 E = 1 / ( 1 − p ) E = 1/(1-p)<em>E</em>=1/(1−<em>p</em>)</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>在概率论和统计学中，数学期望(mean)（或均值，亦简称期望）是试验中每次可能结果的概率乘以其结果的总和，是最基本的数学特征之一。它反映随机变量平均取值的大小
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>在概率论和统计学中，数学期望(mean)（或均值，亦简称期望）是试验中每次可能结果的概率乘以其结果的总和，是最基本的数学特征之一。它反映随机变量平均取值的大小
 </span></span></code></pre></div><p>在redis实现中 p=1/4, 层高期望为E约等于1.33，所以节点的平均层高约等于1.33是个常数，从而得出跳跃表的空间复杂度为O(n)。</p>
 <h2 id="跳跃表redis实现相关操作">跳跃表(redis实现)相关操作</h2>
 <h3 id="创建跳跃表">创建跳跃表</h3>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>zskiplistNode <span style="color:#f92672">*</span><span style="color:#a6e22e">zslCreateNode</span>(<span style="color:#66d9ef">int</span> level, <span style="color:#66d9ef">double</span> score, <span style="color:#66d9ef">int</span> ele) {
-</span></span><span style="display:flex;"><span>    zskiplistNode <span style="color:#f92672">*</span>zn <span style="color:#f92672">=</span>
-</span></span><span style="display:flex;"><span>        malloc(<span style="color:#66d9ef">sizeof</span>(<span style="color:#f92672">*</span>zn)<span style="color:#f92672">+</span>level<span style="color:#f92672">*</span><span style="color:#66d9ef">sizeof</span>(<span style="color:#66d9ef">struct</span> zskiplistLevel));
-</span></span><span style="display:flex;"><span>    zn<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">=</span> score;
-</span></span><span style="display:flex;"><span>    zn<span style="color:#f92672">-&gt;</span>ele <span style="color:#f92672">=</span> ele;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> zn;
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>zskiplistNode *<span style="color:#c34e00">zslCreateNode</span>(<span style="color:#00f">int</span> level, <span style="color:#00f">double</span> score, <span style="color:#00f">int</span> ele) {
+</span></span><span style="display:flex;"><span>    zskiplistNode *zn =
+</span></span><span style="display:flex;"><span>        malloc(<span style="color:#00f">sizeof</span>(*zn)+level*<span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> zskiplistLevel));
+</span></span><span style="display:flex;"><span>    zn-&gt;score = score;
+</span></span><span style="display:flex;"><span>    zn-&gt;ele = ele;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> zn;
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* Create a new skiplist. */</span>
-</span></span><span style="display:flex;"><span>zskiplist <span style="color:#f92672">*</span><span style="color:#a6e22e">zslCreate</span>(<span style="color:#66d9ef">void</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> j;
-</span></span><span style="display:flex;"><span>    zskiplist <span style="color:#f92672">*</span>zsl;
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* Create a new skiplist. */</span>
+</span></span><span style="display:flex;"><span>zskiplist *<span style="color:#c34e00">zslCreate</span>(<span style="color:#00f">void</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> j;
+</span></span><span style="display:flex;"><span>    zskiplist *zsl;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    zsl <span style="color:#f92672">=</span> malloc(<span style="color:#66d9ef">sizeof</span>(<span style="color:#f92672">*</span>zsl));
-</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>level <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>length <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 头节点层高为64(层高的最大限制)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zsl<span style="color:#f92672">-&gt;</span>header <span style="color:#f92672">=</span> zslCreateNode(ZSKIPLIST_MAXLEVEL,<span style="color:#ae81ff">0</span>,NULL);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (j <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; j <span style="color:#f92672">&lt;</span> ZSKIPLIST_MAXLEVEL; j<span style="color:#f92672">++</span>) {
-</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>level[j].forward <span style="color:#f92672">=</span> NULL;
-</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>level[j].span <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    zsl = malloc(<span style="color:#00f">sizeof</span>(*zsl));
+</span></span><span style="display:flex;"><span>    zsl-&gt;level = 1;
+</span></span><span style="display:flex;"><span>    zsl-&gt;length = 0;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 头节点层高为64(层高的最大限制)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    zsl-&gt;header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (j = 0; j &lt; ZSKIPLIST_MAXLEVEL; j++) {
+</span></span><span style="display:flex;"><span>        zsl-&gt;header-&gt;level[j].forward = NULL;
+</span></span><span style="display:flex;"><span>        zsl-&gt;header-&gt;level[j].span = 0;
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">=</span> NULL;
-</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>tail <span style="color:#f92672">=</span> NULL;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> zsl;
+</span></span><span style="display:flex;"><span>    zsl-&gt;header-&gt;backward = NULL;
+</span></span><span style="display:flex;"><span>    zsl-&gt;tail = NULL;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> zsl;
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>上述代码中可以看到，头节点的层高数组直接为最大长度，因为每次查找都要从头部开始，而且整个跳跃表的高度是动态增加的，初始化时直接按照最大值申请高度，避免后续高度增加时为头节点重新分配内存。所以之前的跳跃表图例应该如下图所示：</p>
 <p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly91c2VyLWdvbGQtY2RuLnhpdHUuaW8vMjAxOS8xMS8yNS8xNmVhMGU1ZDJlZjY5OGMz?x-oss-process=image/format,png" alt="img">
 因为有backward指针的存在，所以第一层可以看作是一个双向链表。</p>
 <h3 id="插入节点">插入节点</h3>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">zslRandomLevel</span>(<span style="color:#66d9ef">void</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 计算当前插入元素层高的随机函数
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">int</span> level <span style="color:#f92672">=</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// (random()&amp;0xFFFF) &lt; (ZSKIPLIST_P * 0xFFFF) 概率为1/4
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">while</span> ((random()<span style="color:#f92672">&amp;</span><span style="color:#ae81ff">0xFFFF</span>) <span style="color:#f92672">&lt;</span> (ZSKIPLIST_P <span style="color:#f92672">*</span> <span style="color:#ae81ff">0xFFFF</span>))
-</span></span><span style="display:flex;"><span>        level <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> (level<span style="color:#f92672">&lt;</span>ZSKIPLIST_MAXLEVEL) <span style="color:#f92672">?</span> level : ZSKIPLIST_MAXLEVEL;
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">zslRandomLevel</span>(<span style="color:#00f">void</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 计算当前插入元素层高的随机函数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> level = 1;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// (random()&amp;0xFFFF) &lt; (ZSKIPLIST_P * 0xFFFF) 概率为1/4
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">while</span> ((random()&amp;0xFFFF) &lt; (ZSKIPLIST_P * 0xFFFF))
+</span></span><span style="display:flex;"><span>        level += 1;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> (level&lt;ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>zskiplistNode <span style="color:#f92672">*</span><span style="color:#a6e22e">zslInsert</span>(zskiplist <span style="color:#f92672">*</span>zsl, <span style="color:#66d9ef">double</span> score, sds ele) {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// update存放需要更新的节点
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    zskiplistNode <span style="color:#f92672">*</span>update[ZSKIPLIST_MAXLEVEL], <span style="color:#f92672">*</span>x;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">int</span> rank[ZSKIPLIST_MAXLEVEL];
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i, level;
+</span></span><span style="display:flex;"><span>zskiplistNode *<span style="color:#c34e00">zslInsert</span>(zskiplist *zsl, <span style="color:#00f">double</span> score, sds ele) {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// update存放需要更新的节点
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> rank[ZSKIPLIST_MAXLEVEL];
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> i, level;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    serverAssert(<span style="color:#f92672">!</span>isnan(score));
-</span></span><span style="display:flex;"><span>    x <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 第一步，收集需要更新的节点与步长信息
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* store rank that is crossed to reach the insert position */</span>
-</span></span><span style="display:flex;"><span>        rank[i] <span style="color:#f92672">=</span> i <span style="color:#f92672">==</span> (zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>) <span style="color:#f92672">?</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">:</span> rank[i<span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>];
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// score可以重复，重复时使用ele大小进行排序
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">while</span> (x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">&amp;&amp;</span>
-</span></span><span style="display:flex;"><span>                (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&lt;</span> score <span style="color:#f92672">||</span>
-</span></span><span style="display:flex;"><span>                    (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">==</span> score <span style="color:#f92672">&amp;&amp;</span>
-</span></span><span style="display:flex;"><span>                    sdscmp(x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)))
+</span></span><span style="display:flex;"><span>    serverAssert(!isnan(score));
+</span></span><span style="display:flex;"><span>    x = zsl-&gt;header;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 第一步，收集需要更新的节点与步长信息
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> (i = zsl-&gt;level-1; i &gt;= 0; i--) {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/* store rank that is crossed to reach the insert position */</span>
+</span></span><span style="display:flex;"><span>        rank[i] = i == (zsl-&gt;level-1) ? 0 : rank[i+1];
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// score可以重复，重复时使用ele大小进行排序
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">while</span> (x-&gt;level[i].forward &amp;&amp;
+</span></span><span style="display:flex;"><span>                (x-&gt;level[i].forward-&gt;score &lt; score ||
+</span></span><span style="display:flex;"><span>                    (x-&gt;level[i].forward-&gt;score == score &amp;&amp;
+</span></span><span style="display:flex;"><span>                    sdscmp(x-&gt;level[i].forward-&gt;ele,ele) &lt; 0)))
 </span></span><span style="display:flex;"><span>        {
-</span></span><span style="display:flex;"><span>            rank[i] <span style="color:#f92672">+=</span> x<span style="color:#f92672">-&gt;</span>level[i].span;
-</span></span><span style="display:flex;"><span>            x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>            rank[i] += x-&gt;level[i].span;
+</span></span><span style="display:flex;"><span>            x = x-&gt;level[i].forward;
 </span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        update[i] <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>        update[i] = x;
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 第二步， 获取随机层高，补全需要更新的节点
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    level <span style="color:#f92672">=</span> zslRandomLevel();
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (level <span style="color:#f92672">&gt;</span> zsl<span style="color:#f92672">-&gt;</span>level) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level; i <span style="color:#f92672">&lt;</span> level; i<span style="color:#f92672">++</span>) {
-</span></span><span style="display:flex;"><span>            rank[i] <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>            update[i] <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
-</span></span><span style="display:flex;"><span>            update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>length;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 第二步， 获取随机层高，补全需要更新的节点
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    level = zslRandomLevel();
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (level &gt; zsl-&gt;level) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> (i = zsl-&gt;level; i &lt; level; i++) {
+</span></span><span style="display:flex;"><span>            rank[i] = 0;
+</span></span><span style="display:flex;"><span>            update[i] = zsl-&gt;header;
+</span></span><span style="display:flex;"><span>            update[i]-&gt;level[i].span = zsl-&gt;length;
 </span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>level <span style="color:#f92672">=</span> level;
+</span></span><span style="display:flex;"><span>        zsl-&gt;level = level;
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 第三步，创建并分层插入节点，同时更新同层前一节点步长信息
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    x <span style="color:#f92672">=</span> zslCreateNode(level,score,ele);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> level; i<span style="color:#f92672">++</span>) {
-</span></span><span style="display:flex;"><span>        x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">=</span> update[i]<span style="color:#f92672">-&gt;</span>level[i].forward;
-</span></span><span style="display:flex;"><span>        update[i]<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 第三步，创建并分层插入节点，同时更新同层前一节点步长信息
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    x = zslCreateNode(level,score,ele);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (i = 0; i &lt; level; i++) {
+</span></span><span style="display:flex;"><span>        x-&gt;level[i].forward = update[i]-&gt;level[i].forward;
+</span></span><span style="display:flex;"><span>        update[i]-&gt;level[i].forward = x;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* update span covered by update[i] as x is inserted here */</span>
-</span></span><span style="display:flex;"><span>        x<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">=</span> update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">-</span> (rank[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">-</span> rank[i]);
-</span></span><span style="display:flex;"><span>        update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">=</span> (rank[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">-</span> rank[i]) <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/* update span covered by update[i] as x is inserted here */</span>
+</span></span><span style="display:flex;"><span>        x-&gt;level[i].span = update[i]-&gt;level[i].span - (rank[0] - rank[i]);
+</span></span><span style="display:flex;"><span>        update[i]-&gt;level[i].span = (rank[0] - rank[i]) + 1;
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 第四步，更新新增节点未涉及层节点的步长信息，以及跳表相关信息
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">/* increment span for untouched levels */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> level; i <span style="color:#f92672">&lt;</span> zsl<span style="color:#f92672">-&gt;</span>level; i<span style="color:#f92672">++</span>) {
-</span></span><span style="display:flex;"><span>        update[i]<span style="color:#f92672">-&gt;</span>level[i].span<span style="color:#f92672">++</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 第四步，更新新增节点未涉及层节点的步长信息，以及跳表相关信息
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">/* increment span for untouched levels */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (i = level; i &lt; zsl-&gt;level; i++) {
+</span></span><span style="display:flex;"><span>        update[i]-&gt;level[i].span++;
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    x<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">=</span> (update[<span style="color:#ae81ff">0</span>] <span style="color:#f92672">==</span> zsl<span style="color:#f92672">-&gt;</span>header) <span style="color:#f92672">?</span> NULL <span style="color:#f92672">:</span> update[<span style="color:#ae81ff">0</span>];
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward)
-</span></span><span style="display:flex;"><span>        x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">=</span> x;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">else</span>
-</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>tail <span style="color:#f92672">=</span> x;
-</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>length<span style="color:#f92672">++</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> x;
+</span></span><span style="display:flex;"><span>    x-&gt;backward = (update[0] == zsl-&gt;header) ? NULL : update[0];
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (x-&gt;level[0].forward)
+</span></span><span style="display:flex;"><span>        x-&gt;level[0].forward-&gt;backward = x;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span>
+</span></span><span style="display:flex;"><span>        zsl-&gt;tail = x;
+</span></span><span style="display:flex;"><span>    zsl-&gt;length++;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> x;
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>插入节点分为四步(举个栗子，边吃边看)：</p>
 <p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly91c2VyLWdvbGQtY2RuLnhpdHUuaW8vMjAxOS8xMS8yNS8xNmVhMGU1ZDJlZjY5OGMz?x-oss-process=image/format,png" alt="img">
@@ -437,51 +437,51 @@
 </li>
 </ol>
 <h3 id="查找节点">查找节点</h3>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/* Find the rank for an element by both score and key.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Returns 0 when the element cannot be found, rank otherwise.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * Note that the rank is 1-based due to the span of zsl-&gt;header to the
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"> * first element. */</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> <span style="color:#a6e22e">zslGetRank</span>(zskiplist <span style="color:#f92672">*</span>zsl, <span style="color:#66d9ef">double</span> score, sds ele) {
-</span></span><span style="display:flex;"><span>    zskiplistNode <span style="color:#f92672">*</span>x;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> rank <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* Find the rank for an element by both score and key.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"> * Returns 0 when the element cannot be found, rank otherwise.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"> * Note that the rank is 1-based due to the span of zsl-&gt;header to the
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"> * first element. */</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> <span style="color:#c34e00">zslGetRank</span>(zskiplist *zsl, <span style="color:#00f">double</span> score, sds ele) {
+</span></span><span style="display:flex;"><span>    zskiplistNode *x;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> rank = 0;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> i;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    x <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">&amp;&amp;</span>
-</span></span><span style="display:flex;"><span>            (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&lt;</span> score <span style="color:#f92672">||</span>
-</span></span><span style="display:flex;"><span>                (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">==</span> score <span style="color:#f92672">&amp;&amp;</span>
-</span></span><span style="display:flex;"><span>                sdscmp(x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">&lt;=</span> <span style="color:#ae81ff">0</span>))) {
-</span></span><span style="display:flex;"><span>            rank <span style="color:#f92672">+=</span> x<span style="color:#f92672">-&gt;</span>level[i].span;
-</span></span><span style="display:flex;"><span>            x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>    x = zsl-&gt;header;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (i = zsl-&gt;level-1; i &gt;= 0; i--) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">while</span> (x-&gt;level[i].forward &amp;&amp;
+</span></span><span style="display:flex;"><span>            (x-&gt;level[i].forward-&gt;score &lt; score ||
+</span></span><span style="display:flex;"><span>                (x-&gt;level[i].forward-&gt;score == score &amp;&amp;
+</span></span><span style="display:flex;"><span>                sdscmp(x-&gt;level[i].forward-&gt;ele,ele) &lt;= 0))) {
+</span></span><span style="display:flex;"><span>            rank += x-&gt;level[i].span;
+</span></span><span style="display:flex;"><span>            x = x-&gt;level[i].forward;
 </span></span><span style="display:flex;"><span>        }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">/* x might be equal to zsl-&gt;header, so test if obj is non-NULL */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (x<span style="color:#f92672">-&gt;</span>ele <span style="color:#f92672">&amp;&amp;</span> sdscmp(x<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> rank;
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/* x might be equal to zsl-&gt;header, so test if obj is non-NULL */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (x-&gt;ele &amp;&amp; sdscmp(x-&gt;ele,ele) == 0) {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> rank;
 </span></span><span style="display:flex;"><span>        }
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">/* Finds an element by its rank. The rank argument needs to be 1-based. */</span>
-</span></span><span style="display:flex;"><span>zskiplistNode<span style="color:#f92672">*</span> <span style="color:#a6e22e">zslGetElementByRank</span>(zskiplist <span style="color:#f92672">*</span>zsl, <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> rank) {
-</span></span><span style="display:flex;"><span>    zskiplistNode <span style="color:#f92672">*</span>x;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">unsigned</span> <span style="color:#66d9ef">long</span> traversed <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* Finds an element by its rank. The rank argument needs to be 1-based. */</span>
+</span></span><span style="display:flex;"><span>zskiplistNode* <span style="color:#c34e00">zslGetElementByRank</span>(zskiplist *zsl, <span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> rank) {
+</span></span><span style="display:flex;"><span>    zskiplistNode *x;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> traversed = 0;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> i;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    x <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">&amp;&amp;</span> (traversed <span style="color:#f92672">+</span> x<span style="color:#f92672">-&gt;</span>level[i].span) <span style="color:#f92672">&lt;=</span> rank)
+</span></span><span style="display:flex;"><span>    x = zsl-&gt;header;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (i = zsl-&gt;level-1; i &gt;= 0; i--) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">while</span> (x-&gt;level[i].forward &amp;&amp; (traversed + x-&gt;level[i].span) &lt;= rank)
 </span></span><span style="display:flex;"><span>        {
-</span></span><span style="display:flex;"><span>            traversed <span style="color:#f92672">+=</span> x<span style="color:#f92672">-&gt;</span>level[i].span;
-</span></span><span style="display:flex;"><span>            x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>            traversed += x-&gt;level[i].span;
+</span></span><span style="display:flex;"><span>            x = x-&gt;level[i].forward;
 </span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (traversed <span style="color:#f92672">==</span> rank) {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> x;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (traversed == rank) {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> x;
 </span></span><span style="display:flex;"><span>        }
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> NULL;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> NULL;
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>redis实现中跳跃表和dict共同实现了zset，dict实现O(1)复杂度获取元素对应score，跳跃表用来处理区间查询的相关操作，同时因为score可以重复，所以跳跃表无需实现通过ele获取score(通过dict查)以及通过score获取ele(貌似也没有这个需求)。</p>
 <p>一般查询需求有两个：</p>
@@ -492,59 +492,59 @@
 <p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly91c2VyLWdvbGQtY2RuLnhpdHUuaW8vMjAxOS8xMS8yNS8xNmVhMWY2YzA0NDViZDUy?x-oss-process=image/format,png" alt="img">
 大体的流程都是按照从左上方开始向右下方搜索的路线进行查询(如上图红线标记路径)。</p>
 <h3 id="删除节点">删除节点</h3>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">/* Internal function used by zslDelete, zslDeleteByScore and zslDeleteByRank */</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">zslDeleteNode</span>(zskiplist <span style="color:#f92672">*</span>zsl, zskiplistNode <span style="color:#f92672">*</span>x, zskiplistNode <span style="color:#f92672">**</span>update) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> zsl<span style="color:#f92672">-&gt;</span>level; i<span style="color:#f92672">++</span>) {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 被删除节点在第i层有节点，则update[i]为被删除节点的前一个节点
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> (update[i]<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">==</span> x) {
-</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 步长 = 原步长 + 被删除节点步长 - 1（被删除节点）
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">+=</span> x<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">-</span> <span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 指针越过被删除节点
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            update[i]<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 被删除节点在第i层无节点，则 步长 = 原步长 - 1(被删除节点)
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            update[i]<span style="color:#f92672">-&gt;</span>level[i].span <span style="color:#f92672">-=</span> <span style="color:#ae81ff">1</span>;
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* Internal function used by zslDelete, zslDeleteByScore and zslDeleteByRank */</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">zslDeleteNode</span>(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> i;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (i = 0; i &lt; zsl-&gt;level; i++) {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 被删除节点在第i层有节点，则update[i]为被删除节点的前一个节点
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (update[i]-&gt;level[i].forward == x) {
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// 步长 = 原步长 + 被删除节点步长 - 1（被删除节点）
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            update[i]-&gt;level[i].span += x-&gt;level[i].span - 1;
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// 指针越过被删除节点
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            update[i]-&gt;level[i].forward = x-&gt;level[i].forward;
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// 被删除节点在第i层无节点，则 步长 = 原步长 - 1(被删除节点)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            update[i]-&gt;level[i].span -= 1;
 </span></span><span style="display:flex;"><span>        }
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward) {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 更新被删除节点下一节点的后退指针
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward<span style="color:#f92672">-&gt;</span>backward <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>backward;
-</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>tail <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>backward;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (x-&gt;level[0].forward) {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 更新被删除节点下一节点的后退指针
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        x-&gt;level[0].forward-&gt;backward = x-&gt;backward;
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        zsl-&gt;tail = x-&gt;backward;
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">while</span>(zsl<span style="color:#f92672">-&gt;</span>level <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">1</span> <span style="color:#f92672">&amp;&amp;</span> zsl<span style="color:#f92672">-&gt;</span>header<span style="color:#f92672">-&gt;</span>level[zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>].forward <span style="color:#f92672">==</span> NULL)
-</span></span><span style="display:flex;"><span>        zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">--</span>;
-</span></span><span style="display:flex;"><span>    zsl<span style="color:#f92672">-&gt;</span>length<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">while</span>(zsl-&gt;level &gt; 1 &amp;&amp; zsl-&gt;header-&gt;level[zsl-&gt;level-1].forward == NULL)
+</span></span><span style="display:flex;"><span>        zsl-&gt;level--;
+</span></span><span style="display:flex;"><span>    zsl-&gt;length--;
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">zslDelete</span>(zskiplist <span style="color:#f92672">*</span>zsl, <span style="color:#66d9ef">double</span> score, sds ele, zskiplistNode <span style="color:#f92672">**</span>node) {
-</span></span><span style="display:flex;"><span>    zskiplistNode <span style="color:#f92672">*</span>update[ZSKIPLIST_MAXLEVEL], <span style="color:#f92672">*</span>x;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">int</span> i;
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">zslDelete</span>(zskiplist *zsl, <span style="color:#00f">double</span> score, sds ele, zskiplistNode **node) {
+</span></span><span style="display:flex;"><span>    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> i;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    x <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>header;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> zsl<span style="color:#f92672">-&gt;</span>level<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>; i <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span>; i<span style="color:#f92672">--</span>) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">while</span> (x<span style="color:#f92672">-&gt;</span>level[i].forward <span style="color:#f92672">&amp;&amp;</span>
-</span></span><span style="display:flex;"><span>                (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&lt;</span> score <span style="color:#f92672">||</span>
-</span></span><span style="display:flex;"><span>                    (x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">==</span> score <span style="color:#f92672">&amp;&amp;</span>
-</span></span><span style="display:flex;"><span>                     sdscmp(x<span style="color:#f92672">-&gt;</span>level[i].forward<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span>)))
+</span></span><span style="display:flex;"><span>    x = zsl-&gt;header;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (i = zsl-&gt;level-1; i &gt;= 0; i--) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">while</span> (x-&gt;level[i].forward &amp;&amp;
+</span></span><span style="display:flex;"><span>                (x-&gt;level[i].forward-&gt;score &lt; score ||
+</span></span><span style="display:flex;"><span>                    (x-&gt;level[i].forward-&gt;score == score &amp;&amp;
+</span></span><span style="display:flex;"><span>                     sdscmp(x-&gt;level[i].forward-&gt;ele,ele) &lt; 0)))
 </span></span><span style="display:flex;"><span>        {
-</span></span><span style="display:flex;"><span>            x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[i].forward;
+</span></span><span style="display:flex;"><span>            x = x-&gt;level[i].forward;
 </span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        update[i] <span style="color:#f92672">=</span> x;
+</span></span><span style="display:flex;"><span>        update[i] = x;
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">/* We may have multiple elements with the same score, what we need
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">     * is to find the element with both the right score and object. */</span>
-</span></span><span style="display:flex;"><span>    x <span style="color:#f92672">=</span> x<span style="color:#f92672">-&gt;</span>level[<span style="color:#ae81ff">0</span>].forward;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (x <span style="color:#f92672">&amp;&amp;</span> score <span style="color:#f92672">==</span> x<span style="color:#f92672">-&gt;</span>score <span style="color:#f92672">&amp;&amp;</span> sdscmp(x<span style="color:#f92672">-&gt;</span>ele,ele) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">/* We may have multiple elements with the same score, what we need
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">     * is to find the element with both the right score and object. */</span>
+</span></span><span style="display:flex;"><span>    x = x-&gt;level[0].forward;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (x &amp;&amp; score == x-&gt;score &amp;&amp; sdscmp(x-&gt;ele,ele) == 0) {
 </span></span><span style="display:flex;"><span>        zslDeleteNode(zsl, x, update);
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> (<span style="color:#f92672">!</span>node)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (!node)
 </span></span><span style="display:flex;"><span>            zslFreeNode(x);
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">else</span>
-</span></span><span style="display:flex;"><span>            <span style="color:#f92672">*</span>node <span style="color:#f92672">=</span> x;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">1</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span>
+</span></span><span style="display:flex;"><span>            *node = x;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> 1;
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>; <span style="color:#75715e">/* not found */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0; <span style="color:#f00;font-style:italic">/* not found */</span>
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>删除节点与添加节点步骤类似，分为三步：</p>
 <ol>
@@ -627,7 +627,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

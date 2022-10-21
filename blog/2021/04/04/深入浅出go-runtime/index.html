@@ -302,7 +302,7 @@
 <p><strong>协程结构体和切换函数</strong>
 <img src="https://img-blog.csdnimg.cn/img_convert/b2603dc38e476009aed8ebd4ad7f39c3.png" alt=""></p>
 <p>我们go一个func时一般这样写</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">go</span> <span style="color:#a6e22e">func1</span>(<span style="color:#a6e22e">arg1</span> <span style="color:#a6e22e">type1</span>,<span style="color:#a6e22e">arg2</span> <span style="color:#a6e22e">type2</span>){<span style="color:#f92672">...</span>.}(<span style="color:#a6e22e">a1</span>,<span style="color:#a6e22e">a2</span>)
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">go</span> <span style="color:#c34e00">func1</span>(arg1 type1,arg2 type2){....}(a1,a2)
 </span></span></code></pre></div><p>一个协程代表了一个执行流, 执行流有需要执行的函数(对应上面的func1), 有函数的入参(a1, a2), 有当前执行流的状态和进度(对应CPU的PC寄存器和SP寄存器), 当然也需要有保存状态的地方, 用于执行流恢复. 真正代表协程的是runtime.g结构体. 每个go func都会编译成runtime.newproc函数, 最终有一个runtime.g对象放入调度队列. 上面的func1函数的指针设置在runtime.g的startfunc字段, 参数会在newproc函数里拷贝到stack中, sched用于保存协程切换时的pc位置和栈位置. 协程切换出去和恢复回来需要保存上下文, 恢复上下文, 这些由以下两个汇编函数实现. 以上就能实现协程这种执行流, 并能进行切换和恢复. (下图中的struct和函数都做了精简)</p>
 <p>GM模型及GPM模型</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/4c62580d46b6128aec8a1b5ab6a938a8.png" alt=""></p>
@@ -340,15 +340,15 @@
 <p>主要是结合了非阻塞的fd, epoll以及协程的切换和恢复.</p>
 <p>linux提供了网络fd的非阻塞模式, 对于没有ready的非阻塞fd执行网络操作时, linux内核不阻塞线程, 会直接返回EAGAIN, 这个时候将协程状态设置为wait, 然后m去调度其他协程.</p>
 <p>go在初始化一个网络fd的时候, 就会把这个fd使用epollctl加入到全局的epoll节点中. 同时放入epoll中的还有polldesc的指针.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">netpollopen</span>(<span style="color:#a6e22e">fd</span> <span style="color:#66d9ef">uintptr</span>, <span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>) <span style="color:#66d9ef">int32</span> {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">netpollopen</span>(fd <span style="color:#00f">uintptr</span>, pd *pollDesc) <span style="color:#00f">int32</span> {
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">ev</span> <span style="color:#a6e22e">epollevent</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">var</span> ev epollevent
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">events</span> = <span style="color:#a6e22e">_EPOLLIN</span> | <span style="color:#a6e22e">_EPOLLOUT</span> | <span style="color:#a6e22e">_EPOLLRDHUP</span> | <span style="color:#a6e22e">_EPOLLET</span>
+</span></span><span style="display:flex;"><span>ev.events = _EPOLLIN | _EPOLLOUT | _EPOLLRDHUP | _EPOLLET
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f92672">*</span>(<span style="color:#f92672">**</span><span style="color:#a6e22e">pollDesc</span>)(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">data</span>)) = <span style="color:#a6e22e">pd</span>
+</span></span><span style="display:flex;"><span>*(**pollDesc)(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;ev.data)) = pd
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">return</span><span style="color:#f92672">-</span><span style="color:#a6e22e">epollctl</span>(<span style="color:#a6e22e">epfd</span>, <span style="color:#a6e22e">_EPOLL_CTL_ADD</span>, int32(<span style="color:#a6e22e">fd</span>), <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ev</span>)
+</span></span><span style="display:flex;"><span><span style="color:#00f">return</span>-<span style="color:#c34e00">epollctl</span>(epfd, _EPOLL_CTL_ADD, int32(fd), &amp;ev)
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>在sysmon中, schedule函数中, start the world中等情况下, 会执行netpoll 调用epollwait系统调用.</p>
@@ -563,7 +563,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

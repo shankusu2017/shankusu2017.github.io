@@ -389,15 +389,15 @@
 <li>索引定义：包含索引名字，索引包含的字段列表，索引类型（Primary Key，Unique Key，Key 等）。一个表中有且仅有一个主键索引（Primary Key），用户也可以加入二级索引（Key 或 Unique Key 类型）来提高 SQL 执行性能。每个索引都可以是单字段索引或多字段联合索引。</li>
 </ul>
 <p>表中的每一行都按照索引被编码成多个 KV 记录保存在 ByteKV 中，每种索引类型的编码方式各不相同。Primary Key 的行中包含表中的所有字段的值，而二级索引的行中仅仅包含定义该索引和 Primary Key 的字段。具体每种索引的编码方式如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">Primary</span> <span style="color:#a6e22e">Key</span>: <span style="color:#a6e22e">pk_field1</span>, <span style="color:#a6e22e">pk_field2</span>,<span style="color:#f92672">...</span> =&gt; <span style="color:#a6e22e">non_pk_field1</span>, <span style="color:#a6e22e">non_pk_field2</span><span style="color:#f92672">...</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>Primary Key: pk_field1, pk_field2,... =&gt; non_pk_field1, non_pk_field2...
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">Unique</span> <span style="color:#a6e22e">Key</span>: <span style="color:#a6e22e">key_field1</span>, <span style="color:#a6e22e">key_field2</span>,<span style="color:#f92672">...</span>=&gt; <span style="color:#a6e22e">pk_field1</span>, <span style="color:#a6e22e">pk_field2</span><span style="color:#f92672">...</span>
+</span></span><span style="display:flex;"><span>Unique Key: key_field1, key_field2,...=&gt; pk_field1, pk_field2...
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">NonUnique</span> <span style="color:#a6e22e">Key</span>: <span style="color:#a6e22e">key_field1</span>, <span style="color:#a6e22e">key_field2</span>,<span style="color:#f92672">...</span>, <span style="color:#a6e22e">pk_field1</span>, <span style="color:#a6e22e">pk_field2</span><span style="color:#f92672">...</span>=&gt; &lt;<span style="color:#a6e22e">null</span>&gt;
+</span></span><span style="display:flex;"><span>NonUnique Key: key_field1, key_field2,..., pk_field1, pk_field2...=&gt; &lt;null&gt;
 </span></span></code></pre></div><p>其中 pk_field 是定义 Primary Key 的字段，non_pk_field 是表中非 Primary Key 的字段，key_field 是定义某个二级索引的字段。<code>=&gt;</code> 前后的内容分别对应 KV 层的 Key 和 Value 部分。Key 部分的编码依然采用了上述提到的内存可比较编码，从而保证了字段的自然顺序与编码之后的字节顺序相同。而 Value 部分采用了与 protobuf 类似的变长编码方式，尽量减少编码后的数据大小。每个字段的编码中使用 1 byte 来标识该值是否为空值。</p>
 <h2 id="全局二级索引">全局二级索引</h2>
 <p>用户经常有使用非主键字段做查询条件的需求，这就需要在这些字段上创建二级索引。在传统的 Sharding 架构中（如 MySQL Shard 集群），选取表中的某个字段做 Sharding Key，将整个表 Hash 到不同的 Shard 中。由于不同 Shard 之间没有高效的分布式事务机制，二级索引需要在每个 Shard 内创建（即局部二级索引）。这种方案的问题在于如果查询条件不包含 Sharding Key，则需要扫描所有 Shard 做结果归并，同时也无法实现全局唯一性约束。</p>
@@ -414,7 +414,7 @@
 <h2 id="执行流程优化">执行流程优化</h2>
 <p>ByteSQL 提供了更加丰富的 SQL 查询语义，但比起 KV 模型中简单的 Put，Get 和 Delete 等操作却增加了额外的开销。SQL 中的 Insert，Update 和 Delete 操作实际都是一个先读后写的流程。以 Update 为例，先使用 Get 操作从 ByteKV 读取旧值，在旧值上根据 SQL 的 Set 子句更新某些字段生成新值，然后用 Put 操作写入新值到 ByteKV。</p>
 <p>在一些场景下，某些字段的值可能是 ByteSQL 内自动生成的（如自动主键，以及具有 DEFAULT/ON UPDATE CURRENT_TIMESTAMP 属性的时间字段）或根据依赖关系计算出来的（如 SET a = a+1），用户需要在 Insert，Update 或 Delete 操作之后立即获取实际变更的数据，需要在写入之后执行一次 Select 操作。总共需要两次 Get 操作和一次 Put 操作。为了优化执行效率，ByteSQL 中实现了 PostgreSQL/Oracle 语法中的 Returning 语义：在同一个 Query 请求中将 Insert/Update 的新值或 Delete 的旧值返回，节省了一次 Get 开销。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">UPDATE</span> <span style="color:#a6e22e">table1</span> <span style="color:#a6e22e">SET</span> <span style="color:#a6e22e">count</span> = <span style="color:#a6e22e">count</span> <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span> <span style="color:#a6e22e">WHERE</span> <span style="color:#a6e22e">id</span> <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">10</span> <span style="color:#a6e22e">RETURNING</span> <span style="color:#a6e22e">id</span>, <span style="color:#a6e22e">count</span>;
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>UPDATE table1 SET count = count + 1 WHERE id &gt;= 10 RETURNING id, count;
 </span></span></code></pre></div><h2 id="在线-schema-变更">在线 schema 变更</h2>
 <p>业务需求的不断演进和变化导致 Schema 变更成为无法逃避的工作，传统数据库内置的 Schema 变更方案一般需要阻塞整表的读写操作，这是线上应用所无法接受的。ByteSQL 使用了 Google F1 的在线 Schema 变更方案[3]，变更过程中不会阻塞线上读写请求。</p>
 <p>ByteSQL Schema 元数据包含了库和表的定义，这些元数据都保存在 ByteKV 中。SQLProxy 实例是无状态的，每个实例定期从 ByteKV 同步 Schema 到本地，用来解析并执行 Query 请求。同时集群中有一个专门的 Schema Change Worker 实例负责监听并执行用户提交的 Schema 变更任务。Schema Change Worker 一旦监听到用户提交的 Schema 变更请求，就将其放到一个请求队列中并按序执行。本节从数据一致性异常的产生和解决角度，阐述了引入 Schema 中间状态的原因。详细的正确性证明可以参考原论文。</p>
@@ -536,7 +536,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

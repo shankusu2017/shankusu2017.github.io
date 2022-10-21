@@ -237,7 +237,7 @@
 <p>所有的 GC 流程，都从 singlestep 函数开始。singlestep 就是一个最简单的状态机。GC 状态简单的从一个状态切换到下一个状态，循环不止。状态标识放在 global state 的 gcstate 域中。这一点前面谈过。</p>
 <p>开始的两个状态和 mark 过程有关。</p>
 <p>初始的 GCSpause 状态下，执行 markroot 函数。我们来看一下 markroot 的代码。见 lgc.c 的 501 行。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/* mark root set */
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/* mark root set */
 </span></span><span style="display:flex;"><span>static void markroot (lua_State *L) {
 </span></span><span style="display:flex;"><span>  global_State *g = G(L);
 </span></span><span style="display:flex;"><span>  g-&gt;gray = NULL;
@@ -255,7 +255,7 @@
 <p>weak 保存着需要清理的 weak 表。</p>
 <p>这里的 markobject 和 markvalue 都是用宏实现的。区别仅在于操作的是 GCObject 还是 TValue 。最终都是通过调用 reallymarkobject 实现的。markmt 也是直接 mark 的 global state 中的若干元表。这些元表作用于基本的几个数据类型。这些加起来成为整个数据的根。对 lua 语言有所了解的话，不难理解这几行实现。</p>
 <p>核心的实现见 lgc.c 的 69 行</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void reallymarkobject (global_State *g, GCObject *o) {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void reallymarkobject (global_State *g, GCObject *o) {
 </span></span><span style="display:flex;"><span>  lua_assert(iswhite(o) &amp;&amp; !isdead(g, o));
 </span></span><span style="display:flex;"><span>  white2gray(o);
 </span></span><span style="display:flex;"><span>  switch (o-&gt;gch.tt) {
@@ -306,7 +306,7 @@
 <p>但 TUSERDATA 则不同，它是跟其它对象一起处理的。标记 userdata 就需要调用 gray2black 了。另外，还需要标记 userdata 的元表和环境表。</p>
 <p>TUPVAL 是一个特殊的东西。在 lua 编程，以及写 C 代码和 lua 交互时，都看不到这种类型。它用来解决多个 closure 共享同一个 upvalue 的情况。实际上是对一个 upvalue 的引用。问什么 TUPVAL 会有 open 和 closed 两种状态？应该这样理解。</p>
 <p>当一个 lua 函数本执行的时候，和 C 语言不一样，它不仅可以看到当前层次上的 local 变量，还可以看到上面所有层次的 local 变量。这个可见性是由 lua 解析器解析你的 lua 代码时定位的（换句话说，就是在“编译”期决定的）。那些不属于你的函数当前层次上的 local 变量，就称之为 upvalue 。upvalue 这个概念是由 parser 引入的。在 Lua 中，任何一个 function 其实都是由 proto 和运行时绑定的 upvalue 构成的。proto 将如何绑定 upvalue 是在 parser 生成的 bytecode 里描述清楚了的。如果对这一块的实现代码有兴趣，可以参考 lvm.c 的 719 行：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>      case OP_CLOSURE: {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>      case OP_CLOSURE: {
 </span></span><span style="display:flex;"><span>        Proto *p;
 </span></span><span style="display:flex;"><span>        Closure *ncl;
 </span></span><span style="display:flex;"><span>        int nup, j;
@@ -328,7 +328,7 @@
 <p>一旦函数返回，某些堆栈上的变量就会消失，这时，还被某些 upvalue 引用的变量就必须找个地方妥善安置。这个安全的地方就是 TUPVAL 结构之中。修改引用指针的结果，就被认为是 close 了这个 TUPVAL 。相关代码可以去看 lfunc.c 中 <code>luaF_close</code> 的实现。</p>
 <p>走题太多。现在回来看 TUPVAL 的 mark 过程。mark upvalue 引用的对象之后，closed TUPVAL 就可以置黑了。为何 open 状态的 TUPVAL 需要留为灰色待处理呢？这是因为 open TUPVAL 是易变的。GC 分步执行，我们无法预料在 mark 流程走完前，堆栈上被引用的数据会不会发生变化。</p>
 <p>事实上，在 mark 的最后一个步骤，我们会看到所有的 open TUPVAL 被再次 mark 一次。做这件事情的函数是 lgc.c 516 行的：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void remarkupvals (global_State *g) {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void remarkupvals (global_State *g) {
 </span></span><span style="display:flex;"><span>  UpVal *uv;
 </span></span><span style="display:flex;"><span>  for (uv = g-&gt;uvhead.u.l.next; uv != &amp;g-&gt;uvhead; uv = uv-&gt;u.l.next) {
 </span></span><span style="display:flex;"><span>    lua_assert(uv-&gt;u.l.next-&gt;u.l.prev == uv &amp;&amp; uv-&gt;u.l.prev-&gt;u.l.next == uv);
@@ -345,7 +345,7 @@
 <p>我们可以依靠的数据只有内存管理器辖下的内存数量。大致上，整个 GC 需要的总时间和 GCObject 的数量成正比。但每种类型的 GCObject 的处理时间复杂度却各不相同。仔细衡量每种类型的处理时间差别不太现实，它可能和具体机器也有关系。但我们却可以大体上认为，占用内存较多的对象，处理时间也更长一点。这里不包括 string 和 userdata 。它们即使占用内存较多，但却没有增加 mark 的时间。虽然不太精确，但对 table ，function ，thread 这些类型来说，这种估算方式却比较接近。</p>
 <p>所以在 propagatemark 过程中，每 mark 一个灰色节点，就返回了它实际占用的内存字节数作为 quantity 值。</p>
 <p>如果回顾昨天看过的代码。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  l_mem lim = (GCSTEPSIZE/100) * g-&gt;gcstepmul;
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  l_mem lim = (GCSTEPSIZE/100) * g-&gt;gcstepmul;
 </span></span><span style="display:flex;"><span>  if (lim == 0)
 </span></span><span style="display:flex;"><span>    lim = (MAX_LUMEM-1)/2;  /* no limit */
 </span></span><span style="display:flex;"><span>  g-&gt;gcdept += g-&gt;totalbytes - g-&gt;GCthreshold;
@@ -355,7 +355,7 @@
 </span></span><span style="display:flex;"><span>      break;
 </span></span><span style="display:flex;"><span>  } while (lim &gt; 0);
 </span></span></code></pre></div><p>我们就能理解，当 gcstepmul 为 100 时，每次由 <code>luaC_checkGC</code> 满足条件后调用一次 <code>luaC_step</code> ，大致就会标记 1K 的数据（当处于 mark 环节中时）。而每次 <code>luaC_step</code> 会递增 GCthreshold 1K 。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  if (g-&gt;gcstate != GCSpause) {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  if (g-&gt;gcstate != GCSpause) {
 </span></span><span style="display:flex;"><span>    if (g-&gt;gcdept &lt; GCSTEPSIZE)
 </span></span><span style="display:flex;"><span>      g-&gt;GCthreshold = g-&gt;totalbytes + GCSTEPSIZE;  /* - lim/g-&gt;gcstepmul;*/
 </span></span><span style="display:flex;"><span>    else {
@@ -368,7 +368,7 @@
 <p>手动分步 GC 则是另一番光景。<code>lua_gc</code> GCSTEP 使用的 data 值，在处于 mark 流程时，便可以认为扫描的内存字节数乘上 step multiplier 这个系数。当然这只是大致上个估计。毕竟内存不是理想中的逐字节扫描的。</p>
 <p>等待所有灰色节点都处理完，我们就可以开始清理那些剩下的白色节点了吗？不，因为 mark 是分步执行的，中间 lua 虚拟机中的对象关系可能又发生的变化。所以在开始清理工作前，我们还需要做最后一次扫描。这个过程不可以再被打断。</p>
 <p>让我们看看相关的处理函数。见 lgc.c 526 行：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void atomic (lua_State *L) {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void atomic (lua_State *L) {
 </span></span><span style="display:flex;"><span>  global_State *g = G(L);
 </span></span><span style="display:flex;"><span>  size_t udsize;  /* total size of userdata to be finalized */
 </span></span><span style="display:flex;"><span>  /* remark occasional upvalues of (maybe) dead threads */
@@ -401,7 +401,7 @@
 <p>弱表是个比较特殊的东西，这里，弱表需要反复 mark ，跟 write barrier 的行为有关，超出了今天的话题。write barrier 还会引起另一些对象再 mark ，即对 grayagain 链的处理。都留到明天再谈。</p>
 <p>接下来处理 userdata 的部分，<code>luaC_separateudata</code> 之前已经解释过了。</p>
 <p>所以的一切都标记完后，那些不被引用的对象就都被分离出来了。可以安全的清理所有尚被引用的弱表。cleartable 就是干的这件事情。实现没有什么好谈的，一目了然。这里也不列代码了。不过值得一提的是对可以清理的项的判定函数：iscleared 。见 lgc.c 的 329 行。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/*
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/*
 </span></span><span style="display:flex;"><span>** The next function tells whether a key or value can be cleared from
 </span></span><span style="display:flex;"><span>** a weak table. Non-collectable objects are never removed from weak
 </span></span><span style="display:flex;"><span>** tables. Strings behave as `values&#39;, so are never removed too. for
@@ -495,7 +495,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

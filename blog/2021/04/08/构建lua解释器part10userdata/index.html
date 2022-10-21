@@ -237,7 +237,7 @@
 <p>​    本章节，我开始对<a href="https://github.com/Manistein/dummylua-tutorial">dummylua</a>的userdata的设计与实现，进行论述。它的大体设计与实现，仍然是仿照了lua5.3的标准，由于，所有的内容，都是我自己理解后，重新实现，因此在一些实现细节上略有不同，但是整体设计思路遵循了lua的设计思想。本章的篇幅不会很长，因为userdata这个部分并不是非常复杂，因此我这里也会速战速决，将userdata的一些核心思想论述清楚，就将本章完结。</p>
 <h1 id="userdata的数据结构">userdata的数据结构</h1>
 <p>​    userdata是用来存放，用户自定义的数据结构实例的，userdata的种类有两种，一种是lightuserdata，还有一种则是full userdata。light userdata是Value结构中的一个变量类型，本质是一个void* 指针</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
 </span></span><span style="display:flex;"><span>typedef union lua_Value {
 </span></span><span style="display:flex;"><span>    struct GCObject* gc;
 </span></span><span style="display:flex;"><span>    void* p;
@@ -248,7 +248,7 @@
 </span></span><span style="display:flex;"><span>} Value;
 </span></span></code></pre></div><p>light userdata的内存，需要用户自行管理，而full userdata则是通过lua的gc机制进行管理，我们本章论述的也正是full userdata。后文中，所有指代userdata的地方，均是指full userdata。对full userdata的操作实现，一般是在c层进行的，后面会有使用的例子。
 首先我们要看的是userdata的数据结构，在dummylua中，它的定义如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
 </span></span><span style="display:flex;"><span>#define CommonHeader struct GCObject* next; lu_byte tt_; lu_byte marked
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>typedef struct Udata {
@@ -262,155 +262,155 @@
 </span></span></code></pre></div><p>注释，对每个字段有了一个大致的说明，后续内容，会对他们进行较为详细的解释和说明。</p>
 <h1 id="userdata的接口">userdata的接口</h1>
 <p>​    上一小节，介绍了userdata的基本数据结构，本小节则会介绍userdata相关的主要接口，分别是luaS_newuserdata，getudatamem，setuservalue，getuservalue。我们先来看一下luaS_newuserdata的定义：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luastring.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luastring.c
 </span></span><span style="display:flex;"><span>Udata* luaS_newuserdata(struct lua_State* L, int size);
 </span></span></code></pre></div><p>这个接口，做了什么事情呢？就是创建了一个userdata实例，这个userdata实例的内存大小，就是Udata头部+传入的size大小，我们可以看一下userdata实例的构成：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>+------------+----------------+
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>+------------+----------------+
 </span></span><span style="display:flex;"><span>|Header:Udata|   user domain  |
 </span></span><span style="display:flex;"><span>+------------+----------------+
 </span></span></code></pre></div><p>前面的Header，就是sizeof(Udata)的大小，而后面的user domain，则是luaS_newuserdata的第二个参数size来指定，比方，现在我们定义了一个Vector3的数据结构：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>typedef struct Vector3 {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>typedef struct Vector3 {
 </span></span><span style="display:flex;"><span>	float x;
 </span></span><span style="display:flex;"><span>	float y;
 </span></span><span style="display:flex;"><span>	float z;
 </span></span><span style="display:flex;"><span>} Vector3;
 </span></span></code></pre></div><p>现在我们要创建，这个Vector3关联的userdata，那么它的创建代码则如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>Udata* u = luaS_newuserdata(L, sizeof(Vector3));
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>Udata* u = luaS_newuserdata(L, sizeof(Vector3));
 </span></span></code></pre></div><p>第二个参数，size的大小则是sizeof(Vector3)的大小，也就是12，那么此时，user domain的大小则是12 bytes的大小。
 在完成了userdata实例的创建之后，我们要在c层，获取我们自定义的结构实例的指针，如何获取它呢，我们需要一个接口getudatamem</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
 </span></span><span style="display:flex;"><span>#define getudatamem(o) (cast(char*,o)+sizeof(Udata))
 </span></span></code></pre></div><p>这个宏的作用在，则是将userdata实例中，user domain部分的指针拿到，获取的结果所指向的位置，如下’^‘所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>+------------+----------------+
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>+------------+----------------+
 </span></span><span style="display:flex;"><span>|Header:Udata|   user domain  |
 </span></span><span style="display:flex;"><span>+------------+----------------+
 </span></span><span style="display:flex;"><span>             ^
 </span></span></code></pre></div><p>通过这个宏，我们可以获取结构自定义结构变量的实例，具体方法如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>Vector3* v3 = (Vector3*)getudatamem(u);
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>Vector3* v3 = (Vector3*)getudatamem(u);
 </span></span></code></pre></div><p>接下来，我们就可以对v3所指向的内存块进行对应的处理了。
 userdata还有一个重要的接口，就是setuservalue，这是一个宏，它的作用是，将一个TValue实例，赋值到Udata头部中，分别将TValue实例的tt_赋值给Udata的ttuv_，将TValue的value_赋值给Udata的user_字段中，其定义如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
 </span></span><span style="display:flex;"><span>#define setuservalue(u, o) \
 </span></span><span style="display:flex;"><span>			(u)-&gt;ttuv_ = (o)-&gt;tt_; (u)-&gt;user_ = (o)-&gt;value_
 </span></span></code></pre></div><p>同样的，获取它的接口如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
 </span></span><span style="display:flex;"><span>#define getuservalue(u, o) \
 </span></span><span style="display:flex;"><span>			(o)-&gt;tt_ = (u)-&gt;ttuv_; (o)-&gt;value_ = (u)-&gt;user_
 </span></span></code></pre></div><p>到这里，我们就完成了userdata相关的接口的讨论了。</p>
 <h1 id="userdata的gc处理">userdata的gc处理</h1>
 <p>​    关于lua的gc机制，我在Part2里已经有非常详细的论述了，在后面的章节中，我还会再出一篇，再次，进一步论述gc算法。有关gc算法的具体步骤，可以查看Part2，本小节，我将集中精力，梳理一下userdata的标记和清除阶段的逻辑处理。
 ​    userdata在标记阶段，其处理逻辑如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.c
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">reallymarkobject</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L, <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> gco) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> global_State<span style="color:#f92672">*</span> g <span style="color:#f92672">=</span> G(L);
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">void</span> <span style="color:#c34e00">reallymarkobject</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> GCObject* gco) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> global_State* g = G(L);
 </span></span><span style="display:flex;"><span>    white2gray(gco);
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">switch</span>(gco<span style="color:#f92672">-&gt;</span>tt_) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> LUA_TTHREAD:{
-</span></span><span style="display:flex;"><span>            linkgclist(gco2th(gco), g<span style="color:#f92672">-&gt;</span>gray);            
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> LUA_TTABLE:{
-</span></span><span style="display:flex;"><span>            linkgclist(gco2tbl(gco), g<span style="color:#f92672">-&gt;</span>gray);
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TLCL:{
-</span></span><span style="display:flex;"><span>			linkgclist(gco2lclosure(gco), g<span style="color:#f92672">-&gt;</span>gray);
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TCCL:{
-</span></span><span style="display:flex;"><span>			linkgclist(gco2cclosure(gco), g<span style="color:#f92672">-&gt;</span>gray);
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TPROTO:{
-</span></span><span style="display:flex;"><span>			linkgclist(gco2proto(gco), g<span style="color:#f92672">-&gt;</span>gray);
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> LUA_SHRSTR:{ 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">switch</span>(gco-&gt;tt_) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_TTHREAD:{
+</span></span><span style="display:flex;"><span>            linkgclist(gco2th(gco), g-&gt;gray);            
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_TTABLE:{
+</span></span><span style="display:flex;"><span>            linkgclist(gco2tbl(gco), g-&gt;gray);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TLCL:{
+</span></span><span style="display:flex;"><span>			linkgclist(gco2lclosure(gco), g-&gt;gray);
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TCCL:{
+</span></span><span style="display:flex;"><span>			linkgclist(gco2cclosure(gco), g-&gt;gray);
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TPROTO:{
+</span></span><span style="display:flex;"><span>			linkgclist(gco2proto(gco), g-&gt;gray);
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_SHRSTR:{ 
 </span></span><span style="display:flex;"><span>            gray2black(gco);
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">struct</span> TString<span style="color:#f92672">*</span> ts <span style="color:#f92672">=</span> gco2ts(gco);
-</span></span><span style="display:flex;"><span>            g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">+=</span> sizelstring(ts<span style="color:#f92672">-&gt;</span>shrlen);
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> LUA_LNGSTR:{
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
+</span></span><span style="display:flex;"><span>            g-&gt;GCmemtrav += sizelstring(ts-&gt;shrlen);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_LNGSTR:{
 </span></span><span style="display:flex;"><span>            gray2black(gco);
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">struct</span> TString<span style="color:#f92672">*</span> ts <span style="color:#f92672">=</span> gco2ts(gco);
-</span></span><span style="display:flex;"><span>            g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">+=</span> sizelstring(ts<span style="color:#f92672">-&gt;</span>u.lnglen);
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TUSERDATA: {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
+</span></span><span style="display:flex;"><span>            g-&gt;GCmemtrav += sizelstring(ts-&gt;u.lnglen);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TUSERDATA: {
 </span></span><span style="display:flex;"><span>			gray2black(gco);
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>			TValue uvalue;
-</span></span><span style="display:flex;"><span>			Udata<span style="color:#f92672">*</span> u <span style="color:#f92672">=</span> gco2u(gco);
-</span></span><span style="display:flex;"><span>			getuservalue(u, <span style="color:#f92672">&amp;</span>uvalue);
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">if</span> (u<span style="color:#f92672">-&gt;</span>metatable) {
-</span></span><span style="display:flex;"><span>				markobject(L, u<span style="color:#f92672">-&gt;</span>metatable);
+</span></span><span style="display:flex;"><span>			Udata* u = gco2u(gco);
+</span></span><span style="display:flex;"><span>			getuservalue(u, &amp;uvalue);
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">if</span> (u-&gt;metatable) {
+</span></span><span style="display:flex;"><span>				markobject(L, u-&gt;metatable);
 </span></span><span style="display:flex;"><span>			}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">if</span> (iscollectable(<span style="color:#f92672">&amp;</span>uvalue) <span style="color:#f92672">&amp;&amp;</span> iswhite(gcvalue(<span style="color:#f92672">&amp;</span>uvalue))) {
-</span></span><span style="display:flex;"><span>				reallymarkobject(L, gcvalue(<span style="color:#f92672">&amp;</span>uvalue));
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">if</span> (iscollectable(&amp;uvalue) &amp;&amp; iswhite(gcvalue(&amp;uvalue))) {
+</span></span><span style="display:flex;"><span>				reallymarkobject(L, gcvalue(&amp;uvalue));
 </span></span><span style="display:flex;"><span>			}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">+=</span> <span style="color:#66d9ef">sizeof</span>(Udata);
-</span></span><span style="display:flex;"><span>			g<span style="color:#f92672">-&gt;</span>GCmemtrav <span style="color:#f92672">+=</span> u<span style="color:#f92672">-&gt;</span>len;
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span><span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>			g-&gt;GCmemtrav += <span style="color:#00f">sizeof</span>(Udata);
+</span></span><span style="display:flex;"><span>			g-&gt;GCmemtrav += u-&gt;len;
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">default</span>:<span style="color:#00f">break</span>;
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>我们已知了，luaS_newuserdata接口，其实是在luastring模块里的，因为它的创建和使用逻辑和luastring非常类似，在标记阶段也是，userdata实例本身，在标记为灰色后，直接标记成黑色，并且将它的metatable(如果存在的话)标记为灰色，并且放入gray列表中，此外如果userdata的user域存在，且是一个gc实例，那么它也需要被标记为灰色，并且放入gray列表中。这里，我们需要注意几个问题，一个就是userdata在标记扫描阶段，直接整个被标记为黑色，并不会对user domain内部的任何域进行检查和处理。
 接下来，我们来看一下userdata的清除逻辑，如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// luagc.c
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">static</span> lu_mem <span style="color:#a6e22e">freeobj</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L, <span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> gco) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">switch</span>(gco<span style="color:#f92672">-&gt;</span>tt_) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> LUA_SHRSTR: {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">struct</span> TString<span style="color:#f92672">*</span> ts <span style="color:#f92672">=</span> gco2ts(gco);
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> lu_mem <span style="color:#c34e00">freeobj</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> GCObject* gco) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">switch</span>(gco-&gt;tt_) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_SHRSTR: {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
 </span></span><span style="display:flex;"><span>            luaS_remove(L, ts);
-</span></span><span style="display:flex;"><span>            lu_mem sz <span style="color:#f92672">=</span> sizelstring(ts<span style="color:#f92672">-&gt;</span>shrlen);
+</span></span><span style="display:flex;"><span>            lu_mem sz = sizelstring(ts-&gt;shrlen);
 </span></span><span style="display:flex;"><span>            luaM_free(L, ts, sz); 
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> sz; 
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> LUA_LNGSTR: {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">struct</span> TString<span style="color:#f92672">*</span> ts <span style="color:#f92672">=</span> gco2ts(gco);
-</span></span><span style="display:flex;"><span>            lu_mem sz <span style="color:#f92672">=</span> sizelstring(ts<span style="color:#f92672">-&gt;</span>u.lnglen);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> sz; 
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_LNGSTR: {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
+</span></span><span style="display:flex;"><span>            lu_mem sz = sizelstring(ts-&gt;u.lnglen);
 </span></span><span style="display:flex;"><span>            luaM_free(L, ts, sz);
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> LUA_TTABLE: {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">struct</span> Table<span style="color:#f92672">*</span> tbl <span style="color:#f92672">=</span> gco2tbl(gco);
-</span></span><span style="display:flex;"><span>            lu_mem sz <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span>(<span style="color:#66d9ef">struct</span> Table) <span style="color:#f92672">+</span> tbl<span style="color:#f92672">-&gt;</span>arraysize <span style="color:#f92672">*</span> <span style="color:#66d9ef">sizeof</span>(TValue) <span style="color:#f92672">+</span> twoto(tbl<span style="color:#f92672">-&gt;</span>lsizenode) <span style="color:#f92672">*</span> <span style="color:#66d9ef">sizeof</span>(Node);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_TTABLE: {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> Table* tbl = gco2tbl(gco);
+</span></span><span style="display:flex;"><span>            lu_mem sz = <span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> Table) + tbl-&gt;arraysize * <span style="color:#00f">sizeof</span>(TValue) + twoto(tbl-&gt;lsizenode) * <span style="color:#00f">sizeof</span>(Node);
 </span></span><span style="display:flex;"><span>            luaH_free(L, tbl);
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> sz;
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TTHREAD: {
-</span></span><span style="display:flex;"><span>			<span style="color:#75715e">// TODO
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TLCL: {
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">struct</span> LClosure<span style="color:#f92672">*</span> cl <span style="color:#f92672">=</span> gco2lclosure(gco);
-</span></span><span style="display:flex;"><span>			lu_mem sz <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span>(LClosure);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> sz;
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TTHREAD: {
+</span></span><span style="display:flex;"><span>			<span style="color:#f00;font-style:italic">// TODO
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TLCL: {
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">struct</span> LClosure* cl = gco2lclosure(gco);
+</span></span><span style="display:flex;"><span>			lu_mem sz = <span style="color:#00f">sizeof</span>(LClosure);
 </span></span><span style="display:flex;"><span>			luaF_freeLclosure(L, cl);
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> sz;
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TCCL: {
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">struct</span> CClosure<span style="color:#f92672">*</span> cc <span style="color:#f92672">=</span> gco2cclosure(gco);
-</span></span><span style="display:flex;"><span>			lu_mem sz <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span>(<span style="color:#66d9ef">struct</span> CClosure);
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">return</span> sz;
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TCCL: {
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">struct</span> CClosure* cc = gco2cclosure(gco);
+</span></span><span style="display:flex;"><span>			lu_mem sz = <span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> CClosure);
 </span></span><span style="display:flex;"><span>			luaF_freeCclosure(L, cc);
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> sz;
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TPROTO: {
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">struct</span> Proto<span style="color:#f92672">*</span> f <span style="color:#f92672">=</span> gco2proto(gco);
-</span></span><span style="display:flex;"><span>			lu_mem sz <span style="color:#f92672">=</span> luaF_sizeproto(L, f);
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">return</span> sz;
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TPROTO: {
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">struct</span> Proto* f = gco2proto(gco);
+</span></span><span style="display:flex;"><span>			lu_mem sz = luaF_sizeproto(L, f);
 </span></span><span style="display:flex;"><span>			luaF_freeproto(L, f);
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> sz;
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">case</span> LUA_TUSERDATA: {
-</span></span><span style="display:flex;"><span>			Udata<span style="color:#f92672">*</span> u <span style="color:#f92672">=</span> gco2u(gco);
-</span></span><span style="display:flex;"><span>			lu_mem sz <span style="color:#f92672">=</span> <span style="color:#66d9ef">sizeof</span>(Udata) <span style="color:#f92672">+</span> u<span style="color:#f92672">-&gt;</span>len;
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">return</span> sz;
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">case</span> LUA_TUSERDATA: {
+</span></span><span style="display:flex;"><span>			Udata* u = gco2u(gco);
+</span></span><span style="display:flex;"><span>			lu_mem sz = <span style="color:#00f">sizeof</span>(Udata) + u-&gt;len;
 </span></span><span style="display:flex;"><span>			luaM_free(L, u, sz);
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">return</span> sz;
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">break</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">default</span><span style="color:#f92672">:</span>{
-</span></span><span style="display:flex;"><span>            lua_assert(<span style="color:#ae81ff">0</span>);
-</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">break</span>;
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">return</span> sz;
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">default</span>:{
+</span></span><span style="display:flex;"><span>            lua_assert(0);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>我们可以看case LUA_TUSERDATA的那部分逻辑，可以看到的是，userdata实例是整个被释放掉，未对userdata内部的user domian部分做任何的处理，也就是说如果user domain内部包含了堆内存实例的指针，这部分需要用户自己进行处理。</p>
 <h1 id="userdata的user-domain域内部的堆内存清理">userdata的user domain域内部的堆内存清理</h1>
 <p>​    前面，我们提到了，user domain域内，如果包含了指向堆内存的指针，那么这部分需要我们进行处理，需要怎么处理呢？lua的清除逻辑，并没有提供这样的机会，但是，我们前面说过，userdata有一个metatable域，为userdata设置一个metatable，并且这个metatable如果包含一个名为__gc的函数，那么在userdata被gc回收之前，会首先调用这个函数，我们来看一个伪代码，假设userdata的metatable是如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>{
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>{
 </span></span><span style="display:flex;"><span>	__gc = function(udata) release(udata) end
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>那么在udata实例，被gc回收之前，上面这个__gc函数会被调用，该函数的参数，就是userdata实例本身，release函数是用户自己在c层实现的函数，导出给lua层使用的，这个release函数，将在c层逻辑中，对udata的user domain域中，包含的堆内存实例进行释放操作，避免内存泄露。</p>
@@ -418,56 +418,56 @@ userdata还有一个重要的接口，就是setuservalue，这是一个宏，它
 <p>​    接下来，我们要看的则是userdata的使用例子，这里直接引用《Programing in Lua》的28.1 <a href="https://www.lua.org/pil/28.1.html">userdata</a>一节，这里就不再赘述。</p>
 <h1 id="本章的example">本章的example</h1>
 <p>​    本章也写了一个测试用例，这个测试用例创建了一个userdata实例，并且为它设置了一个包含_ _gc函数的metatable，最后将这个userdata实例，从栈中移除，接着调用了fullgc函数，最后显示的结果是，这个__gc函数被调用。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">// p10_test.c
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;p10_test.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;../common/luastring.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;../vm/luagc.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#include</span> <span style="color:#75715e">&#34;../common/luatable.h&#34;</span><span style="color:#75715e">
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">typedef</span> <span style="color:#66d9ef">struct</span> Vector3 {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">float</span> x;
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">float</span> y;
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">float</span> z;
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// p10_test.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;p10_test.h&#34;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;../common/luastring.h&#34;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;../vm/luagc.h&#34;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;../common/luatable.h&#34;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> Vector3 {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">float</span> x;
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">float</span> y;
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">float</span> z;
 </span></span><span style="display:flex;"><span>} Vector3;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">gcfunc</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L) {
-</span></span><span style="display:flex;"><span>	Udata<span style="color:#f92672">*</span> u <span style="color:#f92672">=</span> lua_touserdata(L, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>);
-</span></span><span style="display:flex;"><span>	Vector3<span style="color:#f92672">*</span> v3 <span style="color:#f92672">=</span> (Vector3<span style="color:#f92672">*</span>)getudatamem(u);
-</span></span><span style="display:flex;"><span>	printf(<span style="color:#e6db74">&#34;total_size:%d x:%f, y:%f, z:%f&#34;</span>, u<span style="color:#f92672">-&gt;</span>len, v3<span style="color:#f92672">-&gt;</span>x, v3<span style="color:#f92672">-&gt;</span>y, v3<span style="color:#f92672">-&gt;</span>z);
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>;
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">gcfunc</span>(<span style="color:#00f">struct</span> lua_State* L) {
+</span></span><span style="display:flex;"><span>	Udata* u = lua_touserdata(L, -1);
+</span></span><span style="display:flex;"><span>	Vector3* v3 = (Vector3*)getudatamem(u);
+</span></span><span style="display:flex;"><span>	printf(<span style="color:#009c00">&#34;total_size:%d x:%f, y:%f, z:%f&#34;</span>, u-&gt;len, v3-&gt;x, v3-&gt;y, v3-&gt;z);
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> 0;
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">test_create_object</span>(<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L) {
-</span></span><span style="display:flex;"><span>	Udata<span style="color:#f92672">*</span> u <span style="color:#f92672">=</span> luaS_newuserdata(L, <span style="color:#66d9ef">sizeof</span>(Vector3));
+</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">test_create_object</span>(<span style="color:#00f">struct</span> lua_State* L) {
+</span></span><span style="display:flex;"><span>	Udata* u = luaS_newuserdata(L, <span style="color:#00f">sizeof</span>(Vector3));
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	Vector3<span style="color:#f92672">*</span> v3 <span style="color:#f92672">=</span> (Vector3<span style="color:#f92672">*</span>)getudatamem(u);
-</span></span><span style="display:flex;"><span>	v3<span style="color:#f92672">-&gt;</span>x <span style="color:#f92672">=</span> <span style="color:#ae81ff">10.0f</span>;
-</span></span><span style="display:flex;"><span>	v3<span style="color:#f92672">-&gt;</span>y <span style="color:#f92672">=</span> <span style="color:#ae81ff">10.0f</span>;
-</span></span><span style="display:flex;"><span>	v3<span style="color:#f92672">-&gt;</span>z <span style="color:#f92672">=</span> <span style="color:#ae81ff">10.0f</span>;
+</span></span><span style="display:flex;"><span>	Vector3* v3 = (Vector3*)getudatamem(u);
+</span></span><span style="display:flex;"><span>	v3-&gt;x = 10.0f;
+</span></span><span style="display:flex;"><span>	v3-&gt;y = 10.0f;
+</span></span><span style="display:flex;"><span>	v3-&gt;z = 10.0f;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">-&gt;</span>tt_ <span style="color:#f92672">=</span> LUA_TUSERDATA;
-</span></span><span style="display:flex;"><span>	L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">-&gt;</span>value_.gc <span style="color:#f92672">=</span> obj2gco(u);
+</span></span><span style="display:flex;"><span>	L-&gt;top-&gt;tt_ = LUA_TUSERDATA;
+</span></span><span style="display:flex;"><span>	L-&gt;top-&gt;value_.gc = obj2gco(u);
 </span></span><span style="display:flex;"><span>	increase_top(L);
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> Table<span style="color:#f92672">*</span> t <span style="color:#f92672">=</span> luaH_new(L);
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> GCObject<span style="color:#f92672">*</span> gco <span style="color:#f92672">=</span> obj2gco(t);
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> Table* t = luaH_new(L);
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> GCObject* gco = obj2gco(t);
 </span></span><span style="display:flex;"><span>	TValue tv;
-</span></span><span style="display:flex;"><span>	tv.tt_ <span style="color:#f92672">=</span> LUA_TTABLE;
-</span></span><span style="display:flex;"><span>	tv.value_.gc <span style="color:#f92672">=</span> gco;
-</span></span><span style="display:flex;"><span>	setobj(L<span style="color:#f92672">-&gt;</span>top, <span style="color:#f92672">&amp;</span>tv);
+</span></span><span style="display:flex;"><span>	tv.tt_ = LUA_TTABLE;
+</span></span><span style="display:flex;"><span>	tv.value_.gc = gco;
+</span></span><span style="display:flex;"><span>	setobj(L-&gt;top, &amp;tv);
 </span></span><span style="display:flex;"><span>	increase_top(L);
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	lua_pushCclosure(L, gcfunc, <span style="color:#ae81ff">0</span>);
-</span></span><span style="display:flex;"><span>	lua_setfield(L, <span style="color:#f92672">-</span><span style="color:#ae81ff">2</span>, <span style="color:#e6db74">&#34;__gc&#34;</span>);
+</span></span><span style="display:flex;"><span>	lua_pushCclosure(L, gcfunc, 0);
+</span></span><span style="display:flex;"><span>	lua_setfield(L, -2, <span style="color:#009c00">&#34;__gc&#34;</span>);
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	lua_setmetatable(L, <span style="color:#f92672">-</span><span style="color:#ae81ff">2</span>);
-</span></span><span style="display:flex;"><span>	L<span style="color:#f92672">-&gt;</span>top<span style="color:#f92672">--</span>;
+</span></span><span style="display:flex;"><span>	lua_setmetatable(L, -2);
+</span></span><span style="display:flex;"><span>	L-&gt;top--;
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span>;
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span>;
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">void</span> <span style="color:#a6e22e">p10_test_main</span>() {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">struct</span> lua_State<span style="color:#f92672">*</span> L <span style="color:#f92672">=</span> luaL_newstate();
+</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">p10_test_main</span>() {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> lua_State* L = luaL_newstate();
 </span></span><span style="display:flex;"><span>	luaL_openlibs(L);
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>	test_create_object(L);
@@ -476,7 +476,7 @@ userdata还有一个重要的接口，就是setuservalue，这是一个宏，它
 </span></span><span style="display:flex;"><span>	luaL_close(L);
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>执行后，得到的结果为：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>total_size:12 x:10.0, y:10.0, z:10.0
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>total_size:12 x:10.0, y:10.0, z:10.0
 </span></span></code></pre></div><p>这说明，创建出来的userdata，在fullgc过后，被清除掉了。</p>
 <h1 id="结束语">结束语</h1>
 <p>​    本章，我大致介绍了userdata的设计与实现，与以往的一些重型篇幅的章节相比，本章内容非常少，并且对前面一些章节的论述有所依赖，因此如果读者通读了前面的章节，理解这个章节中关联的部分，也不会非常困难。本章节，我也是在实现了userdata相关的逻辑之后，写下的，因此读者可以在Part10的代码目录中，找到对应的实现，下一个章节，我将论述upvalue的设计与实现。</p>
@@ -555,7 +555,7 @@ userdata还有一个重要的接口，就是setuservalue，这是一个宏，它
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

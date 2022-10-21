@@ -337,33 +337,33 @@
 <h3 id="1tcp-的重传超时计算">【1】TCP 的重传超时计算</h3>
 <p>TCP 交互过程中，如果发送的包一直没收到 ACK 确认，是要一直等下去吗？显然不能一直等(如果发送的包在路由过程中丢失了，对端都没收到又如何给你发送确认呢？)，这样协议将不可用，既然不能一直等下去，那么该等多久呢？等太长时间的话，数据包都丢了很久了才重发，没有效率，性能差；等太短时间的话，可能 ACK 还在路上快到了，这时候却重传了，造成浪费，同时过多的重传会造成网络拥塞，进一步加剧数据的丢失。也是，我们不能去猜测一个重传超时时间，应该是通过一个算法去计算，并且这个超时时间应该是随着网络的状况在变化的。为了使我们的重传机制更高效，如果我们能够比较准确知道在当前网络状况下，一个数据包从发出去到回来的时间 RTT——Round Trip Time，那么根据这个 RTT 我们就可以方便设置 TimeOut——RTO（Retransmission TimeOut）了。</p>
 <p>为了计算这个 RTO，RFC793 中定义了一个经典算法，算法如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>[<span style="color:#ae81ff">1</span>] <span style="color:#a6e22e">首先采样计算RTT值</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>[1] 首先采样计算RTT值
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>[<span style="color:#ae81ff">2</span>] <span style="color:#a6e22e">然后计算平滑的RTT</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">称为Smoothed</span> <span style="color:#a6e22e">Round</span> <span style="color:#a6e22e">Trip</span> <span style="color:#a6e22e">Time</span> (<span style="color:#a6e22e">SRTT</span>)<span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">SRTT</span> = ( <span style="color:#a6e22e">ALPHA</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">SRTT</span> ) <span style="color:#f92672">+</span> ((<span style="color:#ae81ff">1</span><span style="color:#f92672">-</span><span style="color:#a6e22e">ALPHA</span>) <span style="color:#f92672">*</span> <span style="color:#a6e22e">RTT</span>)
+</span></span><span style="display:flex;"><span>[2] 然后计算平滑的RTT，称为Smoothed Round Trip <span style="color:#c34e00">Time</span> (SRTT)，SRTT = ( ALPHA * SRTT ) + ((1-ALPHA) * RTT)
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>[<span style="color:#ae81ff">3</span>] <span style="color:#a6e22e">RTO</span> = <span style="color:#a6e22e">min</span>[<span style="color:#a6e22e">UBOUND</span>,<span style="color:#a6e22e">max</span>[<span style="color:#a6e22e">LBOUND</span>,(<span style="color:#a6e22e">BETA</span><span style="color:#f92672">*</span><span style="color:#a6e22e">SRTT</span>)]]
+</span></span><span style="display:flex;"><span>[3] RTO = min[UBOUND,max[LBOUND,(BETA*SRTT)]]
 </span></span></code></pre></div><p>其中：UBOUND 是 RTO 值的上限；例如：可以定义为 1 分钟，LBOUND 是 RTO 值的下限，例如，可以定义为 1 秒；ALPHA is a smoothing factor (e.g., .8 to .9), and BETA is a delay variance factor(e.g., 1.3 to 2.0).</p>
 <p>然而这个算法有个缺点就是：在算 RTT 样本的时候，是用第一次发数据的时间和 ack 回来的时间做 RTT 样本值，还是用重传的时间和 ACK 回来的时间做 RTT 样本值？不管是怎么选择，总会造成会要么把 RTT 算过长了，要么把 RTT 算过短了。如下图：(a)就计算过长了，而(b)就是计算过短了。</p>
 <p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X2pwZy9qM2dmaWNpY3lPdmFzRjZwek1SVmxPbmJwTU5pYzNYcUhCUDczbjRPd0doS2ljR2ZWdGliM1hnczVoaWJ0YVBFcGljeU9Fczg3N2dVMGFCaG4zNlUzU1dOZHdsSUEvNjQw?x-oss-process=image/format,png" alt="img"></p>
 <p>针对上面经典算法的缺陷，于是提出 Karn / Partridge Algorithm 对经典算法进行了改进(算法大特点是——忽略重传，不把重传的 RTT 做采样)，但是这个算法有问题：如果在某一时间，网络闪动，突然变慢了，产生了比较大的延时，这个延时导致要重转所有的包（因为之前的 RTO 很小），于是，因为重转的不算，所以，RTO 就不会被更新，这是一个灾难。于是，为解决上面两个算法的问题，又有人推出来了一个新的算法，这个算法叫 Jacobson / Karels Algorithm（参看 FC6289），这个算法的核心是：除了考虑每两次测量值的偏差之外，其变化率也应该考虑在内，如果变化率过大，则通过以变化率为自变量的函数为主计算 RTT(如果陡然增大，则取值为比较大的正数，如果陡然减小，则取值为比较小的负数，然后和平均值加权求和)，反之如果变化率很小，则取测量平均值。</p>
 <p>公式如下：（其中的 DevRTT 是 Deviation RTT 的意思）</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">SRTT</span> = <span style="color:#a6e22e">SRTT</span> <span style="color:#f92672">+</span> <span style="color:#a6e22e">α</span> (<span style="color:#a6e22e">RTT</span> <span style="color:#960050;background-color:#1e0010">–</span> <span style="color:#a6e22e">SRTT</span>)  <span style="color:#960050;background-color:#1e0010">——</span> <span style="color:#a6e22e">计算平滑RTT</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>SRTT = SRTT + α (RTT – SRTT)  —— 计算平滑RTT
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">DevRTT</span> = (<span style="color:#ae81ff">1</span><span style="color:#f92672">-</span><span style="color:#a6e22e">β</span>)<span style="color:#f92672">*</span><span style="color:#a6e22e">DevRTT</span> <span style="color:#f92672">+</span> <span style="color:#a6e22e">β</span><span style="color:#f92672">*</span>(|<span style="color:#a6e22e">RTT</span><span style="color:#f92672">-</span><span style="color:#a6e22e">SRTT</span>|) <span style="color:#960050;background-color:#1e0010">——</span><span style="color:#a6e22e">计算平滑RTT和真实的差距</span><span style="color:#960050;background-color:#1e0010">（</span><span style="color:#a6e22e">加权移动平均</span><span style="color:#960050;background-color:#1e0010">）</span>
+</span></span><span style="display:flex;"><span>DevRTT = (1-β)*DevRTT + β*(|RTT-SRTT|) ——计算平滑RTT和真实的差距（加权移动平均）
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">RTO</span>= <span style="color:#a6e22e">µ</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">SRTT</span> <span style="color:#f92672">+</span> <span style="color:#960050;background-color:#1e0010">∂</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">DevRTT</span> <span style="color:#960050;background-color:#1e0010">——</span> <span style="color:#a6e22e">神一样的公式</span>
+</span></span><span style="display:flex;"><span>RTO= µ * SRTT + ∂ *DevRTT —— 神一样的公式
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">（</span><span style="color:#a6e22e">其中</span><span style="color:#960050;background-color:#1e0010">：</span><span style="color:#a6e22e">在Linux下</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">α</span> = <span style="color:#ae81ff">0.125</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">β</span> = <span style="color:#ae81ff">0.25</span><span style="color:#960050;background-color:#1e0010">，</span> <span style="color:#a6e22e">μ</span> = <span style="color:#ae81ff">1</span><span style="color:#960050;background-color:#1e0010">，∂</span> = <span style="color:#ae81ff">4</span> <span style="color:#960050;background-color:#1e0010">——</span><span style="color:#a6e22e">这就是算法中的</span><span style="color:#960050;background-color:#1e0010">“</span><span style="color:#a6e22e">调得一手好参数</span><span style="color:#960050;background-color:#1e0010">”，</span><span style="color:#a6e22e">nobody</span> <span style="color:#a6e22e">knows</span> <span style="color:#a6e22e">why</span>, <span style="color:#a6e22e">it</span> <span style="color:#a6e22e">just</span> <span style="color:#a6e22e">works</span><span style="color:#960050;background-color:#1e0010">…）</span> <span style="color:#a6e22e">最后的这个算法在被用在今天的TCP协议中并工作非常好</span>
+</span></span><span style="display:flex;"><span>（其中：在Linux下，α = 0.125，β = 0.25， μ = 1，∂ = 4 ——这就是算法中的“调得一手好参数”，nobody knows why, it just works…） 最后的这个算法在被用在今天的TCP协议中并工作非常好
 </span></span></code></pre></div><p>最后的这个算法在被用在今天的 TCP 协议中并工作非常好。</p>
 <p>知道超时怎么计算后，很自然就想到定时器的设计问题。一个简单直观的方案就是为 TCP 中的每一个数据包维护一个定时器，在这个定时器到期前没收到确认，则进行重传。这种设计理论上是很合理的，但是实现上，这种方案将会有非常多的定时器，会带来巨大内存开销和调度开销。既然不能每个包一个定时器，那么多少个包一个定时器才好呢，这个似乎比较难确定。可以换个思路，不要以包量来确定定时器，以连接来确定定时器会不会比较合理呢？目前，采取每一个 TCP 连接单一超时定时器的设计则成了一个默认的选择，并且 RFC2988 给出了每连接单一定时器的设计建议算法规则：</p>
 <p>[1].每一次一个包含数据的包被发送（包括重发），如果还没开启重传定时器，则开启它，使得它在 RTO 秒之后超时（按照当前的 RTO 值）。[2]. 当接收到一个 ACK 确认一个新的数据；如果所有的发出数据都被确认了，关闭重传定时器；[3].当接收到一个 ACK 确认一个新的数据，还有数据在传输，也就是还有没被确认的数据，重新启动重传定时器，使得它在 RTO 秒之后超时（按照当前的 RTO 值）。</p>
@@ -539,7 +539,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

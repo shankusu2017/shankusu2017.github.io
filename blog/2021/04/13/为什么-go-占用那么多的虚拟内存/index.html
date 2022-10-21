@@ -235,7 +235,7 @@
 <p>前段时间，某同学说某服务的容器因为超出内存限制，不断地重启，问我们是不是有内存泄露，赶紧排查，然后解决掉，省的出问题。</p>
 <p>我们大为震惊，赶紧查看监控+报警系统和性能分析，发现应用指标压根就不高，不像有泄露的样子。</p>
 <p>问题到底是出在哪里了呢，我们进入某个容器里查看了 <code>top</code> 的系统指标：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>PID       VSZ    RSS   ... COMMAND
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>PID       VSZ    RSS   ... COMMAND
 </span></span><span style="display:flex;"><span>67459     2007m  136m  ... ./eddycjy-server
 </span></span></code></pre></div><p>看上去也没什么大开销的东西，就一个 Go 进程？就这？</p>
 <p><img src="http://shanks.link/img/go%E4%B9%8B%E8%99%9A%E6%8B%9F%E5%86%85%E5%AD%98%E5%8D%A0%E7%94%A8/1.gif" alt="图片"></p>
@@ -282,7 +282,7 @@
 <p>在了解了基础知识后，我们正式开始排查问题，第一步我们先编写一个测试程序，看看没有什么业务逻辑的 Go 程序，它初始的 VSZ 是怎么样的。</p>
 <h3 id="测试">测试</h3>
 <p>应用代码：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func main() {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func main() {
 </span></span><span style="display:flex;"><span> r := gin.Default()
 </span></span><span style="display:flex;"><span> r.GET(&#34;/ping&#34;, func(c *gin.Context) {
 </span></span><span style="display:flex;"><span>  c.JSON(200, gin.H{
@@ -292,13 +292,13 @@
 </span></span><span style="display:flex;"><span> r.Run(&#34;:8001&#34;)
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>查看进程情况：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ ps aux 67459
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ ps aux 67459
 </span></span><span style="display:flex;"><span>USER      PID  %CPU %MEM      VSZ    RSS   ...
 </span></span><span style="display:flex;"><span>eddycjy 67459   0.0  0.0  4297048    960   ...
 </span></span></code></pre></div><p>从结果上来看，VSZ 为 4297048K，也就是 4G 左右，咋一眼看过去还是挺吓人的，明明没有什么业务逻辑，但是为什么那么高呢，真是令人感到好奇。</p>
 <h3 id="确认有没有泄露">确认有没有泄露</h3>
 <p>在未知的情况下，我们可以首先看下 <code>runtime.MemStats</code> 和 <code>pprof</code>，确定应用到底有没有泄露。不过我们这块是演示程序，什么业务逻辑都没有，因此可以确定和应用没有直接关系。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># runtime.MemStats
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span># runtime.MemStats
 </span></span><span style="display:flex;"><span># Alloc = 1298568
 </span></span><span style="display:flex;"><span># TotalAlloc = 1298568
 </span></span><span style="display:flex;"><span># Sys = 71893240
@@ -321,7 +321,7 @@
 <p>这个 FAQ 是在 2012 年 10 月 提交 的，这么多年了也没有更进一步的说明，再翻了 issues 和 forum，一些关闭掉的 issue 都指向了 FAQ，这显然无法满足我的求知欲，因此我继续往下探索，看看里面到底都摆了些什么。</p>
 <h3 id="查看内存映射">查看内存映射</h3>
 <p>在上图中，我们有提到进程虚拟内存，主要包含了你的代码、数据、堆、栈段和共享库，那初步怀疑是不是进程做了什么内存映射，导致了大量的内存空间被保留呢，为了确定这一点，我们通过如下命令去排查：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ vmmap --wide 67459
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ vmmap --wide 67459
 </span></span><span style="display:flex;"><span>...
 </span></span><span style="display:flex;"><span>==== Non-writable regions for process 67459
 </span></span><span style="display:flex;"><span>REGION TYPE                      START - END             [ VSIZE  RSDNT  DIRTY   SWAP] PRT/MAX SHRMOD PURGE    REGION DETAIL
@@ -346,7 +346,7 @@
 <p>注：若是 Linux 系统，可使用 <code>cat /proc/PID/maps</code> 或 <code>cat /proc/PID/smaps</code> 查看。</p>
 <h3 id="查看系统调用">查看系统调用</h3>
 <p>既然在内存映射中，我们没有明确的看到保留内存空间的行为，那我们接下来看看该进程的系统调用，确定一下它是否存在内存操作的行为，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ sudo dtruss -a ./awesomeProject
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$ sudo dtruss -a ./awesomeProject
 </span></span><span style="display:flex;"><span>...
 </span></span><span style="display:flex;"><span> 4374/0x206a2:     15620       6      3 mprotect(0x1BC4000, 0x1000, 0x0)   = 0 0
 </span></span><span style="display:flex;"><span>...
@@ -376,7 +376,7 @@
 <p>通过上述的分析，我们可以知道在 Go 程序启动的时候 VSZ 就已经不低了，并且确定不是共享库等的原因，且程序在启动时系统调用确实存在 <code>mmap</code> 等方法的调用。</p>
 <p>那么我们可以充分怀疑 Go 在初始化阶段就保留了该内存空间。那我们第一步要做的就是查看一下 Go 的引导启动流程，看看是在哪里申请的。</p>
 <p>引导过程如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>graph TD
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>graph TD
 </span></span><span style="display:flex;"><span>A(rt0_darwin_amd64.s:8&lt;br/&gt;_rt0_amd64_darwin) --&gt;|JMP| B(asm_amd64.s:15&lt;br/&gt;_rt0_amd64)
 </span></span><span style="display:flex;"><span>B --&gt; |JMP|C(asm_amd64.s:87&lt;br/&gt;runtime-rt0_go)
 </span></span><span style="display:flex;"><span>C --&gt; D(runtime1.go:60&lt;br/&gt;runtime-args)
@@ -394,7 +394,7 @@
 <p>注：来自@曹大的 《Go 程序的启动流程》和@全成的 《Go 程序是怎样跑起来的》，推荐大家阅读。</p>
 <h4 id="初始化运行环境">初始化运行环境</h4>
 <p>显然，我们要研究的是 runtime 里的 <code>schedinit</code> 方法，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func schedinit() {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func schedinit() {
 </span></span><span style="display:flex;"><span> ...
 </span></span><span style="display:flex;"><span> stackinit()
 </span></span><span style="display:flex;"><span> mallocinit()
@@ -418,7 +418,7 @@
 <h4 id="初始化内存分配器">初始化内存分配器</h4>
 <h5 id="mallocinit">mallocinit</h5>
 <p>接下来我们正式的分析一下 <code>mallocinit</code> 方法，在引导流程中， <code>mallocinit</code> 主要承担 Go 程序的内存分配器的初始化动作，而今天主要是针对虚拟内存地址这块进行拆解，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func mallocinit() {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func mallocinit() {
 </span></span><span style="display:flex;"><span> ...
 </span></span><span style="display:flex;"><span> if sys.PtrSize == 8 {
 </span></span><span style="display:flex;"><span>  for i := 0x7f; i &gt;= 0; i-- {
@@ -453,7 +453,7 @@
 <li>保存刚刚计算的 arena 的信息到 <code>arenaHint</code> 中。</li>
 </ul>
 <p>可能会有小伙伴问，为什么要判断是 32 位还是 64 位的系统，这是因为不同位数的虚拟内存的寻址范围是不同的，因此要进行区分，否则会出现高位的虚拟内存映射问题。而在申请保留空间时，我们会经常提到 <code>arenaHint</code> 结构体，它是 <code>arenaHints</code>链表里的一个节点，结构如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>type arenaHint struct {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>type arenaHint struct {
 </span></span><span style="display:flex;"><span> addr uintptr
 </span></span><span style="display:flex;"><span> down bool
 </span></span><span style="display:flex;"><span> next *arenaHint
@@ -473,7 +473,7 @@
 <p>在这里的话，你需要理解 arean 区域在 Go 内存里的作用就可以了。</p>
 <h5 id="mmap">mmap</h5>
 <p>我们刚刚通过上述的分析，已经知道 <code>mallocinit</code> 的用途了，但是你可能还是会有疑惑，就是我们之前所看到的 <code>mmap</code> 系统调用，和它又有什么关系呢，怎么就关联到一起了，接下来我们先一起来看看更下层的代码，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func sysAlloc(n uintptr, sysStat *uint64) unsafe.Pointer {
 </span></span><span style="display:flex;"><span> p, err := mmap(nil, n, _PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_PRIVATE, -1, 0)
 </span></span><span style="display:flex;"><span> ...
 </span></span><span style="display:flex;"><span> mSysStatInc(sysStat, n)
@@ -498,14 +498,14 @@
 <li>sysMap：通知 OS 系统我们要使用已经保留了的内存空间，调用参数是 <code>_PROT_READ|_PROT_WRITE, _MAP_ANON|_MAP_FIXED|_MAP_PRIVATE</code>。</li>
 </ul>
 <p>看上去好像很有道理的样子，但是 <code>mallocinit</code> 方法在初始化时，到底是在哪里涉及了 <code>mmap</code> 方法呢，表面看不出来，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>for i := 0x7f; i &gt;= 0; i-- {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>for i := 0x7f; i &gt;= 0; i-- {
 </span></span><span style="display:flex;"><span> ...
 </span></span><span style="display:flex;"><span> hint := (*arenaHint)(mheap_.arenaHintAlloc.alloc())
 </span></span><span style="display:flex;"><span> hint.addr = p
 </span></span><span style="display:flex;"><span> hint.next, mheap_.arenaHints = mheap_.arenaHints, hint
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>实际上在调用 <code>mheap_.arenaHintAlloc.alloc()</code> 时，调用的是 <code>mheap</code> 下的 <code>sysAlloc</code> 方法，而 <code>sysAlloc</code> 又会与 <code>mmap</code> 方法产生调用关系，并且这个方法与常规的 <code>sysAlloc</code> 还不大一样，如下：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>var mheap_ mheap
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>var mheap_ mheap
 </span></span><span style="display:flex;"><span>...
 </span></span><span style="display:flex;"><span>func (h *mheap) sysAlloc(n uintptr) (v unsafe.Pointer, size uintptr) {
 </span></span><span style="display:flex;"><span> ...
@@ -639,7 +639,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

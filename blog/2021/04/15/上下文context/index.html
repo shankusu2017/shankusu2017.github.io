@@ -243,11 +243,11 @@
 如果 context.Context 超时，会返回 DeadlineExceeded 错误；</li>
 <li>Value — 从 context.Context 中获取键对应的值，对于同一个上下文来说，多次调用 Value 并传入相同的 Key 会返回相同的结果，该方法可以用来传递请求特定的数据；</li>
 </ol>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">Context</span> <span style="color:#66d9ef">interface</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">Deadline</span>() (<span style="color:#a6e22e">deadline</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>, <span style="color:#a6e22e">ok</span> <span style="color:#66d9ef">bool</span>)
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">Done</span>() <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{}
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">Err</span>() <span style="color:#66d9ef">error</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">Value</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">interface</span>{}) <span style="color:#66d9ef">interface</span>{}
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> Context <span style="color:#00f">interface</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#c34e00">Deadline</span>() (deadline time.Time, ok <span style="color:#00f">bool</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#c34e00">Done</span>() &lt;-<span style="color:#00f">chan</span> <span style="color:#00f">struct</span>{}
+</span></span><span style="display:flex;"><span>	<span style="color:#c34e00">Err</span>() <span style="color:#00f">error</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#c34e00">Value</span>(key <span style="color:#00f">interface</span>{}) <span style="color:#00f">interface</span>{}
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>context 包中提供的 context.Background、context.TODO、context.WithDeadline 和 context.WithValue 函数会返回实现该接口的私有结构体，我们会在后面详细介绍它们的工作原理。</p>
 <h2 id="611-设计原理-">6.1.1 设计原理 #</h2>
@@ -262,61 +262,61 @@
 <p><img src="http://shanks.link/img/Go%E4%B8%8A%E4%B8%8B%E6%96%87Context/3.png" alt="img"></p>
 <p>图 6-3 使用 Context 同步信号</p>
 <p>我们可以通过一个代码片段了解 context.Context 是如何对信号进行同步的。在这段代码中，我们创建了一个过期时间为 1s 的上下文，并向上下文传入 handle 函数，该方法会使用 500ms 的时间处理传入的请求：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>, <span style="color:#a6e22e">cancel</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">WithTimeout</span>(<span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Background</span>(), <span style="color:#ae81ff">1</span><span style="color:#f92672">*</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Second</span>)
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">cancel</span>()
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>	ctx, cancel := context.<span style="color:#c34e00">WithTimeout</span>(context.<span style="color:#c34e00">Background</span>(), 1*time.Second)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">defer</span> <span style="color:#c34e00">cancel</span>()
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">go</span> <span style="color:#a6e22e">handle</span>(<span style="color:#a6e22e">ctx</span>, <span style="color:#ae81ff">500</span><span style="color:#f92672">*</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Millisecond</span>)
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">select</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Done</span>():
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;main&#34;</span>, <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Err</span>())
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">go</span> <span style="color:#c34e00">handle</span>(ctx, 500*time.Millisecond)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">select</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">case</span> &lt;-ctx.<span style="color:#c34e00">Done</span>():
+</span></span><span style="display:flex;"><span>		fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;main&#34;</span>, ctx.<span style="color:#c34e00">Err</span>())
 </span></span><span style="display:flex;"><span>	}
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">handle</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">context</span>.<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">duration</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">select</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Done</span>():
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;handle&#34;</span>, <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">Err</span>())
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">After</span>(<span style="color:#a6e22e">duration</span>):
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Println</span>(<span style="color:#e6db74">&#34;process request with&#34;</span>, <span style="color:#a6e22e">duration</span>)
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">handle</span>(ctx context.Context, duration time.Duration) {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">select</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">case</span> &lt;-ctx.<span style="color:#c34e00">Done</span>():
+</span></span><span style="display:flex;"><span>		fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;handle&#34;</span>, ctx.<span style="color:#c34e00">Err</span>())
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">case</span> &lt;-time.<span style="color:#c34e00">After</span>(duration):
+</span></span><span style="display:flex;"><span>		fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;process request with&#34;</span>, duration)
 </span></span><span style="display:flex;"><span>	}
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>因为过期时间大于处理时间，所以我们有足够的时间处理该请求，运行上述代码会打印出下面的内容：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go run context.go
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go run context.go
 </span></span><span style="display:flex;"><span>process request with 500ms
 </span></span><span style="display:flex;"><span>main context deadline exceeded
 </span></span></code></pre></div><p>handle 函数没有进入超时的 select 分支，但是 main 函数的 select 却会等待 context.Context 超时并打印出 main context deadline exceeded。</p>
 <p>如果我们将处理请求时间增加至 1500ms，整个程序都会因为上下文的过期而被中止，：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go run context.go
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go run context.go
 </span></span><span style="display:flex;"><span>main context deadline exceeded
 </span></span><span style="display:flex;"><span>handle context deadline exceeded
 </span></span></code></pre></div><p>相信这两个例子能够帮助各位读者理解 context.Context 的使用方法和设计原理 — 多个 Goroutine 同时订阅 ctx.Done() 管道中的消息，一旦接收到取消信号就立刻停止当前正在执行的工作。</p>
 <h2 id="612-默认上下文">6.1.2 默认上下文 </h2>
 <p>context 包中最常用的方法还是 context.Background、context.TODO，这两个方法都会返回预先初始化好的私有变量 background 和 todo，它们会在同一个 Go 程序中被复用：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">Background</span>() <span style="color:#a6e22e">Context</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">background</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">Background</span>() Context {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> background
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">TODO</span>() <span style="color:#a6e22e">Context</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">todo</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">TODO</span>() Context {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> todo
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>这两个私有变量都是通过 new(emptyCtx) 语句初始化的，它们是指向私有结构体 context.emptyCtx 的指针，这是最简单、最常用的上下文类型：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">emptyCtx</span> <span style="color:#66d9ef">int</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> emptyCtx <span style="color:#00f">int</span>
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#f92672">*</span><span style="color:#a6e22e">emptyCtx</span>) <span style="color:#a6e22e">Deadline</span>() (<span style="color:#a6e22e">deadline</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>, <span style="color:#a6e22e">ok</span> <span style="color:#66d9ef">bool</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> (*emptyCtx) <span style="color:#c34e00">Deadline</span>() (deadline time.Time, ok <span style="color:#00f">bool</span>) {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span>
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#f92672">*</span><span style="color:#a6e22e">emptyCtx</span>) <span style="color:#a6e22e">Done</span>() <span style="color:#f92672">&lt;-</span><span style="color:#66d9ef">chan</span> <span style="color:#66d9ef">struct</span>{} {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> (*emptyCtx) <span style="color:#c34e00">Done</span>() &lt;-<span style="color:#00f">chan</span> <span style="color:#00f">struct</span>{} {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> <span style="color:#00f">nil</span>
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#f92672">*</span><span style="color:#a6e22e">emptyCtx</span>) <span style="color:#a6e22e">Err</span>() <span style="color:#66d9ef">error</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> (*emptyCtx) <span style="color:#c34e00">Err</span>() <span style="color:#00f">error</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> <span style="color:#00f">nil</span>
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#f92672">*</span><span style="color:#a6e22e">emptyCtx</span>) <span style="color:#a6e22e">Value</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">interface</span>{}) <span style="color:#66d9ef">interface</span>{} {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> (*emptyCtx) <span style="color:#c34e00">Value</span>(key <span style="color:#00f">interface</span>{}) <span style="color:#00f">interface</span>{} {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> <span style="color:#00f">nil</span>
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>从上述代码中，我们不难发现 context.emptyCtx 通过空方法实现了 context.Context 接口中的所有方法，它没有任何功能。</p>
 <p><img src="http://shanks.link/img/Go%E4%B8%8A%E4%B8%8B%E6%96%87Context/4.png" alt="img"></p>
@@ -330,39 +330,39 @@ context.TODO 应该仅在不确定应该使用哪种上下文时使用；
 <p>golang-parent-cancel-context</p>
 <p><img src="http://shanks.link/img/Go%E4%B8%8A%E4%B8%8B%E6%96%87Context/5.png" alt="img"></p>
 <p>我们直接从 context.WithCancel 函数的实现来看它到底做了什么：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">WithCancel</span>(<span style="color:#a6e22e">parent</span> <span style="color:#a6e22e">Context</span>) (<span style="color:#a6e22e">ctx</span> <span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">cancel</span> <span style="color:#a6e22e">CancelFunc</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">newCancelCtx</span>(<span style="color:#a6e22e">parent</span>)
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">propagateCancel</span>(<span style="color:#a6e22e">parent</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">c</span>)
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">c</span>, <span style="color:#66d9ef">func</span>() { <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">true</span>, <span style="color:#a6e22e">Canceled</span>) }
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">WithCancel</span>(parent Context) (ctx Context, cancel CancelFunc) {
+</span></span><span style="display:flex;"><span>	c := <span style="color:#c34e00">newCancelCtx</span>(parent)
+</span></span><span style="display:flex;"><span>	<span style="color:#c34e00">propagateCancel</span>(parent, &amp;c)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> &amp;c, <span style="color:#00f">func</span>() { c.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">true</span>, Canceled) }
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>context.newCancelCtx 将传入的上下文包装成私有结构体 context.cancelCtx；
 context.propagateCancel 会构建父子上下文之间的关联，当父上下文被取消时，子上下文也会被取消：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">propagateCancel</span>(<span style="color:#a6e22e">parent</span> <span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">child</span> <span style="color:#a6e22e">canceler</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">done</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">parent</span>.<span style="color:#a6e22e">Done</span>()
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">done</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#75715e">// 父上下文不会触发取消信号
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">select</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">done</span>:
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">child</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">false</span>, <span style="color:#a6e22e">parent</span>.<span style="color:#a6e22e">Err</span>()) <span style="color:#75715e">// 父上下文已经被取消
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">default</span>:
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">propagateCancel</span>(parent Context, child canceler) {
+</span></span><span style="display:flex;"><span>	done := parent.<span style="color:#c34e00">Done</span>()
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> done == <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> <span style="color:#f00;font-style:italic">// 父上下文不会触发取消信号
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">select</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">case</span> &lt;-done:
+</span></span><span style="display:flex;"><span>		child.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">false</span>, parent.<span style="color:#c34e00">Err</span>()) <span style="color:#f00;font-style:italic">// 父上下文已经被取消
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>		<span style="color:#00f">return</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">default</span>:
 </span></span><span style="display:flex;"><span>	}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">p</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">parentCancelCtx</span>(<span style="color:#a6e22e">parent</span>); <span style="color:#a6e22e">ok</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Lock</span>()
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">child</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">false</span>, <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">err</span>)
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">children</span>[<span style="color:#a6e22e">child</span>] = <span style="color:#66d9ef">struct</span>{}{}
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> p, ok := <span style="color:#c34e00">parentCancelCtx</span>(parent); ok {
+</span></span><span style="display:flex;"><span>		p.mu.<span style="color:#c34e00">Lock</span>()
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">if</span> p.err != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>			child.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">false</span>, p.err)
+</span></span><span style="display:flex;"><span>		} <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>			p.children[child] = <span style="color:#00f">struct</span>{}{}
 </span></span><span style="display:flex;"><span>		}
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Unlock</span>()
-</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">go</span> <span style="color:#66d9ef">func</span>() {
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">select</span> {
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">parent</span>.<span style="color:#a6e22e">Done</span>():
-</span></span><span style="display:flex;"><span>				<span style="color:#a6e22e">child</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">false</span>, <span style="color:#a6e22e">parent</span>.<span style="color:#a6e22e">Err</span>())
-</span></span><span style="display:flex;"><span>			<span style="color:#66d9ef">case</span> <span style="color:#f92672">&lt;-</span><span style="color:#a6e22e">child</span>.<span style="color:#a6e22e">Done</span>():
+</span></span><span style="display:flex;"><span>		p.mu.<span style="color:#c34e00">Unlock</span>()
+</span></span><span style="display:flex;"><span>	} <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">select</span> {
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">case</span> &lt;-parent.<span style="color:#c34e00">Done</span>():
+</span></span><span style="display:flex;"><span>				child.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">false</span>, parent.<span style="color:#c34e00">Err</span>())
+</span></span><span style="display:flex;"><span>			<span style="color:#00f">case</span> &lt;-child.<span style="color:#c34e00">Done</span>():
 </span></span><span style="display:flex;"><span>			}
 </span></span><span style="display:flex;"><span>		}()
 </span></span><span style="display:flex;"><span>	}
@@ -379,104 +379,104 @@ context.propagateCancel 会构建父子上下文之间的关联，当父上下�
 context.propagateCancel 的作用是在 parent 和 child 之间同步取消和结束的信号，保证在 parent 被取消时，child 也会收到对应的信号，不会出现状态不一致的情况。</li>
 </ol>
 <p>context.cancelCtx 实现的几个接口方法也没有太多值得分析的地方，该结构体最重要的方法是 context.cancelCtx.cancel，该方法会关闭上下文中的 Channel 并向所有的子上下文同步取消信号：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">cancelCtx</span>) <span style="color:#a6e22e">cancel</span>(<span style="color:#a6e22e">removeFromParent</span> <span style="color:#66d9ef">bool</span>, <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Lock</span>()
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Unlock</span>()
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> (c *cancelCtx) <span style="color:#c34e00">cancel</span>(removeFromParent <span style="color:#00f">bool</span>, err <span style="color:#00f">error</span>) {
+</span></span><span style="display:flex;"><span>	c.mu.<span style="color:#c34e00">Lock</span>()
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> c.err != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>		c.mu.<span style="color:#c34e00">Unlock</span>()
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span>
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">err</span> = <span style="color:#a6e22e">err</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">done</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">done</span> = <span style="color:#a6e22e">closedchan</span>
-</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>		close(<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">done</span>)
+</span></span><span style="display:flex;"><span>	c.err = err
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> c.done == <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>		c.done = closedchan
+</span></span><span style="display:flex;"><span>	} <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>		close(c.done)
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">child</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">children</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">child</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">false</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">for</span> child := <span style="color:#00f">range</span> c.children {
+</span></span><span style="display:flex;"><span>		child.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">false</span>, err)
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">children</span> = <span style="color:#66d9ef">nil</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Unlock</span>()
+</span></span><span style="display:flex;"><span>	c.children = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>	c.mu.<span style="color:#c34e00">Unlock</span>()
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">removeFromParent</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">removeChild</span>(<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">c</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> removeFromParent {
+</span></span><span style="display:flex;"><span>		<span style="color:#c34e00">removeChild</span>(c.Context, c)
 </span></span><span style="display:flex;"><span>	}
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>除了 context.WithCancel 之外，context 包中的另外两个函数 context.WithDeadline 和 context.WithTimeout 也都能创建可以被取消的计时器上下文 context.timerCtx：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">WithTimeout</span>(<span style="color:#a6e22e">parent</span> <span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">timeout</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Duration</span>) (<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">CancelFunc</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">WithDeadline</span>(<span style="color:#a6e22e">parent</span>, <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Now</span>().<span style="color:#a6e22e">Add</span>(<span style="color:#a6e22e">timeout</span>))
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">WithTimeout</span>(parent Context, timeout time.Duration) (Context, CancelFunc) {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> <span style="color:#c34e00">WithDeadline</span>(parent, time.<span style="color:#c34e00">Now</span>().<span style="color:#c34e00">Add</span>(timeout))
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">WithDeadline</span>(<span style="color:#a6e22e">parent</span> <span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">d</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>) (<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">CancelFunc</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">cur</span>, <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">parent</span>.<span style="color:#a6e22e">Deadline</span>(); <span style="color:#a6e22e">ok</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">cur</span>.<span style="color:#a6e22e">Before</span>(<span style="color:#a6e22e">d</span>) {
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">WithCancel</span>(<span style="color:#a6e22e">parent</span>)
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">WithDeadline</span>(parent Context, d time.Time) (Context, CancelFunc) {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> cur, ok := parent.<span style="color:#c34e00">Deadline</span>(); ok &amp;&amp; cur.<span style="color:#c34e00">Before</span>(d) {
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> <span style="color:#c34e00">WithCancel</span>(parent)
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">timerCtx</span>{
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">cancelCtx</span>: <span style="color:#a6e22e">newCancelCtx</span>(<span style="color:#a6e22e">parent</span>),
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">deadline</span>:  <span style="color:#a6e22e">d</span>,
+</span></span><span style="display:flex;"><span>	c := &amp;timerCtx{
+</span></span><span style="display:flex;"><span>		cancelCtx: <span style="color:#c34e00">newCancelCtx</span>(parent),
+</span></span><span style="display:flex;"><span>		deadline:  d,
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">propagateCancel</span>(<span style="color:#a6e22e">parent</span>, <span style="color:#a6e22e">c</span>)
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">dur</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Until</span>(<span style="color:#a6e22e">d</span>)
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">dur</span> <span style="color:#f92672">&lt;=</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">true</span>, <span style="color:#a6e22e">DeadlineExceeded</span>) <span style="color:#75715e">// 已经过了截止日期
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">c</span>, <span style="color:#66d9ef">func</span>() { <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">false</span>, <span style="color:#a6e22e">Canceled</span>) }
+</span></span><span style="display:flex;"><span>	<span style="color:#c34e00">propagateCancel</span>(parent, c)
+</span></span><span style="display:flex;"><span>	dur := time.<span style="color:#c34e00">Until</span>(d)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> dur &lt;= 0 {
+</span></span><span style="display:flex;"><span>		c.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">true</span>, DeadlineExceeded) <span style="color:#f00;font-style:italic">// 已经过了截止日期
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>		<span style="color:#00f">return</span> c, <span style="color:#00f">func</span>() { c.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">false</span>, Canceled) }
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Lock</span>()
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">defer</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Unlock</span>()
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">err</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">timer</span> = <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">AfterFunc</span>(<span style="color:#a6e22e">dur</span>, <span style="color:#66d9ef">func</span>() {
-</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">true</span>, <span style="color:#a6e22e">DeadlineExceeded</span>)
+</span></span><span style="display:flex;"><span>	c.mu.<span style="color:#c34e00">Lock</span>()
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">defer</span> c.mu.<span style="color:#c34e00">Unlock</span>()
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> c.err == <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>		c.timer = time.<span style="color:#c34e00">AfterFunc</span>(dur, <span style="color:#00f">func</span>() {
+</span></span><span style="display:flex;"><span>			c.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">true</span>, DeadlineExceeded)
 </span></span><span style="display:flex;"><span>		})
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">c</span>, <span style="color:#66d9ef">func</span>() { <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">true</span>, <span style="color:#a6e22e">Canceled</span>) }
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> c, <span style="color:#00f">func</span>() { c.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">true</span>, Canceled) }
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>context.WithDeadline 在创建 context.timerCtx 的过程中判断了父上下文的截止日期与当前日期，并通过 time.AfterFunc 创建定时器，当时间超过了截止日期后会调用 context.timerCtx.cancel 同步取消信号。</p>
 <p>context.timerCtx 内部不仅通过嵌入 context.cancelCtx 结构体继承了相关的变量和方法，还通过持有的定时器 timer 和截止时间 deadline 实现了定时取消的功能：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">timerCtx</span> <span style="color:#66d9ef">struct</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">cancelCtx</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">timer</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Timer</span> <span style="color:#75715e">// Under cancelCtx.mu.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">deadline</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> timerCtx <span style="color:#00f">struct</span> {
+</span></span><span style="display:flex;"><span>	cancelCtx
+</span></span><span style="display:flex;"><span>	timer *time.Timer <span style="color:#f00;font-style:italic">// Under cancelCtx.mu.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span>	deadline time.Time
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">timerCtx</span>) <span style="color:#a6e22e">Deadline</span>() (<span style="color:#a6e22e">deadline</span> <span style="color:#a6e22e">time</span>.<span style="color:#a6e22e">Time</span>, <span style="color:#a6e22e">ok</span> <span style="color:#66d9ef">bool</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">deadline</span>, <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> (c *timerCtx) <span style="color:#c34e00">Deadline</span>() (deadline time.Time, ok <span style="color:#00f">bool</span>) {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> c.deadline, <span style="color:#00f">true</span>
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">timerCtx</span>) <span style="color:#a6e22e">cancel</span>(<span style="color:#a6e22e">removeFromParent</span> <span style="color:#66d9ef">bool</span>, <span style="color:#a6e22e">err</span> <span style="color:#66d9ef">error</span>) {
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">cancelCtx</span>.<span style="color:#a6e22e">cancel</span>(<span style="color:#66d9ef">false</span>, <span style="color:#a6e22e">err</span>)
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">removeFromParent</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">removeChild</span>(<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">cancelCtx</span>.<span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">c</span>)
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> (c *timerCtx) <span style="color:#c34e00">cancel</span>(removeFromParent <span style="color:#00f">bool</span>, err <span style="color:#00f">error</span>) {
+</span></span><span style="display:flex;"><span>	c.cancelCtx.<span style="color:#c34e00">cancel</span>(<span style="color:#00f">false</span>, err)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> removeFromParent {
+</span></span><span style="display:flex;"><span>		<span style="color:#c34e00">removeChild</span>(c.cancelCtx.Context, c)
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Lock</span>()
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">timer</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">timer</span>.<span style="color:#a6e22e">Stop</span>()
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">timer</span> = <span style="color:#66d9ef">nil</span>
+</span></span><span style="display:flex;"><span>	c.mu.<span style="color:#c34e00">Lock</span>()
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> c.timer != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>		c.timer.<span style="color:#c34e00">Stop</span>()
+</span></span><span style="display:flex;"><span>		c.timer = <span style="color:#00f">nil</span>
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">mu</span>.<span style="color:#a6e22e">Unlock</span>()
+</span></span><span style="display:flex;"><span>	c.mu.<span style="color:#c34e00">Unlock</span>()
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>context.timerCtx.cancel 方法不仅调用了 context.cancelCtx.cancel，还会停止持有的定时器减少不必要的资源浪费。</p>
 <h2 id="614-传值方法">6.1.4 传值方法</h2>
 <p>在最后我们需要了解如何使用上下文传值，context 包中的 context.WithValue 能从父上下文中创建一个子上下文，传值的子上下文使用 context.valueCtx 类型：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">WithValue</span>(<span style="color:#a6e22e">parent</span> <span style="color:#a6e22e">Context</span>, <span style="color:#a6e22e">key</span>, <span style="color:#a6e22e">val</span> <span style="color:#66d9ef">interface</span>{}) <span style="color:#a6e22e">Context</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">key</span> <span style="color:#f92672">==</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>		panic(<span style="color:#e6db74">&#34;nil key&#34;</span>)
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">WithValue</span>(parent Context, key, val <span style="color:#00f">interface</span>{}) Context {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> key == <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>		panic(<span style="color:#009c00">&#34;nil key&#34;</span>)
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">reflectlite</span>.<span style="color:#a6e22e">TypeOf</span>(<span style="color:#a6e22e">key</span>).<span style="color:#a6e22e">Comparable</span>() {
-</span></span><span style="display:flex;"><span>		panic(<span style="color:#e6db74">&#34;key is not comparable&#34;</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> !reflectlite.<span style="color:#c34e00">TypeOf</span>(key).<span style="color:#c34e00">Comparable</span>() {
+</span></span><span style="display:flex;"><span>		panic(<span style="color:#009c00">&#34;key is not comparable&#34;</span>)
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">valueCtx</span>{<span style="color:#a6e22e">parent</span>, <span style="color:#a6e22e">key</span>, <span style="color:#a6e22e">val</span>}
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> &amp;valueCtx{parent, key, val}
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>context.valueCtx 结构体会将除了 Value 之外的 Err、Deadline 等方法代理到父上下文中，它只会响应 context.valueCtx.Value 方法，该方法的实现也很简单：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">valueCtx</span> <span style="color:#66d9ef">struct</span> {
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">Context</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">key</span>, <span style="color:#a6e22e">val</span> <span style="color:#66d9ef">interface</span>{}
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> valueCtx <span style="color:#00f">struct</span> {
+</span></span><span style="display:flex;"><span>	Context
+</span></span><span style="display:flex;"><span>	key, val <span style="color:#00f">interface</span>{}
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">valueCtx</span>) <span style="color:#a6e22e">Value</span>(<span style="color:#a6e22e">key</span> <span style="color:#66d9ef">interface</span>{}) <span style="color:#66d9ef">interface</span>{} {
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">key</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">key</span> {
-</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">val</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> (c *valueCtx) <span style="color:#c34e00">Value</span>(key <span style="color:#00f">interface</span>{}) <span style="color:#00f">interface</span>{} {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> c.key == key {
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> c.val
 </span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">Context</span>.<span style="color:#a6e22e">Value</span>(<span style="color:#a6e22e">key</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> c.Context.<span style="color:#c34e00">Value</span>(key)
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>如果 context.valueCtx 中存储的键值对与 context.valueCtx.Value 方法中传入的参数不匹配，就会从父上下文中查找该键对应的值直到某个父上下文中返回 nil 或者查找到对应的值。</p>
 <h2 id="615-小结">6.1.5 小结</h2>
@@ -561,7 +561,7 @@ Using context cancellation in Go</p>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

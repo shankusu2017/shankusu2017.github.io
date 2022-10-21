@@ -232,79 +232,79 @@
     </header>
     <div class="post-body" itemprop="articleBody">
     <p>​		OpenVPN中自定义IP地址分配有两种实现方式，一种是写一个plugin，plugin_call这个调用可以被添加到任何地方，OpenVPN中的plugin挂载点也可在任意位置定义，因此利用plugin来自定义IP地址分配策略就有两种方式，第一种方式是可以新定义一个plugin挂载点，紧接着动态分配IP的代码，然后在plugin中实现策略，当然具体到如何将已经分配的ip地址的指针传入plugin中还需要前文中介绍的方式，将ip地址的内存地址作为环境变量加入到env_set，然后&hellip;，这种方式需要修改OpenVPN的代码，要么自己定义一个挂载点，要么在已有的CLIENT_CONNECT中加入新的内存地址环境变量；第二种方式是一种标准的方式，也就是OpenVPN建议的方式，那就是在multi_connection_established中做文章，OpenVPN的代码不需要做任何修改：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> <span style="color:#a6e22e">multi_connection_established</span> (<span style="color:#66d9ef">struct</span> multi_context <span style="color:#f92672">*</span>m, <span style="color:#66d9ef">struct</span> multi_instance <span style="color:#f92672">*</span>mi)
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">multi_connection_established</span> (<span style="color:#00f">struct</span> multi_context *m, <span style="color:#00f">struct</span> multi_instance *mi)
 </span></span><span style="display:flex;"><span>{
 </span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (plugin_defined (mi<span style="color:#f92672">-&gt;</span>context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT)) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">struct</span> argv argv <span style="color:#f92672">=</span> argv_new (); <span style="color:#75715e">//下面将要生成一个临时文件的名字，该文件名中包含随机数。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>dc_file <span style="color:#f92672">=</span> create_temp_filename (mi<span style="color:#f92672">-&gt;</span>context.options.tmp_dir, <span style="color:#e6db74">&#34;cc&#34;</span>, <span style="color:#f92672">&amp;</span>gc); <span style="color:#75715e">//由于这个将要生成的文件只在此挂载点被使用一次，用来让OpenVPN得到配置信息，比如IP地址或者路由之类，因此用完就要被删除，可以也可能删除失败，因此为了防止别的client连入时误用此文件，因此需要随机生成一个文件，从而使得文件名不可预测。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        argv_printf (<span style="color:#f92672">&amp;</span>argv, <span style="color:#e6db74">&#34;%s&#34;</span>, dc_file); <span style="color:#75715e">//将临时文件名加入plugin的argv参数中
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        delete_file (dc_file); <span style="color:#75715e">//既然我们已经得到了需要建立的文件名，删除新建的文件
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> (plugin_call (mi<span style="color:#f92672">-&gt;</span>context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT,<span style="color:#f92672">&amp;</span>argv...) <span style="color:#f92672">!=</span> OPENVPN_PLUGIN_FUNC_SUCCESS) {
-</span></span><span style="display:flex;"><span>           ... <span style="color:#75715e">//multi_client_connect_post中将实现抉择，如果plugin定义了IP地址，那么将在此函数中删除动态分配的ip地址
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            multi_client_connect_post (m, mi, dc_file, option_permissions_mask, <span style="color:#f92672">&amp;</span>option_types_found);<span style="color:#75715e">//此函数会读取由plugin生成的配置文件进行参数配置
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>              ...
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (plugin_defined (mi-&gt;context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT)) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">struct</span> argv argv = argv_new (); <span style="color:#f00;font-style:italic">//下面将要生成一个临时文件的名字，该文件名中包含随机数。
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">const</span> <span style="color:#00f">char</span> *dc_file = create_temp_filename (mi-&gt;context.options.tmp_dir, <span style="color:#009c00">&#34;cc&#34;</span>, &amp;gc); <span style="color:#f00;font-style:italic">//由于这个将要生成的文件只在此挂载点被使用一次，用来让OpenVPN得到配置信息，比如IP地址或者路由之类，因此用完就要被删除，可以也可能删除失败，因此为了防止别的client连入时误用此文件，因此需要随机生成一个文件，从而使得文件名不可预测。
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        argv_printf (&amp;argv, <span style="color:#009c00">&#34;%s&#34;</span>, dc_file); <span style="color:#f00;font-style:italic">//将临时文件名加入plugin的argv参数中
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        delete_file (dc_file); <span style="color:#f00;font-style:italic">//既然我们已经得到了需要建立的文件名，删除新建的文件
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (plugin_call (mi-&gt;context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT,&amp;argv...) != OPENVPN_PLUGIN_FUNC_SUCCESS) {
+</span></span><span style="display:flex;"><span>           ... <span style="color:#f00;font-style:italic">//multi_client_connect_post中将实现抉择，如果plugin定义了IP地址，那么将在此函数中删除动态分配的ip地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            multi_client_connect_post (m, mi, dc_file, option_permissions_mask, &amp;option_types_found);<span style="color:#f00;font-style:italic">//此函数会读取由plugin生成的配置文件进行参数配置
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>              ...
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>...
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>​		然后在plugin中这么实现即可：(首先要在open回调函数中注册OPENVPN_PLUGIN_CLIENT_CONNECT挂载点)</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>OPENVPN_EXPORT <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">openvpn_plugin_func_v1</span> (openvpn_plugin_handle_t handle, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">int</span> type, <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>argv[], <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>envp[])
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>OPENVPN_EXPORT <span style="color:#00f">int</span> <span style="color:#c34e00">openvpn_plugin_func_v1</span> (openvpn_plugin_handle_t handle, <span style="color:#00f">const</span> <span style="color:#00f">int</span> type, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[], <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[])
 </span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">int</span> rv <span style="color:#f92672">=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">struct</span> plugin_context <span style="color:#f92672">*</span>context <span style="color:#f92672">=</span> (<span style="color:#66d9ef">struct</span> plugin_context <span style="color:#f92672">*</span>) handle; <span style="color:#75715e">//plugin_context自定义，可以包含你需要的任何变量
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>YYY <span style="color:#f92672">=</span> get_env (<span style="color:#e6db74">&#34;XXX&#34;</span>, envp); <span style="color:#75715e">//get_env函数是一个遍历匹配的过程，XXX是你希望得到的用于IP分配决策的client端变量，比如可以是证书的CN项，也可以是其真实的ip地址
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        ... <span style="color:#75715e">//还可以从envp中得到任何别的变量，不仅仅是client端的，只要是env_set中的均可以得到
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        ... <span style="color:#75715e">//实现虚拟IP分配逻辑，可以通过数据库，可以通过unix-pam机制，...不过记住最终的虚拟ip需要写入argv[1]代表的文件中，也就是OpenVPN传入的那个文件名带有随机数的临时文件中，写法很简单：sprintf(cmd, &#34;echo &#39;ifconfig-push %s&#39;&gt;&gt;%s&#34;, 虚拟ip, dc_file);system(cmd);
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">int</span> rv = -1;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">struct</span> plugin_context *context = (<span style="color:#00f">struct</span> plugin_context *) handle; <span style="color:#f00;font-style:italic">//plugin_context自定义，可以包含你需要的任何变量
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">const</span> <span style="color:#00f">char</span> *YYY = get_env (<span style="color:#009c00">&#34;XXX&#34;</span>, envp); <span style="color:#f00;font-style:italic">//get_env函数是一个遍历匹配的过程，XXX是你希望得到的用于IP分配决策的client端变量，比如可以是证书的CN项，也可以是其真实的ip地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        ... <span style="color:#f00;font-style:italic">//还可以从envp中得到任何别的变量，不仅仅是client端的，只要是env_set中的均可以得到
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        ... <span style="color:#f00;font-style:italic">//实现虚拟IP分配逻辑，可以通过数据库，可以通过unix-pam机制，...不过记住最终的虚拟ip需要写入argv[1]代表的文件中，也就是OpenVPN传入的那个文件名带有随机数的临时文件中，写法很简单：sprintf(cmd, &#34;echo &#39;ifconfig-push %s&#39;&gt;&gt;%s&#34;, 虚拟ip, dc_file);system(cmd);
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
 </span></span></code></pre></div><p>​		dc_file中不仅仅可以包含client端的虚拟ip地址信息，任何OpenVPN接受的配置信息都可以，比如说路由信息也是可以的。如此就完成了虚拟IP地址的自定义分配过程，如果不太擅长写C语言，那么还有另一种对等的方式可以使用，这就是写一个脚本：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#75715e">#!/bin/bash
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>...
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#同样取出需要的环境变量(env_set中的变量)，用$XXX取出即可
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">#可以取很多
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>...
-</span></span><span style="display:flex;"><span>...<span style="color:#960050;background-color:#1e0010">可以通过</span>perl<span style="color:#f92672">/</span>python等链接数据库或者不链接数据库而使用别的策略...
-</span></span><span style="display:flex;"><span>echo ifconfig<span style="color:#f92672">-</span>push <span style="color:#960050;background-color:#1e0010">分配结果</span> <span style="color:#f92672">&gt;&gt;</span> <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">1</span>
-</span></span><span style="display:flex;"><span>echo ... <span style="color:#f92672">&gt;&gt;</span> <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">1</span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">#end
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#!/bin/bash
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>...
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#同样取出需要的环境变量(env_set中的变量)，用$XXX取出即可
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#可以取很多
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>...
+</span></span><span style="display:flex;"><span>...可以通过perl/python等链接数据库或者不链接数据库而使用别的策略...
+</span></span><span style="display:flex;"><span>echo ifconfig-push 分配结果 &gt;&gt; $1
+</span></span><span style="display:flex;"><span>echo ... &gt;&gt; $1
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#end
 </span></span></span></code></pre></div><p>是不是更简单？以上脚本的方式在OpenVPN中的依据是：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (mi<span style="color:#f92672">-&gt;</span>context.options.client_connect_script <span style="color:#f92672">&amp;&amp;</span> cc_succeeded) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> argv argv <span style="color:#f92672">=</span> argv_new ();
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">const</span> <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>dc_file <span style="color:#f92672">=</span> NULL;
-</span></span><span style="display:flex;"><span>    setenv_str (mi<span style="color:#f92672">-&gt;</span>context.c2.es, <span style="color:#e6db74">&#34;script_type&#34;</span>, <span style="color:#e6db74">&#34;client-connect&#34;</span>);
-</span></span><span style="display:flex;"><span>    dc_file <span style="color:#f92672">=</span> create_temp_filename (mi<span style="color:#f92672">-&gt;</span>context.options.tmp_dir, <span style="color:#e6db74">&#34;cc&#34;</span>, <span style="color:#f92672">&amp;</span>gc);
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">if</span> (mi-&gt;context.options.client_connect_script &amp;&amp; cc_succeeded) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> argv argv = argv_new ();
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">const</span> <span style="color:#00f">char</span> *dc_file = NULL;
+</span></span><span style="display:flex;"><span>    setenv_str (mi-&gt;context.c2.es, <span style="color:#009c00">&#34;script_type&#34;</span>, <span style="color:#009c00">&#34;client-connect&#34;</span>);
+</span></span><span style="display:flex;"><span>    dc_file = create_temp_filename (mi-&gt;context.options.tmp_dir, <span style="color:#009c00">&#34;cc&#34;</span>, &amp;gc);
 </span></span><span style="display:flex;"><span>    delete_file (dc_file);
-</span></span><span style="display:flex;"><span>    argv_printf (<span style="color:#f92672">&amp;</span>argv, <span style="color:#e6db74">&#34;%sc %s&#34;</span>, mi<span style="color:#f92672">-&gt;</span>context.options.client_connect_script, dc_file, cert);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (openvpn_execve_check (<span style="color:#f92672">&amp;</span>argv, mi<span style="color:#f92672">-&gt;</span>context.c2.es, S_SCRIPT, <span style="color:#e6db74">&#34;client-connect command failed&#34;</span>)) {
+</span></span><span style="display:flex;"><span>    argv_printf (&amp;argv, <span style="color:#009c00">&#34;%sc %s&#34;</span>, mi-&gt;context.options.client_connect_script, dc_file, cert);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (openvpn_execve_check (&amp;argv, mi-&gt;context.c2.es, S_SCRIPT, <span style="color:#009c00">&#34;client-connect command failed&#34;</span>)) {
 </span></span><span style="display:flex;"><span>        multi_client_connect_post (m, mi, dc_file...);
 </span></span><span style="display:flex;"><span>    ...
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>​		最后我们注意一点，那就是和OPENVPN_PLUGIN_CLIENT_CONNECT这个宏对应的还有OPENVPN_PLUGIN_CLIENT_CONNECT_V2，并且在if (plugin_defined (mi-&gt;context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT))前面还有一个deprecated callback的注释，这个注释其实也是我们想办法通过在env_set中添加一个IP地址内存地址的原因之一，正如注释所说，plugin的OPENVPN_PLUGIN_CLIENT_CONNECT挂载点是通过一个临时文件来传输信息的，而读写文件是一件很麻烦的事情，整个读写过程不被OpenVPN地址空间监视，除了基于文件系统本身的系统调用测试，你甚至不知道文件建立/删除成功了没有，进程之外的IO行为很容易被别的进程截获，更改，另外，文件IO是一个很耗时的过程，在大负载下会降低性能，更何况，OpenVPN当前是一个串行的大进程，本来的设计缺陷加上每个client一两次文件IO更是雪上加霜。鉴于上述问题，OpenVPN推出了V2系列plugin挂载点，仅针对client连接这个挂载点来说，V2系列的plugin回调函数多了一个传出参数struct plugin_return，更改了V1系列挂载点plugin对env_set可读不可写的缺陷：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> plugin_return {  <span style="color:#75715e">//返回参数，也就是plugin的传出参数
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">int</span> n;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> openvpn_plugin_string_list <span style="color:#f92672">*</span>list[MAX_PLUGINS];
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> plugin_return {  <span style="color:#f00;font-style:italic">//返回参数，也就是plugin的传出参数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> n;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> openvpn_plugin_string_list *list[MAX_PLUGINS];
 </span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">struct</span> openvpn_plugin_string_list { <span style="color:#75715e">//传出参数容器中的元素，链接成一个链表
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">struct</span> openvpn_plugin_string_list <span style="color:#f92672">*</span>next;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>name;
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">char</span> <span style="color:#f92672">*</span>value;
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> openvpn_plugin_string_list { <span style="color:#f00;font-style:italic">//传出参数容器中的元素，链接成一个链表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">struct</span> openvpn_plugin_string_list *next;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> *name;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> *value;
 </span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">if</span> (plugin_defined (mi<span style="color:#f92672">-&gt;</span>context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT_V2)) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> plugin_return pr;  <span style="color:#75715e">//定义一个传出参数
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    plugin_return_init (<span style="color:#f92672">&amp;</span>pr);
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> (plugin_call (mi<span style="color:#f92672">-&gt;</span>context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT_V2, NULL, <span style="color:#f92672">&amp;</span>pr, mi<span style="color:#f92672">-&gt;</span>context.c2.es) <span style="color:#f92672">!=</span> OPENVPN_PLUGIN_FUNC_SUCCESS) {
-</span></span><span style="display:flex;"><span>    ...<span style="color:#75715e">//下面的调用中接着调用plugin_return_get_column来搜集被plugin配置或者更改的信息，然后用options_string_import将之配置入OpenVPN的变量中
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        multi_client_connect_post_plugin (m, mi, <span style="color:#f92672">&amp;</span>pr, option_permissions_mask, <span style="color:#f92672">&amp;</span>option_types_found);
+</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> (plugin_defined (mi-&gt;context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT_V2)) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> plugin_return pr;  <span style="color:#f00;font-style:italic">//定义一个传出参数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    plugin_return_init (&amp;pr);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (plugin_call (mi-&gt;context.plugins, OPENVPN_PLUGIN_CLIENT_CONNECT_V2, NULL, &amp;pr, mi-&gt;context.c2.es) != OPENVPN_PLUGIN_FUNC_SUCCESS) {
+</span></span><span style="display:flex;"><span>    ...<span style="color:#f00;font-style:italic">//下面的调用中接着调用plugin_return_get_column来搜集被plugin配置或者更改的信息，然后用options_string_import将之配置入OpenVPN的变量中
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        multi_client_connect_post_plugin (m, mi, &amp;pr, option_permissions_mask, &amp;option_types_found);
 </span></span><span style="display:flex;"><span>    ...
 </span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">static</span> <span style="color:#66d9ef">void</span> multi_client_connect_post_plugin (...) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">struct</span> plugin_return config;
-</span></span><span style="display:flex;"><span>    plugin_return_get_column (pr, <span style="color:#f92672">&amp;</span>config, <span style="color:#e6db74">&#34;config&#34;</span>); <span style="color:#75715e">//搜集被触及的变量
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#75715e">/* Did script generate a dynamic config file? */</span> <span style="color:#75715e">//一看就知道此等代码的作者也少不了复制-粘贴
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>      <span style="color:#66d9ef">if</span> (plugin_return_defined (<span style="color:#f92672">&amp;</span>config)) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> (i <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>; i <span style="color:#f92672">&lt;</span> config.n; <span style="color:#f92672">++</span>i) { <span style="color:#75715e">//遍历每一个被触及的变量
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">if</span> (config.list[i] <span style="color:#f92672">&amp;&amp;</span> config.list[i]<span style="color:#f92672">-&gt;</span>value)
-</span></span><span style="display:flex;"><span>                    options_string_import (...); <span style="color:#75715e">//将plugin中触及的变量转化为内部数据结构的字段
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
+</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> multi_client_connect_post_plugin (...) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> plugin_return config;
+</span></span><span style="display:flex;"><span>    plugin_return_get_column (pr, &amp;config, <span style="color:#009c00">&#34;config&#34;</span>); <span style="color:#f00;font-style:italic">//搜集被触及的变量
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>      <span style="color:#f00;font-style:italic">/* Did script generate a dynamic config file? */</span> <span style="color:#f00;font-style:italic">//一看就知道此等代码的作者也少不了复制-粘贴
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">if</span> (plugin_return_defined (&amp;config)) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> (i = 0; i &lt; config.n; ++i) { <span style="color:#f00;font-style:italic">//遍历每一个被触及的变量
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (config.list[i] &amp;&amp; config.list[i]-&gt;value)
+</span></span><span style="display:flex;"><span>                    options_string_import (...); <span style="color:#f00;font-style:italic">//将plugin中触及的变量转化为内部数据结构的字段
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
 </span></span><span style="display:flex;"><span>      ...
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>​		plugin的方式有V2系列调用，而脚本的方式却没有，因为脚本本身就在独立的进程地址空间中运行，除了使用共享内存之外不可能有脚本“传出参数”一说的，综合对比文件和共享内存传输数据的复杂性和性能，还是不要使用共享内存了，所以依然使用文件。</p>
@@ -385,7 +385,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

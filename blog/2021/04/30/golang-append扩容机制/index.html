@@ -233,18 +233,18 @@
     <div class="post-body" itemprop="articleBody">
     <h2 id="append扩容机制">append扩容机制</h2>
 <p>在<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484382&amp;idx=1&amp;sn=5140908b6ab1bf176cc4e7fa9b167de9&amp;chksm=97371770a0409e6633202e6bbc1193cdfd8aa57dbdf7bb2aa493a2a6ab55ff464c8eadc0068a&amp;scene=21#wechat_redirect">《切片传递的隐藏危机》</a>一文，小菜刀有简单地提及到切片扩容的问题。在读者讨论群，有人举了以下例子，并想得到一个合理的回答。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#ae81ff">1</span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">2</span>
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">3</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">4</span>    <span style="color:#a6e22e">s</span> <span style="color:#f92672">:=</span> []<span style="color:#66d9ef">int</span>{<span style="color:#ae81ff">1</span>,<span style="color:#ae81ff">2</span>}
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">5</span>    <span style="color:#a6e22e">s</span> = append(<span style="color:#a6e22e">s</span>, <span style="color:#ae81ff">3</span>,<span style="color:#ae81ff">4</span>,<span style="color:#ae81ff">5</span>)
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">6</span>    println(cap(<span style="color:#a6e22e">s</span>))
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">7</span>}
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">8</span>
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">9</span><span style="color:#75715e">// output: 6
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>1<span style="color:#00f">package</span> main
+</span></span><span style="display:flex;"><span>2
+</span></span><span style="display:flex;"><span>3<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>4    s := []<span style="color:#00f">int</span>{1,2}
+</span></span><span style="display:flex;"><span>5    s = append(s, 3,4,5)
+</span></span><span style="display:flex;"><span>6    println(cap(s))
+</span></span><span style="display:flex;"><span>7}
+</span></span><span style="display:flex;"><span>8
+</span></span><span style="display:flex;"><span>9<span style="color:#f00;font-style:italic">// output: 6
 </span></span></span></code></pre></div><p>为什么结果不是5，不是8，而是6呢？由于小菜刀在该文中关于扩容的描述不够准确，让读者产生了疑惑。因此本文想借此机会细致分析一下<code>append</code>函数及其背后的扩容机制。</p>
 <p>我们知道，<code>append</code>是一种用户在使用时，并不需要引入相关包而可直接调用的函数。它是内置函数，其定义位于源码包 <code>builtin</code> 的<code>builtin.go</code>。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// The append built-in function appends elements to the end of a slice. If
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// The append built-in function appends elements to the end of a slice. If
 </span></span><span style="display:flex;"><span> 2// it has sufficient capacity, the destination is resliced to accommodate the
 </span></span><span style="display:flex;"><span> 3// new elements. If it does not, a new underlying array will be allocated.
 </span></span><span style="display:flex;"><span> 4// Append returns the updated slice. It is therefore necessary to store the
@@ -260,14 +260,14 @@
 <p><strong>编译过程</strong></p>
 <p>为了回答上述问题，我们不妨从编译入手。Go编译可分为四个阶段：词法与语法分析、类型检查与抽象语法树（AST）转换、中间代码生成和生成最后的机器码。</p>
 <p>我们主要需要关注的是第二和第三阶段的代码，分别是位于<code>src/cmd/compile/internal/gc/typecheck.go</code>下的类型检查逻辑</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func typecheck1(n *Node, top int) (res *Node) {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func typecheck1(n *Node, top int) (res *Node) {
 </span></span><span style="display:flex;"><span>2    ...
 </span></span><span style="display:flex;"><span>3    switch n.Op {
 </span></span><span style="display:flex;"><span>4    case OAPPEND:
 </span></span><span style="display:flex;"><span>5    ...
 </span></span><span style="display:flex;"><span>6}
 </span></span></code></pre></div><p>位于<code>src/cmd/compile/internal/gc/walk.go</code>下的抽象语法树转换逻辑</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func walkexpr(n *Node, init *Nodes) *Node {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func walkexpr(n *Node, init *Nodes) *Node {
 </span></span><span style="display:flex;"><span> 2    ...
 </span></span><span style="display:flex;"><span> 3    case OAPPEND:
 </span></span><span style="display:flex;"><span> 4            // x = append(...)
@@ -287,7 +287,7 @@
 </span></span><span style="display:flex;"><span>18    ...
 </span></span><span style="display:flex;"><span>19}  
 </span></span></code></pre></div><p>和位于<code>src/cmd/compile/internal/gc/ssa.go</code>下的中间代码生成逻辑</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1// append converts an OAPPEND node to SSA.
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1// append converts an OAPPEND node to SSA.
 </span></span><span style="display:flex;"><span>2// If inplace is false, it converts the OAPPEND expression n to an ssa.Value,
 </span></span><span style="display:flex;"><span>3// adds it to s, and returns the Value.
 </span></span><span style="display:flex;"><span>4// If inplace is true, it writes the result of the OAPPEND expression n
@@ -297,7 +297,7 @@
 </span></span><span style="display:flex;"><span>8    ...
 </span></span><span style="display:flex;"><span>9}
 </span></span></code></pre></div><p>其中，中间代码生成阶段的<code>state.append</code>方法，是我们重点关注的地方。入参 <code>inplace</code> 代表返回值是否覆盖原变量。如果为false，展开逻辑如下（注意：以下代码只是为了方便理解的伪代码，并不是 <code>state.append</code> 中实际的代码）。同时，小菜刀注意到如果写成 <code>append(s, e1, e2, e3)</code> 不带接收者的形式，并不能通过编译，所以暂未明白它的场景在哪。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    // If inplace is false, process as expression &#34;append(s, e1, e2, e3)&#34;: 
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    // If inplace is false, process as expression &#34;append(s, e1, e2, e3)&#34;: 
 </span></span><span style="display:flex;"><span> 2   ptr, len, cap := s
 </span></span><span style="display:flex;"><span> 3     newlen := len + 3
 </span></span><span style="display:flex;"><span> 4     if newlen &gt; cap {
@@ -310,7 +310,7 @@
 </span></span><span style="display:flex;"><span>11     *(ptr+len+2) = e3
 </span></span><span style="display:flex;"><span>12     return makeslice(ptr, newlen, cap)
 </span></span></code></pre></div><p>如果是true，例如 <code>slice = append(slice, 1, 2, 3)</code> 语句，那么返回值会覆盖原变量。展开方式逻辑如下</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    // If inplace is true, process as statement &#34;s = append(s, e1, e2, e3)&#34;:
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    // If inplace is true, process as statement &#34;s = append(s, e1, e2, e3)&#34;:
 </span></span><span style="display:flex;"><span> 2
 </span></span><span style="display:flex;"><span> 3     a := &amp;s
 </span></span><span style="display:flex;"><span> 4     ptr, len, cap := s
@@ -339,7 +339,7 @@
 <ol>
 <li><strong>初步确定切片容量</strong></li>
 </ol>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func growslice(et *_type, old slice, cap int) slice {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func growslice(et *_type, old slice, cap int) slice {
 </span></span><span style="display:flex;"><span> 2  ...
 </span></span><span style="display:flex;"><span> 3  newcap := old.cap
 </span></span><span style="display:flex;"><span> 4    doublecap := newcap + newcap
@@ -367,7 +367,7 @@
 <ol>
 <li><strong>计算容量所需内存大小</strong></li>
 </ol>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    var overflow bool
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    var overflow bool
 </span></span><span style="display:flex;"><span> 2    var lenmem, newlenmem, capmem uintptr
 </span></span><span style="display:flex;"><span> 3
 </span></span><span style="display:flex;"><span> 4    switch {
@@ -405,7 +405,7 @@
 </span></span><span style="display:flex;"><span>36    }
 </span></span></code></pre></div><p>在该环节，通过判断切片元素的字节大小是否为1，系统指针大小（32位为4，64位为8）或2的倍数，进入相应所需内存大小的计算逻辑。</p>
 <p>这里需要注意的是 <code>roundupsize</code> 函数，它根据输入期望大小 <code>size</code> ，返回 <code>mallocgc</code> 实际将分配的内存块的大小。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func roundupsize(size uintptr) uintptr {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func roundupsize(size uintptr) uintptr {
 </span></span><span style="display:flex;"><span> 2    if size &lt; _MaxSmallSize {
 </span></span><span style="display:flex;"><span> 3        if size &lt;= smallSizeMax-8 {
 </span></span><span style="display:flex;"><span> 4            return uintptr(class_to_size[size_to_class8[divRoundUp(size, smallSizeDiv)]])
@@ -422,13 +422,13 @@
 </span></span><span style="display:flex;"><span>15    return alignUp(size, _PageSize)
 </span></span><span style="display:flex;"><span>16}
 </span></span></code></pre></div><p>根据内存分配中的大小对象原则，如果期望分配内存非大对象 ( <code>&lt;_MaxSmallSize</code> )，即小于32k，则需要根据 <code>divRoundUp</code> 函数将待申请的内存向上取整，取整时会使用 <code>class_to_size</code> 以及 <code>size_to_class8</code> 和 <code>size_to_class128</code> 数组。这些数组方便于内存分配器进行分配，以提高分配效率并减少内存碎片。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1// _NumSizeClasses = 67 代表67种特定大小的对象类型
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1// _NumSizeClasses = 67 代表67种特定大小的对象类型
 </span></span><span style="display:flex;"><span>2var class_to_size = [_NumSizeClasses]uint16{0, 8, 16, 32, 48, 64, 80, 96, 112,...}
 </span></span></code></pre></div><p>当期望分配内存为大对象时，会通过 <code>alignUp</code> 将该 <code>size</code> 的大小向上取值为虚拟页大小（<code>_PageSize</code>）的倍数。</p>
 <ol>
 <li><strong>内存分配</strong></li>
 </ol>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    if overflow || capmem &gt; maxAlloc {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    if overflow || capmem &gt; maxAlloc {
 </span></span><span style="display:flex;"><span> 2        panic(errorString(&#34;growslice: cap out of range&#34;))
 </span></span><span style="display:flex;"><span> 3    }
 </span></span><span style="display:flex;"><span> 4
@@ -453,18 +453,18 @@
 <p><code>growslice</code>之后，此时新的slice已经拷贝了旧的slice数据，并且其底层数组有充足的剩余空间追加数据。后续只需拷贝追加数据至剩余空间，并修改 <code>len</code> 值即可，这一部分就不再深究了。</p>
 <p><strong>总结</strong></p>
 <p>这里回到文章开头中的例子</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#ae81ff">1</span><span style="color:#f92672">package</span> <span style="color:#a6e22e">main</span>
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">2</span>
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">3</span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">main</span>() {
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">4</span>    <span style="color:#a6e22e">s</span> <span style="color:#f92672">:=</span> []<span style="color:#66d9ef">int</span>{<span style="color:#ae81ff">1</span>,<span style="color:#ae81ff">2</span>}
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">5</span>    <span style="color:#a6e22e">s</span> = append(<span style="color:#a6e22e">s</span>, <span style="color:#ae81ff">3</span>,<span style="color:#ae81ff">4</span>,<span style="color:#ae81ff">5</span>)
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">6</span>    println(cap(<span style="color:#a6e22e">s</span>))
-</span></span><span style="display:flex;"><span><span style="color:#ae81ff">7</span>}
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>1<span style="color:#00f">package</span> main
+</span></span><span style="display:flex;"><span>2
+</span></span><span style="display:flex;"><span>3<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>4    s := []<span style="color:#00f">int</span>{1,2}
+</span></span><span style="display:flex;"><span>5    s = append(s, 3,4,5)
+</span></span><span style="display:flex;"><span>6    println(cap(s))
+</span></span><span style="display:flex;"><span>7}
 </span></span></code></pre></div><p>由于初始 <code>s</code> 的容量是2，现需要追加3个元素，所以通过 <code>append</code> 一定会触发扩容，并调用 <code>growslice</code> 函数，此时他的入参 <code>cap</code> 大小为2+3=5。通过翻倍原有容量得到 <code>doublecap</code> = 2+2，<code>doublecap</code> 小于 <code>cap</code> 值，所以在第一阶段计算出的期望容量值 <code>newcap=5</code>。在第二阶段中，元素类型大小 <code>int</code> 和 <code>sys.PtrSize</code> 相等，通过 <code>roundupsize</code> 向上取整内存的大小到 <code>capmem</code> = 48 字节，所以新切片的容量<code>newcap</code> 为 48 / 8 = 6 ，成功解释！</p>
 <p>在切片 <code>append</code> 操作时，如果底层数组已无可容纳追加元素的空间，则需扩容。扩容并不是在原有底层数组的基础上增加内存空间，而是新分配一块内存空间作为切片的底层数组，并将原有数据和追加数据拷贝至新的内存空间中。</p>
 <p>在扩容的容量确定上，相对比较复杂，它<strong>与CPU位数、元素大小、是否包含指针、追加个数</strong>等都有关系。当我们看完扩容源码逻辑后，发现去纠结它的扩容确切值并没什么必要。</p>
 <p><strong>在实际使用中，如果能够确定切片的容量范围，比较合适的做法是：切片初始化时就分配足够的容量空间，在append追加操作时，就不用再考虑扩容带来的性能损耗问题。</strong></p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func BenchmarkAppendFixCap(b *testing.B) {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func BenchmarkAppendFixCap(b *testing.B) {
 </span></span><span style="display:flex;"><span> 2    for i := 0; i &lt; b.N; i++ {
 </span></span><span style="display:flex;"><span> 3        a := make([]int, 0, 1000)
 </span></span><span style="display:flex;"><span> 4        for i := 0; i &lt; 1000; i++ {
@@ -482,7 +482,7 @@
 </span></span><span style="display:flex;"><span>16    }
 </span></span><span style="display:flex;"><span>17}
 </span></span></code></pre></div><p>它们的压测结果如下，孰优孰劣，一目了然。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1 $ go test -bench=. -benchmem
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1 $ go test -bench=. -benchmem
 </span></span><span style="display:flex;"><span>2
 </span></span><span style="display:flex;"><span>3BenchmarkAppendFixCap-8          1953373               617 ns/op               0 B/op          0 allocs/op
 </span></span><span style="display:flex;"><span>4BenchmarkAppend-8                 426882              2832 ns/op           16376 B/op         11 allocs/op
@@ -562,7 +562,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

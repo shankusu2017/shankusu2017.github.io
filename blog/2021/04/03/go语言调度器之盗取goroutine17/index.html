@@ -235,166 +235,166 @@
 <p>本文是《Go语言调度器源代码情景分析》系列的第17篇，也是第三章《Goroutine调度策略》的第2小节。</p>
 <p>上一小节我们分析了从全局运行队列与工作线程的本地运行队列获取goroutine的过程，这一小节我们继续分析因无法从上述两个队列中拿到需要运行的goroutine而导致的从其它工作线程的本地运行队列中盗取goroutine的过程。</p>
 <p>findrunnable() 函数负责处理与盗取相关的逻辑，该函数代码很繁杂，因为它还做了与gc和netpoll等相关的事情，为了不影响我们的分析思路，这里我们仍然把不相关的代码删掉了，不过代码还是比较多，但总结起来就一句话：尽力去各个运行队列中寻找goroutine，如果实在找不到则进入睡眠状态。下面是代码细节：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">2176</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 2176
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Finds a runnable goroutine to execute.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Tries to steal from other P&#39;s, get g from global queue, poll network.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">findrunnable</span>() (<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>, <span style="color:#a6e22e">inheritTime</span> <span style="color:#66d9ef">bool</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Finds a runnable goroutine to execute.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Tries to steal from other P&#39;s, get g from global queue, poll network.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">findrunnable</span>() (gp *g, inheritTime <span style="color:#00f">bool</span>) {
+</span></span><span style="display:flex;"><span>    _g_ := <span style="color:#c34e00">getg</span>()
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// The conditions here and in handoffp must agree: if
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// findrunnable would return a G to run, handoffp must start
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// an M.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">top</span>:
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_p_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">ptr</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// The conditions here and in handoffp must agree: if
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// findrunnable would return a G to run, handoffp must start
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// an M.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span>top:
+</span></span><span style="display:flex;"><span>    _p_ := _g_.m.p.<span style="color:#c34e00">ptr</span>()
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span>    ......
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// local runq
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//再次看一下本地运行队列是否有需要运行的goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">runqget</span>(<span style="color:#a6e22e">_p_</span>); <span style="color:#a6e22e">gp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// local runq
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//再次看一下本地运行队列是否有需要运行的goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> gp, inheritTime := <span style="color:#c34e00">runqget</span>(_p_); gp != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> gp, inheritTime
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// global runq
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//再看看全局运行队列是否有需要运行的goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">globrunqget</span>(<span style="color:#a6e22e">_p_</span>, <span style="color:#ae81ff">0</span>)
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>, <span style="color:#66d9ef">false</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// global runq
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//再看看全局运行队列是否有需要运行的goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> sched.runqsize != 0 {
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">lock</span>(&amp;sched.lock)
+</span></span><span style="display:flex;"><span>        gp := <span style="color:#c34e00">globrunqget</span>(_p_, 0)
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">unlock</span>(&amp;sched.lock)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> gp != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> gp, <span style="color:#00f">false</span>
 </span></span><span style="display:flex;"><span>        }
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span>    ......
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Steal work from other P&#39;s.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">//如果除了当前工作线程还在运行外，其它工作线程已经处于休眠中，那么也就不用去偷了，肯定没有
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">procs</span> <span style="color:#f92672">:=</span> uint32(<span style="color:#a6e22e">gomaxprocs</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Load</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">npidle</span>) <span style="color:#f92672">==</span> <span style="color:#a6e22e">procs</span><span style="color:#f92672">-</span><span style="color:#ae81ff">1</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Either GOMAXPROCS=1 or everybody, except for us, is idle already.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// New work can appear from returning syscall/cgocall, network or timers.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// Neither of that submits to local run queues, so no point in stealing.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">goto</span> <span style="color:#a6e22e">stop</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Steal work from other P&#39;s.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//如果除了当前工作线程还在运行外，其它工作线程已经处于休眠中，那么也就不用去偷了，肯定没有
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    procs := uint32(gomaxprocs)
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> atomic.<span style="color:#c34e00">Load</span>(&amp;sched.npidle) == procs-1 {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// Either GOMAXPROCS=1 or everybody, except for us, is idle already.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// New work can appear from returning syscall/cgocall, network or timers.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// Neither of that submits to local run queues, so no point in stealing.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">goto</span> stop
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// If number of spinning M&#39;s &gt;= number of busy P&#39;s, block.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// This is necessary to prevent excessive CPU consumption
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// when GOMAXPROCS&gt;&gt;1 but the program parallelism is low.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 这个判断主要是为了防止因为寻找可运行的goroutine而消耗太多的CPU。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 因为已经有足够多的工作线程正在寻找可运行的goroutine，让他们去找就好了，自己偷个懒去睡觉
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#ae81ff">2</span><span style="color:#f92672">*</span><span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Load</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">nmspinning</span>) <span style="color:#f92672">&gt;=</span> <span style="color:#a6e22e">procs</span><span style="color:#f92672">-</span><span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Load</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">npidle</span>) {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">goto</span> <span style="color:#a6e22e">stop</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// If number of spinning M&#39;s &gt;= number of busy P&#39;s, block.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// This is necessary to prevent excessive CPU consumption
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// when GOMAXPROCS&gt;&gt;1 but the program parallelism is low.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// 这个判断主要是为了防止因为寻找可运行的goroutine而消耗太多的CPU。
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// 因为已经有足够多的工作线程正在寻找可运行的goroutine，让他们去找就好了，自己偷个懒去睡觉
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> !_g_.m.spinning &amp;&amp; 2*atomic.<span style="color:#c34e00">Load</span>(&amp;sched.nmspinning) &gt;= procs-atomic.<span style="color:#c34e00">Load</span>(&amp;sched.npidle) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">goto</span> stop
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//设置m的状态为spinning
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> = <span style="color:#66d9ef">true</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//处于spinning状态的m数量加一
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Xadd</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">nmspinning</span>, <span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> !_g_.m.spinning {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//设置m的状态为spinning
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        _g_.m.spinning = <span style="color:#00f">true</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//处于spinning状态的m数量加一
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        atomic.<span style="color:#c34e00">Xadd</span>(&amp;sched.nmspinning, 1)
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>   
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//从其它p的本地运行队列盗取goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#ae81ff">4</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">enum</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">stealOrder</span>.<span style="color:#a6e22e">start</span>(<span style="color:#a6e22e">fastrand</span>()); !<span style="color:#a6e22e">enum</span>.<span style="color:#a6e22e">done</span>(); <span style="color:#a6e22e">enum</span>.<span style="color:#a6e22e">next</span>() {
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">gcwaiting</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">goto</span> <span style="color:#a6e22e">top</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//从其它p的本地运行队列盗取goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> i := 0; i &lt; 4; i++ {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> enum := stealOrder.<span style="color:#c34e00">start</span>(<span style="color:#c34e00">fastrand</span>()); !enum.<span style="color:#c34e00">done</span>(); enum.<span style="color:#c34e00">next</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> sched.gcwaiting != 0 {
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">goto</span> top
 </span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">stealRunNextG</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">i</span> &gt; <span style="color:#ae81ff">2</span> <span style="color:#75715e">// first look for ready queues with more than 1 g
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">runqsteal</span>(<span style="color:#a6e22e">_p_</span>, <span style="color:#a6e22e">allp</span>[<span style="color:#a6e22e">enum</span>.<span style="color:#a6e22e">position</span>()], <span style="color:#a6e22e">stealRunNextG</span>); <span style="color:#a6e22e">gp</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>, <span style="color:#66d9ef">false</span>
+</span></span><span style="display:flex;"><span>            stealRunNextG := i &gt; 2 <span style="color:#f00;font-style:italic">// first look for ready queues with more than 1 g
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> gp := <span style="color:#c34e00">runqsteal</span>(_p_, allp[enum.<span style="color:#c34e00">position</span>()], stealRunNextG); gp != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">return</span> gp, <span style="color:#00f">false</span>
 </span></span><span style="display:flex;"><span>            }
 </span></span><span style="display:flex;"><span>        }
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">stop</span>:
+</span></span><span style="display:flex;"><span>stop:
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span>    ......
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Before we drop our P, make a snapshot of the allp slice,
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// which can change underfoot once we no longer block
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// safe-points. We don&#39;t need to snapshot the contents because
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// everything up to cap(allp) is immutable.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">allpSnapshot</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">allp</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Before we drop our P, make a snapshot of the allp slice,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// which can change underfoot once we no longer block
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// safe-points. We don&#39;t need to snapshot the contents because
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// everything up to cap(allp) is immutable.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    allpSnapshot := allp
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// return P and block
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// return P and block
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">lock</span>(&amp;sched.lock)
 </span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span>    ......
 </span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">runqsize</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">globrunqget</span>(<span style="color:#a6e22e">_p_</span>, <span style="color:#ae81ff">0</span>)
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>, <span style="color:#66d9ef">false</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> sched.runqsize != 0 {
+</span></span><span style="display:flex;"><span>        gp := <span style="color:#c34e00">globrunqget</span>(_p_, 0)
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">unlock</span>(&amp;sched.lock)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> gp, <span style="color:#00f">false</span>
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>   
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 当前工作线程解除与p之间的绑定，准备去休眠
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">releasep</span>() <span style="color:#f92672">!=</span> <span style="color:#a6e22e">_p_</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;findrunnable: wrong p&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 当前工作线程解除与p之间的绑定，准备去休眠
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> <span style="color:#c34e00">releasep</span>() != _p_ {
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;findrunnable: wrong p&#34;</span>)
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//把p放入空闲队列
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">pidleput</span>(<span style="color:#a6e22e">_p_</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//把p放入空闲队列
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">pidleput</span>(_p_)
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">unlock</span>(&amp;sched.lock)
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Delicate dance: thread transitions from spinning to non-spinning state,
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// potentially concurrently with submission of new goroutines. We must
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// drop nmspinning first and then check all per-P queues again (with
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// #StoreLoad memory barrier in between). If we do it the other way around,
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// another thread can submit a goroutine after we&#39;ve checked all run queues
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// but before we drop nmspinning; as the result nobody will unpark a thread
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// to run the goroutine.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// If we discover new work below, we need to restore m.spinning as a signal
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// for resetspinning to unpark a new worker thread (because there can be more
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// than one starving goroutine). However, if after discovering new work
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// we also observe no idle Ps, it is OK to just park the current thread:
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// the system is fully loaded so no spinning threads are required.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Also see &#34;Worker thread parking/unparking&#34; comment at the top of the file.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">wasSpinning</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//m即将睡眠，状态不再是spinning
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> = <span style="color:#66d9ef">false</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> int32(<span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Xadd</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">nmspinning</span>, <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)) &lt; <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;findrunnable: negative nmspinning&#34;</span>)
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Delicate dance: thread transitions from spinning to non-spinning state,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// potentially concurrently with submission of new goroutines. We must
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// drop nmspinning first and then check all per-P queues again (with
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// #StoreLoad memory barrier in between). If we do it the other way around,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// another thread can submit a goroutine after we&#39;ve checked all run queues
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// but before we drop nmspinning; as the result nobody will unpark a thread
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// to run the goroutine.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// If we discover new work below, we need to restore m.spinning as a signal
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// for resetspinning to unpark a new worker thread (because there can be more
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// than one starving goroutine). However, if after discovering new work
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// we also observe no idle Ps, it is OK to just park the current thread:
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// the system is fully loaded so no spinning threads are required.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Also see &#34;Worker thread parking/unparking&#34; comment at the top of the file.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    wasSpinning := _g_.m.spinning
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> _g_.m.spinning {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//m即将睡眠，状态不再是spinning
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        _g_.m.spinning = <span style="color:#00f">false</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> int32(atomic.<span style="color:#c34e00">Xadd</span>(&amp;sched.nmspinning, -1)) &lt; 0 {
+</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;findrunnable: negative nmspinning&#34;</span>)
 </span></span><span style="display:flex;"><span>        }
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// check all runqueues once again
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 休眠之前再看一下是否有工作要做
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">_p_</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">allpSnapshot</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> !<span style="color:#a6e22e">runqempty</span>(<span style="color:#a6e22e">_p_</span>) {
-</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">_p_</span> = <span style="color:#a6e22e">pidleget</span>()
-</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_p_</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">acquirep</span>(<span style="color:#a6e22e">_p_</span>)
-</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">wasSpinning</span> {
-</span></span><span style="display:flex;"><span>                    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> = <span style="color:#66d9ef">true</span>
-</span></span><span style="display:flex;"><span>                    <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Xadd</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">nmspinning</span>, <span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// check all runqueues once again
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// 休眠之前再看一下是否有工作要做
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> _, _p_ := <span style="color:#00f">range</span> allpSnapshot {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> !<span style="color:#c34e00">runqempty</span>(_p_) {
+</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">lock</span>(&amp;sched.lock)
+</span></span><span style="display:flex;"><span>            _p_ = <span style="color:#c34e00">pidleget</span>()
+</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">unlock</span>(&amp;sched.lock)
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> _p_ != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#c34e00">acquirep</span>(_p_)
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">if</span> wasSpinning {
+</span></span><span style="display:flex;"><span>                    _g_.m.spinning = <span style="color:#00f">true</span>
+</span></span><span style="display:flex;"><span>                    atomic.<span style="color:#c34e00">Xadd</span>(&amp;sched.nmspinning, 1)
 </span></span><span style="display:flex;"><span>                }
-</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">goto</span> <span style="color:#a6e22e">top</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">goto</span> top
 </span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">break</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">break</span>
 </span></span><span style="display:flex;"><span>        }
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#f92672">......</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//休眠
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">stopm</span>()
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">goto</span> <span style="color:#a6e22e">top</span>
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//休眠
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">stopm</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">goto</span> top
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>从上面的代码可以看到，工作线程在放弃寻找可运行的goroutine而进入睡眠之前，会反复尝试从各个运行队列寻找需要运行的goroutine，可谓是尽心尽力了。这个函数需要重点注意以下两点：</p>
 <p>第一点，工作线程M的自旋状态(spinning)。工作线程在从其它工作线程的本地运行队列中盗取goroutine时的状态称为自旋状态。从上面代码可以看到，当前M在去其它p的运行队列盗取goroutine之前把spinning标志设置成了true，同时增加处于自旋状态的M的数量，而盗取结束之后则把spinning标志还原为false，同时减少处于自旋状态的M的数量，从后面的分析我们可以看到，当有空闲P又有goroutine需要运行的时候，这个处于自旋状态的M的数量决定了是否需要唤醒或者创建新的工作线程。</p>
 <p>第二点，盗取算法。盗取过程用了两个嵌套for循环。内层循环实现了盗取逻辑，从代码可以看出盗取的实质就是遍历allp中的所有p，查看其运行队列是否有goroutine，如果有，则取其一半到当前工作线程的运行队列，然后从findrunnable返回，如果没有则继续遍历下一个p。但这里为了保证公平性，遍历allp时并不是固定的从allp[0]即第一个p开始，而是从随机位置上的p开始，而且遍历的顺序也随机化了，并不是现在访问了第i个p下一次就访问第i+1个p，而是使用了一种伪随机的方式遍历allp中的每个p，防止每次遍历时使用同样的顺序访问allp中的元素。下面是这个算法的伪代码：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">offset</span> <span style="color:#f92672">:=</span> uint32(<span style="color:#a6e22e">random</span>()) <span style="color:#f92672">%</span> <span style="color:#a6e22e">nprocs</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">coprime</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">随机选取一个小于nprocs且与nprocs互质的数</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">0</span>; <span style="color:#a6e22e">i</span> &lt; <span style="color:#a6e22e">nprocs</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">p</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">allp</span>[<span style="color:#a6e22e">offset</span>]
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">从p的运行队列偷取goroutine</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">偷取成功</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">break</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>offset := uint32(<span style="color:#c34e00">random</span>()) % nprocs
+</span></span><span style="display:flex;"><span>coprime := 随机选取一个小于nprocs且与nprocs互质的数
+</span></span><span style="display:flex;"><span><span style="color:#00f">for</span> i := 0; i &lt; nprocs; i++ {
+</span></span><span style="display:flex;"><span>    p := allp[offset]
+</span></span><span style="display:flex;"><span>    从p的运行队列偷取goroutine
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> 偷取成功 {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">break</span>
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">offset</span> <span style="color:#f92672">+=</span> <span style="color:#a6e22e">coprime</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">offset</span> = <span style="color:#a6e22e">offset</span> <span style="color:#f92672">%</span> <span style="color:#a6e22e">nprocs</span>
+</span></span><span style="display:flex;"><span>    offset += coprime
+</span></span><span style="display:flex;"><span>    offset = offset % nprocs
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>下面举例说明一下上述算法过程，现假设nprocs为8，也就是一共有8个p。</p>
 <p>如果第一次随机选择的offset = 6，coprime = 3(3与8互质，满足算法要求)的话，则从allp切片中偷取的下标顺序为6, 1, 4, 7, 2, 5, 0, 3，计算过程：</p>
@@ -403,147 +403,147 @@
 <p>1，(1+5)%8=6，(6+5)%8=3, (3+5)%8=0, (0+5)%8=5, (5+5)%8=2, (2+5)%8=7, (7+5)%8=4
 可以看到只要随机数不一样，偷取p的顺序也不一样，但可以保证经过8次循环，每个p都会被访问到。可以用数论知识证明，不管nprocs是多少，这个算法都可以保证经过nprocs次循环，每个p都可以得到访问。</p>
 <p>挑选出盗取的对象p之后，则调用runqsteal盗取p的运行队列中的goroutine，runqsteal函数再调用runqgrap从p的队列中批量拿出多个goroutine，这两个函数本身比较简单，但runqgrab有一个小细节需要注意一下，见下面代码：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">4854</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 4854
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Grabs a batch of goroutines from _p_&#39;s runnable queue into batch.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Batch is a ring buffer starting at batchHead.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Returns number of grabbed goroutines.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Can be executed by any P.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">runqgrab</span>(<span style="color:#a6e22e">_p_</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">p</span>, <span style="color:#a6e22e">batch</span> <span style="color:#f92672">*</span>[<span style="color:#ae81ff">256</span>]<span style="color:#a6e22e">guintptr</span>, <span style="color:#a6e22e">batchHead</span> <span style="color:#66d9ef">uint32</span>, <span style="color:#a6e22e">stealRunNextG</span> <span style="color:#66d9ef">bool</span>) <span style="color:#66d9ef">uint32</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">h</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">LoadAcq</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runqhead</span>) <span style="color:#75715e">// load-acquire, synchronize with other consumers
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">t</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">LoadAcq</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runqtail</span>) <span style="color:#75715e">// load-acquire, synchronize with the producer
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">n</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">t</span> <span style="color:#f92672">-</span> <span style="color:#a6e22e">h</span>        <span style="color:#75715e">//计算队列中有多少个goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">n</span> = <span style="color:#a6e22e">n</span> <span style="color:#f92672">-</span> <span style="color:#a6e22e">n</span><span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>     <span style="color:#75715e">//取队列中goroutine个数的一半
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">n</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#f92672">......</span>
-</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Grabs a batch of goroutines from _p_&#39;s runnable queue into batch.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Batch is a ring buffer starting at batchHead.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Returns number of grabbed goroutines.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Can be executed by any P.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">runqgrab</span>(_p_ *p, batch *[256]guintptr, batchHead <span style="color:#00f">uint32</span>, stealRunNextG <span style="color:#00f">bool</span>) <span style="color:#00f">uint32</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> {
+</span></span><span style="display:flex;"><span>        h := atomic.<span style="color:#c34e00">LoadAcq</span>(&amp;_p_.runqhead) <span style="color:#f00;font-style:italic">// load-acquire, synchronize with other consumers
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        t := atomic.<span style="color:#c34e00">LoadAcq</span>(&amp;_p_.runqtail) <span style="color:#f00;font-style:italic">// load-acquire, synchronize with the producer
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        n := t - h        <span style="color:#f00;font-style:italic">//计算队列中有多少个goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        n = n - n/2     <span style="color:#f00;font-style:italic">//取队列中goroutine个数的一半
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> n == 0 {
+</span></span><span style="display:flex;"><span>            ......
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> ......
 </span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//小细节：按理说队列中的goroutine个数最多就是len(_p_.runq)，
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">//所以n的最大值也就是len(_p_.runq)/2，那为什么需要这个判断呢？
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">n</span> &gt; uint32(len(<span style="color:#a6e22e">_p_</span>.<span style="color:#a6e22e">runq</span>)<span style="color:#f92672">/</span><span style="color:#ae81ff">2</span>) { <span style="color:#75715e">// read inconsistent h and t
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//小细节：按理说队列中的goroutine个数最多就是len(_p_.runq)，
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//所以n的最大值也就是len(_p_.runq)/2，那为什么需要这个判断呢？
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> n &gt; uint32(len(_p_.runq)/2) { <span style="color:#f00;font-style:italic">// read inconsistent h and t
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">continue</span>
 </span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#f92672">......</span>
+</span></span><span style="display:flex;"><span>        ......
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>代码中n的计算很简单，从计算过程来看n应该是runq队列中goroutine数量的一半，它的最大值不会超过队列容量的一半，但为什么这里的代码却偏偏要去判断n是否大于队列容量的一半呢？这里关键点在于读取runqhead和runqtail是两个操作而非一个原子操作，当我们读取runqhead之后但还未读取runqtail之前，如果有其它线程快速的在增加（这是完全有可能的，其它偷取者从队列中偷取goroutine会增加runqhead，而队列的所有者往队列中添加goroutine会增加runqtail）这两个值，则会导致我们读取出来的runqtail已经远远大于我们之前读取出来放在局部变量h里面的runqhead了，也就是代码注释中所说的h和t已经不一致了，所以这里需要这个if判断来检测异常情况。</p>
 <p>工作线程进入睡眠</p>
 <p>分析完盗取过程，我们继续回到findrunnable函数。</p>
 <p>如果工作线程经过多次努力一直找不到需要运行的goroutine则调用stopm进入睡眠状态，等待被其它工作线程唤醒。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">proc</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">1918</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 1918
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Stops execution of the current m until new work is available.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Returns with acquired P.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">stopm</span>() {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Stops execution of the current m until new work is available.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Returns with acquired P.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">stopm</span>() {
+</span></span><span style="display:flex;"><span>    _g_ := <span style="color:#c34e00">getg</span>()
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">locks</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;stopm holding locks&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> _g_.m.locks != 0 {
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;stopm holding locks&#34;</span>)
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">p</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;stopm holding p&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> _g_.m.p != 0 {
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;stopm holding p&#34;</span>)
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">spinning</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;stopm spinning&#34;</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> _g_.m.spinning {
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;stopm spinning&#34;</span>)
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mput</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>)   <span style="color:#75715e">//把m结构体对象放入sched.midle空闲队列
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lock</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">notesleep</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">park</span>)  <span style="color:#75715e">//进入睡眠状态
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//被其它工作线程唤醒
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">noteclear</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">park</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">acquirep</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">nextp</span>.<span style="color:#a6e22e">ptr</span>())
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">nextp</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lock</span>(&amp;sched.lock)
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">mput</span>(_g_.m)   <span style="color:#f00;font-style:italic">//把m结构体对象放入sched.midle空闲队列
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">unlock</span>(&amp;sched.lock)
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">notesleep</span>(&amp;_g_.m.park)  <span style="color:#f00;font-style:italic">//进入睡眠状态
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//被其它工作线程唤醒
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">noteclear</span>(&amp;_g_.m.park)
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">acquirep</span>(_g_.m.nextp.<span style="color:#c34e00">ptr</span>())
+</span></span><span style="display:flex;"><span>    _g_.m.nextp = 0
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>stopm的核心是调用mput把m结构体对象放入sched的midle空闲队列，然后通过notesleep(&amp;m.park)函数让自己进入睡眠状态。</p>
 <p>note是go runtime实现的一次性睡眠和唤醒机制，一个线程可以通过调用notesleep(*note)进入睡眠状态，而另外一个线程则可以通过notewakeup(*note)把其唤醒。note的底层实现机制跟操作系统相关，不同系统使用不同的机制，比如linux下使用的futex系统调用，而mac下则是使用的pthread_cond_t条件变量，note对这些底层机制做了一个抽象和封装，这种封装给扩展性带来了很大的好处，比如当睡眠和唤醒功能需要支持新平台时，只需要在note层增加对特定平台的支持即可，不需要修改上层的任何代码。</p>
 <p>回到stopm，当从notesleep函数返回后，需要再次绑定一个p，然后返回到findrunnable函数继续重新寻找可运行的goroutine，一旦找到可运行的goroutine就会返回到schedule函数，并把找到的goroutine调度起来运行，如何把goroutine调度起来运行的代码我们已经分析过了。现在继续看notesleep函数。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">lock_futex</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">139</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/lock_futex.<span style="color:#00f">go</span> : 139
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">notesleep</span>(<span style="color:#a6e22e">n</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">note</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">g0</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">throw</span>(<span style="color:#e6db74">&#34;notesleep not on g0&#34;</span>)
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">notesleep</span>(n *note) {
+</span></span><span style="display:flex;"><span>    gp := <span style="color:#c34e00">getg</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> gp != gp.m.g0 {
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;notesleep not on g0&#34;</span>)
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">ns</span> <span style="color:#f92672">:=</span> int64(<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)  <span style="color:#75715e">//超时时间设置为-1，表示无限期等待
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">cgo_yield</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Sleep for an arbitrary-but-moderate interval to poll libc interceptors.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">ns</span> = <span style="color:#ae81ff">10e6</span>
+</span></span><span style="display:flex;"><span>    ns := int64(-1)  <span style="color:#f00;font-style:italic">//超时时间设置为-1，表示无限期等待
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> *cgo_yield != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// Sleep for an arbitrary-but-moderate interval to poll libc interceptors.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        ns = 10e6
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">//使用循环，保证不是意外被唤醒
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Load</span>(<span style="color:#a6e22e">key32</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">n</span>.<span style="color:#a6e22e">key</span>)) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">blocked</span> = <span style="color:#66d9ef">true</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">futexsleep</span>(<span style="color:#a6e22e">key32</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">n</span>.<span style="color:#a6e22e">key</span>), <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">ns</span>)
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">cgo_yield</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">asmcgocall</span>(<span style="color:#f92672">*</span><span style="color:#a6e22e">cgo_yield</span>, <span style="color:#66d9ef">nil</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//使用循环，保证不是意外被唤醒
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> atomic.<span style="color:#c34e00">Load</span>(<span style="color:#c34e00">key32</span>(&amp;n.key)) == 0 {
+</span></span><span style="display:flex;"><span>        gp.m.blocked = <span style="color:#00f">true</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">futexsleep</span>(<span style="color:#c34e00">key32</span>(&amp;n.key), 0, ns)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> *cgo_yield != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">asmcgocall</span>(*cgo_yield, <span style="color:#00f">nil</span>)
 </span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">blocked</span> = <span style="color:#66d9ef">false</span>
+</span></span><span style="display:flex;"><span>        gp.m.blocked = <span style="color:#00f">false</span>
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>notesleep函数调用futexsleep进入睡眠，这里之所以需要用一个循环，是因为futexsleep有可能意外从睡眠中返回，所以从futexsleep函数返回后还需要检查note.key是否还是0，如果是0则表示并不是其它工作线程唤醒了我们，只是futexsleep意外返回了，需要再次调用futexsleep进入睡眠。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">futexsleep调用futex函数进入睡眠</span><span style="color:#960050;background-color:#1e0010">。</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>futexsleep调用futex函数进入睡眠。
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">os_linux</span>.<span style="color:#66d9ef">go</span> : <span style="color:#ae81ff">32</span>
+</span></span><span style="display:flex;"><span>runtime/os_linux.<span style="color:#00f">go</span> : 32
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// Atomically,
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//if(*addr == val) sleep
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Might be woken up spuriously; that&#39;s allowed.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Don&#39;t sleep longer than ns; ns &lt; 0 means forever.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//go:nosplit
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">futexsleep</span>(<span style="color:#a6e22e">addr</span> <span style="color:#f92672">*</span><span style="color:#66d9ef">uint32</span>, <span style="color:#a6e22e">val</span> <span style="color:#66d9ef">uint32</span>, <span style="color:#a6e22e">ns</span> <span style="color:#66d9ef">int64</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">ts</span> <span style="color:#a6e22e">timespec</span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Atomically,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//if(*addr == val) sleep
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Might be woken up spuriously; that&#39;s allowed.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Don&#39;t sleep longer than ns; ns &lt; 0 means forever.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//go:nosplit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">futexsleep</span>(addr *<span style="color:#00f">uint32</span>, val <span style="color:#00f">uint32</span>, ns <span style="color:#00f">int64</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">var</span> ts timespec
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Some Linux kernels have a bug where futex of
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// FUTEX_WAIT returns an internal error code
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// as an errno. Libpthread ignores the return value
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// here, and so can we: as it says a few lines up,
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// spurious wakeups are allowed.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ns</span> &lt; <span style="color:#ae81ff">0</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//调用futex进入睡眠
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">futex</span>(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">addr</span>), <span style="color:#a6e22e">_FUTEX_WAIT_PRIVATE</span>, <span style="color:#a6e22e">val</span>, <span style="color:#66d9ef">nil</span>, <span style="color:#66d9ef">nil</span>, <span style="color:#ae81ff">0</span>)
-</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Some Linux kernels have a bug where futex of
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// FUTEX_WAIT returns an internal error code
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// as an errno. Libpthread ignores the return value
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// here, and so can we: as it says a few lines up,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// spurious wakeups are allowed.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> ns &lt; 0 {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//调用futex进入睡眠
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">futex</span>(unsafe.<span style="color:#c34e00">Pointer</span>(addr), _FUTEX_WAIT_PRIVATE, val, <span style="color:#00f">nil</span>, <span style="color:#00f">nil</span>, 0)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span>
 </span></span><span style="display:flex;"><span>    }
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// It&#39;s difficult to live within the no-split stack limits here.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// On ARM and 386, a 64-bit divide invokes a general software routine
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// that needs more stack than we can afford. So we use timediv instead.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// But on real 64-bit systems, where words are larger but the stack limit
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// is not, even timediv is too heavy, and we really need to use just an
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// ordinary machine instruction.
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">sys</span>.<span style="color:#a6e22e">PtrSize</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">8</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">ts</span>.<span style="color:#a6e22e">set_sec</span>(<span style="color:#a6e22e">ns</span> <span style="color:#f92672">/</span> <span style="color:#ae81ff">1000000000</span>)
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">ts</span>.<span style="color:#a6e22e">set_nsec</span>(int32(<span style="color:#a6e22e">ns</span> <span style="color:#f92672">%</span> <span style="color:#ae81ff">1000000000</span>))
-</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">ts</span>.<span style="color:#a6e22e">tv_nsec</span> = <span style="color:#ae81ff">0</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">ts</span>.<span style="color:#a6e22e">set_sec</span>(int64(<span style="color:#a6e22e">timediv</span>(<span style="color:#a6e22e">ns</span>, <span style="color:#ae81ff">1000000000</span>, (<span style="color:#f92672">*</span><span style="color:#66d9ef">int32</span>)(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ts</span>.<span style="color:#a6e22e">tv_nsec</span>)))))
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// It&#39;s difficult to live within the no-split stack limits here.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// On ARM and 386, a 64-bit divide invokes a general software routine
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// that needs more stack than we can afford. So we use timediv instead.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// But on real 64-bit systems, where words are larger but the stack limit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// is not, even timediv is too heavy, and we really need to use just an
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// ordinary machine instruction.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> sys.PtrSize == 8 {
+</span></span><span style="display:flex;"><span>        ts.<span style="color:#c34e00">set_sec</span>(ns / 1000000000)
+</span></span><span style="display:flex;"><span>        ts.<span style="color:#c34e00">set_nsec</span>(int32(ns % 1000000000))
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        ts.tv_nsec = 0
+</span></span><span style="display:flex;"><span>        ts.<span style="color:#c34e00">set_sec</span>(int64(<span style="color:#c34e00">timediv</span>(ns, 1000000000, (*<span style="color:#00f">int32</span>)(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;ts.tv_nsec)))))
 </span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">futex</span>(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">addr</span>), <span style="color:#a6e22e">_FUTEX_WAIT_PRIVATE</span>, <span style="color:#a6e22e">val</span>, <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ts</span>), <span style="color:#66d9ef">nil</span>, <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">futex</span>(unsafe.<span style="color:#c34e00">Pointer</span>(addr), _FUTEX_WAIT_PRIVATE, val, unsafe.<span style="color:#c34e00">Pointer</span>(&amp;ts), <span style="color:#00f">nil</span>, 0)
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>futex是go汇编实现的函数，主要功能就是执行futex系统调用进入操作系统内核进行睡眠。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">runtime</span><span style="color:#f92672">/</span><span style="color:#a6e22e">sys_linux_amd64</span>.<span style="color:#a6e22e">s</span> : <span style="color:#ae81ff">525</span>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/sys_linux_amd64.s : 525
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#75715e">// int64 futex(int32 *uaddr, int32 op, int32 val,
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//struct timespec *timeout, int32 *uaddr2, int32 val2);
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">TEXT</span> <span style="color:#a6e22e">runtime</span><span style="color:#960050;background-color:#1e0010">·</span><span style="color:#a6e22e">futex</span>(<span style="color:#a6e22e">SB</span>),<span style="color:#a6e22e">NOSPLIT</span>,<span style="color:#960050;background-color:#1e0010">$</span><span style="color:#ae81ff">0</span>
-</span></span><span style="display:flex;"><span>   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">下面的6条指令在为futex系统调用准备参数</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">addr</span><span style="color:#f92672">+</span><span style="color:#ae81ff">0</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">DI</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">MOVL</span>   <span style="color:#a6e22e">op</span><span style="color:#f92672">+</span><span style="color:#ae81ff">8</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">SI</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">MOVL</span>   <span style="color:#a6e22e">val</span><span style="color:#f92672">+</span><span style="color:#ae81ff">12</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">DX</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">ts</span><span style="color:#f92672">+</span><span style="color:#ae81ff">16</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">R10</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">MOVQ</span>  <span style="color:#a6e22e">addr2</span><span style="color:#f92672">+</span><span style="color:#ae81ff">24</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">R8</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">MOVL</span>   <span style="color:#a6e22e">val3</span><span style="color:#f92672">+</span><span style="color:#ae81ff">32</span>(<span style="color:#a6e22e">FP</span>), <span style="color:#a6e22e">R9</span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// int64 futex(int32 *uaddr, int32 op, int32 val,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//struct timespec *timeout, int32 *uaddr2, int32 val2);
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">futex</span>(SB),NOSPLIT,$0
+</span></span><span style="display:flex;"><span>   #下面的6条指令在为futex系统调用准备参数
+</span></span><span style="display:flex;"><span>MOVQ  addr+0(FP), DI
+</span></span><span style="display:flex;"><span>MOVL   op+8(FP), SI
+</span></span><span style="display:flex;"><span>MOVL   val+12(FP), DX
+</span></span><span style="display:flex;"><span>MOVQ  ts+16(FP), R10
+</span></span><span style="display:flex;"><span>MOVQ  addr2+24(FP), R8
+</span></span><span style="display:flex;"><span>MOVL   val3+32(FP), R9
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">MOVL</span>   <span style="color:#960050;background-color:#1e0010">$</span><span style="color:#a6e22e">SYS_futex</span>, <span style="color:#a6e22e">AX</span>   <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">系统调用编号放入AX寄存器</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">SYSCALL</span>  <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">执行futex系统调用进入睡眠</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">从睡眠中被唤醒后接着执行下一条MOVL指令</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">MOVL</span>   <span style="color:#a6e22e">AX</span>, <span style="color:#a6e22e">ret</span><span style="color:#f92672">+</span><span style="color:#ae81ff">40</span>(<span style="color:#a6e22e">FP</span>)    <span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">保存系统调用的返回值</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">RET</span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">futex系统的参数比较多</span><span style="color:#960050;background-color:#1e0010">，</span><span style="color:#a6e22e">其函数原型为</span>
+</span></span><span style="display:flex;"><span>MOVL   $SYS_futex, AX   #系统调用编号放入AX寄存器
+</span></span><span style="display:flex;"><span>SYSCALL  #执行futex系统调用进入睡眠，从睡眠中被唤醒后接着执行下一条MOVL指令
+</span></span><span style="display:flex;"><span>MOVL   AX, ret+40(FP)    #保存系统调用的返回值
+</span></span><span style="display:flex;"><span>RET
+</span></span><span style="display:flex;"><span>futex系统的参数比较多，其函数原型为
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int64</span> <span style="color:#a6e22e">futex</span>(<span style="color:#66d9ef">int32</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">uaddr</span>, <span style="color:#66d9ef">int32</span> <span style="color:#a6e22e">op</span>, <span style="color:#66d9ef">int32</span> <span style="color:#a6e22e">val</span>, <span style="color:#66d9ef">struct</span> <span style="color:#a6e22e">timespec</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">timeout</span>, <span style="color:#66d9ef">int32</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">uaddr2</span>, <span style="color:#66d9ef">int32</span> <span style="color:#a6e22e">val2</span>);
+</span></span><span style="display:flex;"><span><span style="color:#00f">int64</span> <span style="color:#c34e00">futex</span>(<span style="color:#00f">int32</span> *uaddr, <span style="color:#00f">int32</span> op, <span style="color:#00f">int32</span> val, <span style="color:#00f">struct</span> timespec *timeout, <span style="color:#00f">int32</span> *uaddr2, <span style="color:#00f">int32</span> val2);
 </span></span></code></pre></div><p>这里，futex系统调用为我们提供的功能为如果 <em>uaddr == val 则进入睡眠，否则直接返回。顺便说一下，为什么futex系统调用需要第三个参数val，需要在内核判断</em>uaddr与val是否相等，而不能在用户态先判断它们是否相等，如果相等才进入内核睡眠岂不是更高效？原因在于判断<em>uaddr与val是否相等和进入睡眠这两个操作必须是一个原子操作，否则会存在一个竞态条件：如果不是原子操作，则当前线程在第一步判断完</em>uaddr与val相等之后进入睡眠之前的这一小段时间内，有另外一个线程通过唤醒操作把*uaddr的值修改了，这就会导致当前工作线程永远处于睡眠状态而无人唤醒它。而在用户态无法实现判断与进入睡眠这两步为一个原子操作，所以需要内核来为其实现原子操作。</p>
 <p>我们知道线程一旦进入睡眠状态就停止了运行，那么如果后来又有可运行的goroutine需要工作线程去运行，正在睡眠的线程怎么知道有工作可做了呢？</p>
 <p>从前面的代码我们已经看到，stopm调用notesleep时给它传递的参数是m结构体的park成员，而m又早已通过mput放入了全局的milde空闲队列，这样其它运行着的线程一旦发现有更多的goroutine需要运行时就可以通过全局的m空闲队列找到处于睡眠状态的m，然后调用notewakeup(&amp;m.park)将其唤醒，至于怎么唤醒，我们在其它章节继续讨论。</p>
@@ -625,7 +625,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

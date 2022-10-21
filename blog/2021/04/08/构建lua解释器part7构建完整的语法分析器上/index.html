@@ -264,13 +264,13 @@ Lua的Parser的主要工作，就是进行语法分析和语义分析，最后�
 <h1 id="本章parser要实现的部分">本章Parser要实现的部分</h1>
 <p>​    在继续讨论之前，我们首先要理清楚两个概念，即是statement和expression。首先我们来看看，在一门语言中什么是expression？expression是一个表达式，表达式最终能够演变成一个值，并且这个值可以被赋值到一个变量中，符合这个条件的就是expression否则就是statement[4]。而statement则是一系列操作的集合，它其他包含一系列的expression或者statement。statement是一门语言中单独的一个单元，一门语言中，有不同的statement类别，并且这些有限类别的statement组成的序列，构成一门语言的逻辑代码。
 ​    我们现在来看一个例子，如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a = 1
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a = 1
 </span></span><span style="display:flex;"><span>b = 1+2*(3-4)
 </span></span><span style="display:flex;"><span>c = true
 </span></span><span style="display:flex;"><span>d = nil
 </span></span></code></pre></div><p>左边所示的a、b、c、d是变量，右边的1、1+2*(3-4)、true和nil，最终能够演变成一个值，并且可以赋值给左边的变量，因此他们是表达式，而每一行的赋值语句，则是单独的statement。
 此外，我们还有以下几种statement，并且这些statement都不能演变成一个值，并赋值到一个变量中：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// do end statement
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// do end statement
 </span></span><span style="display:flex;"><span>do block end 
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>// while statement
@@ -298,7 +298,7 @@ Lua的Parser的主要工作，就是进行语法分析和语义分析，最后�
 </span></span><span style="display:flex;"><span>functioncall
 </span></span></code></pre></div><p>这里需要注意的是，在lua中，function是个单独的类型，因此function statement是可以直接被赋值到某个变量的，因此从某种意义上来说，它也是expression，但是传统定义上，比如我们的c语言，这些都是作为statement存在的，我们现在需要关注这个特例。此外，functioncall是在expr statement分支里调用的，但是它的实现是包含在suffixedexp的函数里的，在lua中其本质上也被归类为expression。
 我们现在来复习一下，构成lua语言的EBNF范式表达，从最顶层的层面来看，我们可以看到如下的结果：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>chunk ::= {stat [`;´]} [laststat[`;´]]
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>chunk ::= {stat [`;´]} [laststat[`;´]]
 </span></span></code></pre></div><p>其中stat表示statement，laststat表示last statement。一个lua脚本表示为一个chunk，一段被输入解释器的代码字符串也是一个chunk，上述的范式很好地表达了，statement是构成lua代码的最基础的单元。虽然Part5中有对EBNF范式进行说明，这里我们再来复习一下它的用法：</p>
 <ul>
 <li>{}表示内部的元素将会重复0次或者多次</li>
@@ -309,14 +309,14 @@ Lua的Parser的主要工作，就是进行语法分析和语义分析，最后�
 </ul>
 <p>如果你忘记terminal和nonterminal的概念，可以回到Part5的EBNF章节复习一下。
 现在我们再来看一下，这个stat和laststat的EBNF表达:</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>stat ::= ifstat | whilestat | dostat | forstat | repeatstat | functionstat | 
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>stat ::= ifstat | whilestat | dostat | forstat | repeatstat | functionstat | 
 </span></span><span style="display:flex;"><span>         localstat | labelstat | returnstat | gotostat | exprstat
 </span></span><span style="display:flex;"><span>laststat ::= return [explist]  |  break
 </span></span></code></pre></div><p>​    现在我们通过一张图来展示它的statement类别：</p>
 <p><img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/statments.png" alt="img">图5
 我们已知，lua代码是由一系列的statement组合而成，因此在在编译过程中，就是要将脚本代码中的statement识别出来，并且进入到对应的编译分支，将其编译为虚拟机指令，由于篇幅所限，我无法在本章展示所有的编译分支逻辑，因此本章集中力量，对expr statement的设计和实现进行详细的分析。这也是本章Parser要实现的部分。
 现在我将对lua的exprstat的EBNF范式进行说明，为了能够和我们后面的实现逻辑相契合，本章展示的EBNF与Part5展示的略有出入，一切以本章的为主，其EBNF范式如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>exprstat ::= func | assignment
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>exprstat ::= func | assignment
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>assignment ::= suffixedexp {, suffixedexp} [&#39;=&#39; explist]
 </span></span><span style="display:flex;"><span>func ::= suffixedexp
@@ -348,7 +348,7 @@ Lua的Parser的主要工作，就是进行语法分析和语义分析，最后�
 图文的内容展示的很小，读者可以点击图片，显示大图，如果觉得图片还是不够大，可以右键点击在新的页签查看。该图是对上述EBNF范式的归纳，之所以要画这张图，是为了向读者自顶向下地展示完整的exprstat的语法结构，展示完整的解析层次，展示各个部件的构成和联系，它也是我们展示Parse Tree生成的绝佳利器。我们后续需要根据这张图来实现exprstat的编译逻辑。本章实现的Parser部分，只会对符合exprstat语法的代码进行编译，否则将抛出错误。</p>
 <h1 id="parser所涉及的基本数据结构">Parser所涉及的基本数据结构</h1>
 <p>​    本节，我将来介绍Parser的一些基本的数据结构，但是并不会一次性将所有的数据结构都在这里展示出来。有些数据结构在具体应用到的章节再进行展示，有利于帮助读者消化和理解。在lua的语法分析器中，最终要的数据结构分别是FuncState和Proto这两个结构了，我们先来看看FuncState结构，它的定义如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.h
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.h
 </span></span><span style="display:flex;"><span>typedef struct FuncState {
 </span></span><span style="display:flex;"><span>	int firstlocal;		// 第一个local变量的位置
 </span></span><span style="display:flex;"><span>	struct FuncState* prev;
@@ -366,7 +366,7 @@ Lua的Parser的主要工作，就是进行语法分析和语义分析，最后�
 </span></span><span style="display:flex;"><span>	int freereg;		// 下一个可被使用的，空闲寄存器的位置
 </span></span><span style="display:flex;"><span>} FuncState;
 </span></span></code></pre></div><p>上面对FuncState结构的一些主要的变量进行了说明，关于upvalue，后续我会单独抽出一章节来详细讨论，因此这里不会深入研究这个部分，local变量，则会在下一章进行讲解。现在我们只要FuncState结构的变量，有一个初步的概念即可，要彻底理解它们，需要在编译流程的论述之后才能做到，我们接下来看看Proto的数据结构定义：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaobject.h
 </span></span><span style="display:flex;"><span>typedef struct Proto {
 </span></span><span style="display:flex;"><span>    CommonHeader;			// gc部分
 </span></span><span style="display:flex;"><span>    int is_vararg;			// 是否可变参数的函数
@@ -443,16 +443,16 @@ UpValue[A]的值必须是table，将RK( C )的值赋值给该table的RK(B)域</l
 <h1 id="编译逻辑与ebnf的关联">编译逻辑与EBNF的关联</h1>
 <p>​    现在我将介绍如何通过EBNF进行派生演变(Derivation)，然后说明Derivation的问题，接着为了解决这些问题会引入Parse Tree，后面还会简要介绍一下Abstract Syntax Tree。再往后，就会根据EBNF范式来实现exprstat的逻辑，并结合一些实例进行讲解。
 ​    我们先以foo函数的调用为例子，看看派生演变的操作是怎样的，首先，很显然，在对foo函数这段代码进行编译时，我们很自然地进入到了exprstat的分支之中，那么它用EBNF范式的完整的演变流程如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1    exprstat
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1    exprstat
 </span></span><span style="display:flex;"><span>2    func
 </span></span><span style="display:flex;"><span>3    suffixedexp
 </span></span><span style="display:flex;"><span>4    primaryexp &#39;(&#39; &#39;)&#39;
 </span></span><span style="display:flex;"><span>5    TK_NAME &#39;(&#39; &#39;)&#39;
 </span></span><span style="display:flex;"><span>6    foo&#39;(&#39;&#39;)&#39;
 </span></span></code></pre></div><p>非常简单的编译流程，这种方式，我们称之为Derivation，但是Derivation有个问题，就是演变的顺序是随意的，比如下面一段代码，我们可以有两种演变方式：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a = 1
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a = 1
 </span></span></code></pre></div><p>演变方式1：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1    exprstat
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1    exprstat
 </span></span><span style="display:flex;"><span>2    suffixedexp=explist
 </span></span><span style="display:flex;"><span>3    primaryexp=explist
 </span></span><span style="display:flex;"><span>4    TK_NAME=explist
@@ -462,7 +462,7 @@ UpValue[A]的值必须是table，将RK( C )的值赋值给该table的RK(B)域</l
 </span></span><span style="display:flex;"><span>8    a=TK_INT
 </span></span><span style="display:flex;"><span>9    a=1
 </span></span></code></pre></div><p>演变方式2：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1    exprstat
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1    exprstat
 </span></span><span style="display:flex;"><span>2    suffixedexp=explist
 </span></span><span style="display:flex;"><span>3    suffixedexp=expr
 </span></span><span style="display:flex;"><span>4    suffixedexp=simpleexp
@@ -484,7 +484,7 @@ UpValue[A]的值必须是table，将RK( C )的值赋值给该table的RK(B)域</l
 <p>​    lua的编译器是典型的单趟编译(one pass compile)，没有显示地生成任何形式的IR，包括Parse Tree或者是AST，它所有的编译逻辑都是在Parser里执行，直接生成虚拟机指令，所以本系列，不会对AST着色过的的笔墨，后续将会结合一些实例，适当结合Parse Tree进行讲解。</p>
 <h1 id="dummylua的项目目录结构">dummylua的项目目录结构</h1>
 <p>​    本节我们来回顾一下<a href="https://github.com/Manistein/dummylua-tutorial">dummylua</a>的目录结构，并对不同的模块进行说明：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>+ 3rd/              #引用的第三方库均放置在这里
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>+ 3rd/              #引用的第三方库均放置在这里
 </span></span><span style="display:flex;"><span>+ bin/              #编译生成的二进制文件放置在这里
 </span></span><span style="display:flex;"><span>~ clib/             #外部要在c层使用Lua的C API，那么只能调用clib里提供的接口，而不能调用其他内部接口
 </span></span><span style="display:flex;"><span>  luaaux.h              #供外部使用的辅助库
@@ -531,7 +531,7 @@ UpValue[A]的值必须是table，将RK( C )的值赋值给该table的RK(B)域</l
 <p>​    现在，我们进入到exprstat编译流程的探讨之中了，实际上，这部分并不好写，我写了几版，都觉得不够清晰或者细节太多而删除重写，经过反复思索，确定了通过EBNF范式描述语法，然后代码只展示结构和主要流程，一些操作细节通过图的方式展现，这样有助于我们快速理解知识点和需要注意的事项，最后还是强烈建议读者结合代码一起阅读，这样才能真正做到理解。</p>
 <h2 id="exprstat的构造">exprstat的构造</h2>
 <p>​    我们前面也介绍过，statement是构成代码逻辑，最基础的单独单元，lua中同样有多种statement，比如ifstat、whilestat、forstat等等，每个statement执行不同的逻辑，并且在编译器中有独立的处理逻辑分支，而每个statement中，头一个token决定了我们应该进入哪个处理分支之中。我们现在以官方lua源码的statement逻辑来举例：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// lua-5.3.5 lparser.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// lua-5.3.5 lparser.c
 </span></span><span style="display:flex;"><span>static void statement (LexState *ls) {
 </span></span><span style="display:flex;"><span>  int line = ls-&gt;linenumber;  /* may be needed for error messages */
 </span></span><span style="display:flex;"><span>  enterlevel(ls);
@@ -601,7 +601,7 @@ UpValue[A]的值必须是table，将RK( C )的值赋值给该table的RK(B)域</l
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>代码片段1
 在代码片段1中，ls-&gt;t.token就是我们获得的，在一个statement语句中的首个token，我们可以很容易地看到，首个token决定了我们要进入哪个case中，执行哪个编译流程。在就<a href="https://github.com/Manistein/dummylua-tutorial">dummylua</a>目前的完成情况来说，当前只实现了exprstat部分的逻辑，下面节取自dummylua的代码：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
 </span></span><span style="display:flex;"><span>static void statement(struct lua_State* L, LexState* ls, FuncState* fs) {
 </span></span><span style="display:flex;"><span>	switch (ls-&gt;t.token) {
 </span></span><span style="display:flex;"><span>	case TK_NAME: {
@@ -617,12 +617,12 @@ UpValue[A]的值必须是table，将RK( C )的值赋值给该table的RK(B)域</l
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/exprstat-example1.png" alt="img">图10
 可以看到，上面两个chunk对应了两个statement(我们前面提到过funccall由于在suffixedexp内定义，因此是个exp，而在有些说法里，expr也是statement，在这里的情况，chunk1本质就是一个statement[8])，而这些statement中，的首个token是TK_NAME类型的，因此直接进入到exprstat的编译流程之中，图10也展示了exprstat的两种形态，一种是funccall，还有一种则是赋值。
 说到这里，就要引入exprstat的EBNF描述了，它描述了exprstat的语法结构，并且EBNF范式与递归下降的逻辑实现，能够很好地对应起来。</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>exprstat ::= funccall | assignment
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>exprstat ::= funccall | assignment
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>assignment ::= suffixedexp {, suffixedexp} [&#39;=&#39; explist]
 </span></span><span style="display:flex;"><span>funccall ::= suffixedexp
 </span></span></code></pre></div><p>这里清晰地展示了，exprstat主要的两种形态，我们exprstat的代码，则如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
 </span></span><span style="display:flex;"><span> 574 static void exprstat(struct lua_State* L, LexState* ls, FuncState* fs) {
 </span></span><span style="display:flex;"><span> 575     LH_assign lh;
 </span></span><span style="display:flex;"><span> 576     suffixedexp(L, ls, fs, &amp;lh.v);
@@ -636,12 +636,12 @@ UpValue[A]的值必须是table，将RK( C )的值赋值给该table的RK(B)域</l
 </span></span><span style="display:flex;"><span> 584 }
 </span></span></code></pre></div><p>代码片段3
 上面的代码，与前面exprstat的EBNF范式基本吻合，这里希望读者仔细观察一下。但是上面的方式有点让人疑惑，就是赋值语句中，等号左边的必然是变量，而不能是函数调用，上面的EBNF范式清晰地暗示了，suffixedexp既能是一个变量，也能是一个函数调用。这似乎并不符合我们的直观直觉，实际上下面的定义，似乎更直观：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>exprstat ::= funccall | assignment
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>exprstat ::= funccall | assignment
 </span></span><span style="display:flex;"><span>nameexp  ::= primaryexp { &#39;.&#39; TK_NAME | &#39;[&#39; expr &#39;]&#39; }
 </span></span><span style="display:flex;"><span>funccall ::= nameexp ( &#39;:&#39; TK_NAME funcargs | funcargs )
 </span></span><span style="display:flex;"><span>assignment ::= nameexp { &#39;,&#39; nameexp } &#39;=&#39; explist
 </span></span></code></pre></div><p>相对应的，它的伪代码如下所示，更符合我们的直觉：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>void exprstat() {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>void exprstat() {
 </span></span><span style="display:flex;"><span>	if exp is funccall then 
 </span></span><span style="display:flex;"><span>		funccall
 </span></span><span style="display:flex;"><span>	else if exp is assignment then
@@ -655,10 +655,10 @@ UpValue[A]的值必须是table，将RK( C )的值赋值给该table的RK(B)域</l
 <h4 id="expr的构造与编译">expr的构造与编译</h4>
 <p>1、simpleexp的识别与处理
 expr是expression的缩写，意为表达式，在lua的语法分析器中，它的作用就是将表达式识别出来，并将对应的信息存储到一个中间的结构之中。为什么要先从它开始讨论呢？因为它是组成statement的基础，我们先来看一下它的EBNF范式：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>expr ::= (simpleexp | unop expr) {binop expr}
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>expr ::= (simpleexp | unop expr) {binop expr}
 </span></span><span style="display:flex;"><span>simpleexp ::= FLT|INT|STRING|NIL|TRUE|FALSE|...|constructor|FUNCTION body|suffixedexp
 </span></span></code></pre></div><p>前面我们也介绍过，expr最终的归宿就是计算成一个确切的值，这个确切的值是什么意思呢？就是expr最后可以演变成simpleexp中，除了…和suffixedexp以外的任意一种类型的值，这些值实际上就是lua的基本类型的值。从上面的EBNF范式来看，它以simpleexp或者一个单目运算的exp为开头，后面可能跟一堆双目运算操作，但不论如何，最终的结果都是演变为一个lua基本类型的值。expr的逻辑如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
 </span></span><span style="display:flex;"><span> 349 static const struct {
 </span></span><span style="display:flex;"><span> 350     lu_byte left;   // left priority for each binary operator
 </span></span><span style="display:flex;"><span> 351     lu_byte right;  // right priority
@@ -708,7 +708,7 @@ expr是expression的缩写，意为表达式，在lua的语法分析器中，它
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example1.png" alt="img">图11
 如图11所示，expr函数，会将我们输入的token，转化为一个被称之为expdesc结构变量的信息之中，在完成转化之后，我们获取下一个token。实际上expr可能会处理多个token，一般在单目运算或者是双目运算的expr里，目前我们只来看最简单的情况–只对单个token进行处理的情况。
 实际上，并非所有的token都能够被expr函数转化为expdesc的信息的，只有那些是exp的token才行，这些token都被定义在了EBNF范式中的simpleexp里，他们是TK_FLT、TK_INT、TK_STRING、TK_NIL、TK_TRUE、TK_FALSE、TK_FUNCTION、’{}‘、TK_NAME等，除了TK_NAME，其他都能在lua中找到对应的基本类型（因为TK_NAME表示变量，可以存储任意一种基本类型的值）。这些是输入信息的部分，现在我们来看一下经过expr转化，得到的数据结构是怎样的，以下是它的定义：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.h
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.h
 </span></span><span style="display:flex;"><span>// 表达式(exp)的类型
 </span></span><span style="display:flex;"><span>typedef enum expkind {
 </span></span><span style="display:flex;"><span>    VVOID,          // 表达式是空的，也就是void
@@ -781,7 +781,7 @@ expr是expression的缩写，意为表达式，在lua的语法分析器中，它
 <p>这里需要注意的是，常量表k中不止可以存字符串，还可以存数值类型的值，要通过expdesc表示数值类型，同样可以用类似字符串的方式去表示。那在什么情况下，数值类型要通过VK的方式展现呢？答案是生成指令的时候，比如生成OP_LOADK指令，这个指令要从常量表k中，load一个值到栈顶，我们首先要将数值存入常量表，然后再去索引它，用expdesc e来表示，就是e-&gt;k = VK, e-&gt;u.info = index_of_number_in_k，后面会详细讨论。对于TK_FUNCTION的情况，我将在下一章进行说明，而对于constructor的情况(也就是’{}‘)，expr会怎么处理呢？我们结合图12来进行说明：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example2.png" alt="img">图12
 当我们的expr函数，检测到当前的token为’{‘时，会生成一个指令&lt; OP_NEWTABLE 0 0 0 &gt;，这里的含义是，在寄存器R(0)中创建一个table，同时它的array_size和hash_size都为0。此时，expdesc的值如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>e-&gt;k = VNONRELOC
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>e-&gt;k = VNONRELOC
 </span></span><span style="display:flex;"><span>e-&gt;u.info = 0
 </span></span></code></pre></div><p>类型VNONRELOC表示，它的值在lua stack中，e-&gt;u.info则说明了它的值在栈中所在的位置。在图12的例子中，它在R(0)。我们知道，OP_NEWTABLE指令是iABC模式（指令的模式可以到luaopcodes.c里查找），在生成指令后，e-&gt;u.info的值，就是A域的值，因为指令操作的目标在R(A)，所以e所代表的值，就是刚刚被处理过的R(A)值，在本例中(它就是指明刚生成的table在栈中的位置)，不止OP_NEWTABLE是这样，其他指令也是这样。由于花括号内没有其他定义，因此expr会直接跳过’}‘，调用luaX_next获取下一个token。
 接下来，要分析的则是expr函数如何处理类型为TK_NAME的token，TK_NAME其实是由primaryexp函数来处理的，而primaryexp又是suffixedexp的组成部分，但是suffixedexp又是simpleexp的组成部分，所以TK_NAME我们可以视为在expr内进行处理。现在我们来看一下这里的处理流程是怎样的。首先在开始讨论，expr如何处理TK_NAME之前，我们需要明确几个概念，首先是我们的代码中，函数与upvalue、FuncState结构的关系，现在我们通过图13的例子来进行分析：
@@ -815,7 +815,7 @@ expr是expression的缩写，意为表达式，在lua的语法分析器中，它
 <p>2、单目运算操作
 回顾一下代码片段5，我们的expr函数，最终是调用了subexpr函数，其最后一个参数是指定当前运算符的优先级的，在subexpr函数内部，处理完一个exp以后，如果紧随其后的操作符优先级高于exp前面的，那么后面的操作要优先处理。接下来，我们来讨论一下单目运算的情况。什么是单目运算呢？就是exp前面有-、#、~和not操作的时候。我们现在分情况来讨论。
 第一种情况就是expr前面有’-‘的情况。我们接下来看一下几个例子：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>-100
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>-100
 </span></span><span style="display:flex;"><span>-0.5
 </span></span><span style="display:flex;"><span>-value
 </span></span></code></pre></div><p>’-‘操作符之后，应该跟数值类型，否则这就是一个无效的exp，应当抛出Syntax Error。不过这里需要注意的是，token ’-‘后面，如果跟TK_NAME类型的token，那么在编译阶段，是不会检查该token是否是数值类型，它只会到虚拟机运行阶段的时候去检查。我们先来看一下，token ‘-‘后面紧跟的是一个数值token的情况，我们可以结合图14的情况来看，以下逻辑流程均发生在expr函数内:
@@ -863,12 +863,12 @@ expr是expression的缩写，意为表达式，在lua的语法分析器中，它
 我们现在要论述的第二种情况，则是expr前面是’#‘的情况，一般来说，这个指令是用来计算字符串或者table的长度的，这些对象，首先要先被加载到栈中，也就是说，首先要生成创建指定对象、或者将指定对象加载到栈中的指令，此时我们也会得到一个类型为VNONRELOC的expdesc结构，然后根据这个expdesc结构，生成指令，其中A的值由freereg指定，而B的值则是e-&gt;u.info（也就是上一条指令的操作目标）。其实整个流程和前面讨论过的流程类似，读者可以自行将这个流程分析一次。
 接下来要论述的第三种情况，则是expr前面是’~‘的情况，这种操作符，其实和’-‘几乎一样，只是操作的对象应当是int型。读者可以结合前面的例子再次分析一次，只是这里要生成的指令是OP_BNOT，而不是OP_UNM。
 我们要讨论的第四种情况是，expr前面是’not’的情况。在lua中，除了nil和false是表示false以外，其他的都表示为true。第四种情况的表现形式如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>not exp
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>not exp
 </span></span></code></pre></div><p>我在前面已经详细讨论过了，exp如何通过expr函数转化为expdesc的流程，现在要看的，则是如何将not操作和这个expdesc整合起来。我们则通过图21来展示这个流程：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example8.png" alt="img">图21
 上图展示了expdesc为常量时，与not操作符整合的结果，其实就是修正原来的expdesc结构为VFALSE或者为VTRUE。对于not后面的exp为变量的情况，处理流程和’-‘一样，只是最终生成的指令从OP_UNM到OP_NOT。
 在我们的虚拟机指令之中（主要是iABC模式的指令），B域和C域的值要两种情况来看待，一种是小于256的情况，还有一种则是大于等于256的情况。为什么要这样处理呢？实际上这是lua对指令的一种优化，我们先复习一下lua虚拟机的指令编码格式：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>+--------+---------+---------+--------+--------+
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>+--------+---------+---------+--------+--------+
 </span></span><span style="display:flex;"><span>|  iABC  |    B:9  |   C:9   |   A:8  |Opcode:6|
 </span></span><span style="display:flex;"><span>+--------+---------+---------+--------+--------+
 </span></span><span style="display:flex;"><span>|  iABx  |   Bx:18(unsigned) |   A:8  |Opcode:6|
@@ -879,19 +879,19 @@ expr是expression的缩写，意为表达式，在lua的语法分析器中，它
 <p>3、双目运算操作
 现在我们进入到双目运算的讨论之中了，这里，我会把它分为几个部分：算术运算、逻辑运算和比较运算，最后会在此基础上讨论一下递归的情况。
 我们先来看一下算术运算的部分，这里主要分为三种情况看待，分别是：两个常量操作、一个常量与一个变量操作和两个变量的操作。现在先来看一下两个常量相加的例子：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1+1
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1+1
 </span></span></code></pre></div><p>我们进入到expr函数以后，就会开始处理上面这个exp了，先来回顾一下expr函数的定义：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void expr(FuncState* fs, expdesc* e);
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void expr(FuncState* fs, expdesc* e);
 </span></span></code></pre></div><p>首先最左边的1，会通过simpleexp函数来识别，获得图22的结果，此时调用luaX_next函数，获得下一个token：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example9.png" alt="img">图22
 此时，当前token为操作符’+‘，所有的双目运算操作，在这个阶段，都要进入“中序”处理，在expr函数中，是通过调用luaK_infix函数来实现的，在算术运算中，首先判断操作符左边的exp，是否是数值类型，如果是则什么都不做，如果不是，则生成将exp入栈的指令。在本例中，由于1是数值类型，因此不作任何处理。这里需要注意的是，目前的expdesc结构变量e，就上上面expr函数定义里的参数e。此时，我们需要调用luaX_next函数，获得下一个token，而这个新的token，需要新的expdesc结构来存储，我们姑且称之为e2，经过处理得到如图23所示的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example9-2.png" alt="img">图23
 在完成了两个exp的装载之后，就要执行运算处理了，在expr函数中，这个处理我们称之为后序处理，就是要将e和e2进行运算处理，这里相当于将e和e2两个参数先入栈，再压入运算符。总之这个处理是在luaK_posfix函数内实现的。在本例中，因为e和e2都是常量，因此直接计算两个常量的结果，并将结果存入e中，这个e其实就是expr函数处理的结果，一直遵循我们前面讨论过的规则：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>tokens =&gt; expr function =&gt; expdesc
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>tokens =&gt; expr function =&gt; expdesc
 </span></span></code></pre></div><p>此时，我们得到图24的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example9-3.png" alt="img">图24
 我们现在接下来看一下第二种情况，一个常量与一个变量相加的情况：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1+a
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1+a
 </span></span></code></pre></div><p>我们先将操作符左边的exp转化成expdesc，得到图25的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example9-4.png" alt="img">图25
 此时我们获得操作符，token ‘+‘，然后此时进入到“中序处理”流程之中，因为1这个exp是个数值类型，因此不需要做任何处理，此时获取下一个token &lt; TK_NAME, a &gt;，根据前面已经讨论过的内容，我们的变量a直接转化为expdesc结构，最终的结果如图26所示：
@@ -902,7 +902,7 @@ expr是expression的缩写，意为表达式，在lua的语法分析器中，它
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example9-7.png" alt="img">图28
 OP_ADD操作指令的操作结果，会存入寄存器R(0)，所有的参数入栈，最终的结果都是为了生成一个值，freereg则被复位到R(1)的位置，这里需要注意的是，freereg永远指向刚刚生成的那条指令，A域所对的R(A)寄存器的下一个寄存器。
 现在我们来看一下，算术运算的最后一种讨论情况，两个变量操作的情况，我们现在来看一下下面一个例子：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a + b
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a + b
 </span></span></code></pre></div><p>首先，我们进入到expr函数以后，首先会通过simpleexp函数，来处理变量a，得到图29的效果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example9-8.png" alt="img">图29
 此时，我们遇到操作符，执行luaK_infix操作，因为e不是数值类型，因此要生成入栈指令，得到图30的结果：
@@ -916,7 +916,7 @@ OP_ADD操作指令的操作结果，会存入寄存器R(0)，所有的参数入�
 我们可以用任何一个双目算术运算符，代替上面几个例子中的加法运算符，操作流程都是一致的。而拼接字符串的CONCAT操作，可以结合第三种情况去分析，这个留给读者自己去推导流程。</p>
 <p>4、逻辑运算
 我们的逻辑运算，本质是and和or运算符执行逻辑运算，我们接下来通过几个例子来看。首先是一个and和or只有变量参与的例子，然后我们再参入常量，最后让and和or结合。我们首先来看第一个例子：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a and b and c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a and b and c
 </span></span></code></pre></div><p>进入到expr函数以后，我们首先对token &lt; TK_NAME, a &gt;进行处理，处理它的是simpleexp函数，对应代码片段5的第372行。执行完以后，我们将该token的信息，装载到expdesc中，得到图34的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example10.png" alt="img">图34
 在完成了第一个exp的识别之后，调用luaX_next函数获得下一个token，我们获得操作符，token TK_AND，此时要进入“中序处理流程”，也就是代码片段5中的第380行代码luaK_infix函数的执行。luaK_infix函数在这种情况下会做什么呢？其运作流程如下所示：</p>
@@ -944,7 +944,7 @@ OP_ADD操作指令的操作结果，会存入寄存器R(0)，所有的参数入�
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example10-9.png" alt="img">图42
 由于我们的sBx是18个bit位，而OP_JMP指令是iAsBx模式，jump指令可以往前跳转，因此sBx是允许负数存在的，又因为sBx在低位，无法通过最高位表示负数。sBx的最大值是262143，它向右移一位是131071，因此这个值则表示0值，小于它的都是负数，比如131700表示-1，这里的131705表示pc+4，又因为pc寄存器本身会自增，于是就相当于跳转到箭头所指的位置了。这里还需要注意的是，官方lua是会在这个阶段对OP_TESTSET指令进行优化的，将其优化为OP_TEST指令，由于dummylua只注重实现正确逻辑，性能还不是最优先考虑的因素，为了方便讲解和实现，dummylua并未对该指令进行任何优化。
 我们现在拿上面的例子，来模拟执行一下，感受一下这一系列指令的运作流程，我将从三个例子切入，他们分别如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a and b and c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a and b and c
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>例1: a = false, b = true, c = true
 </span></span><span style="display:flex;"><span>例2: a = true, b = false, c = true
@@ -971,7 +971,7 @@ OP_ADD操作指令的操作结果，会存入寄存器R(0)，所有的参数入�
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example10-15.png" alt="img">图48
 我们可以看到，除了最后一个exp是false或者nil，其他在or前面的exp，凡是这两个类型，都可以被忽略，因为在or逻辑处理中，只要exp的值是false就会进入下一个or操作的测试之中。去除了这些常量，我们就可以将余下的内容，套用到前面讨论过的流程之中了。
 关于逻辑运算的处理，我们还有最后一种情况没有讨论，就是and和or结合的例子，我们现在来看一组例子，如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a and b and c or d
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a and b and c or d
 </span></span></code></pre></div><p>面对这样的情况，我们可以接着图40的情况，往下讨论，假设现在我们已经处理了a and b and c的流程，现在我们将c变量的信息，装填到expdesc结构中，得到图49的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example10-16.png" alt="img">图49
 此时我们获得了操作符or，进入中序处理流程(调用luaK_infix函数)，这里首先将e中的信息，转化为虚拟机指令，于是得到图50的结果：
@@ -988,7 +988,7 @@ OP_ADD操作指令的操作结果，会存入寄存器R(0)，所有的参数入�
 这里展示了and和or的逻辑运算，至于or和and的结合，就留给读者自己去推导了，到目前为止，逻辑运算相关的论述就结束了，接下来我们将进入到比较运算的讨论之中。</p>
 <p>5、比较运算
 现在我们将进入比较运算的探索之中了，我们的比较运算包括了&gt;、&lt;、&gt;=、&lt;=、==、!=6种，但是我们用于比较运算的指令只有三个，分别是OP_EQ、OP_LT和OP_LE。我们通过==和!=两个实例，来看一下它的运作流程，其他的运算符编译流程，和这个差不多，因此不会再赘述，留给读者自己去推导，现在我们来看一下以下两个例子：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a == b
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a == b
 </span></span><span style="display:flex;"><span>a != b
 </span></span></code></pre></div><p>我们先来看一下a==b的例子，如图55所示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example10-22.png" alt="img">图55
@@ -1007,7 +1007,7 @@ lua编译器，先通过simpleexp函数，去识别变量a，并且将变量a的
 黑色箭头是指令的执行顺序。对于不等于的情况，只需要将OP_EQ指令的A域由1变为0即可，其他的比较运算，读者可以根据前面的虚拟机指令说明，将其套入我们刚刚讨论过的指令生成流程之中，这个工作就交给读者自己去推演，这里不再赘述。</p>
 <p>6、逻辑运算中包含比较运算的情况
 我们前面已经讨论了逻辑运算和比较运算的情况，现在来讨论一下逻辑运算和比较运算结合的情况。这点非常重要，为什么说这点很重要呢？因为比较运算生成的虚拟机指令，和逻辑运算结合，会改变原有的一些参数，我将结合如下的例子，来论述这个流程：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a == b and c and d
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a == b and c and d
 </span></span></code></pre></div><p>和前面的流程一样，首先我们获得的第一个token是&lt; TK_NAME, a &gt;，然后此时要进入到expr函数的执行流程之中，expr函数首先要识别第一个token，这是一个simpleexp，因此，此时需要将变量a装填到expdesc结构之中，得到图62所示的情况：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example10-29.png" alt="img">图62
 在完成a变量的expdesc装填之后，此时parser会调用luaX_next函数，获取下一个token TK_EQ，然后需要对刚刚装填好的expdesc结构变量，和这个操作符做一次“中序处理”，也就是通过luaK_infix函数来处理它们之间的关系。在这种情况下，编译器会将刚刚的expdesc信息，转化为指令，得到图63的结果：
@@ -1039,7 +1039,7 @@ a==b为true的情况。
 a==b为false的情况。</p>
 <p>7、constructor处理
 这一部分，实际上就是对一个table进行编译，实际上，这个操作也并不复杂，现在通过一个例子来说明：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>{ a, b, c = 10, d }
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>{ a, b, c = 10, d }
 </span></span></code></pre></div><p>我们从图75-2开始，直至完整展现编译流程。
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example10-43.png" alt="img">图75-2
 当lua编译器，遇到{的时候，直接生成OP_NEWTABLE指令，图75-2中的A域是0，表示生成的table放置在R(A)也就是R(0)上。B域和C域均为0，表示它的arraysize和hashsize都是0，现在是个空表。然后我们进入下一个操作之中。
@@ -1053,12 +1053,12 @@ a==b为false的情况。</p>
 最后，我们需要将已经入栈的参数，设置到table里，这些在栈中的变量，会被设置到table的array域中，于是得到图75-7的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/expr-example10-48.png" alt="img">图75-7
 最后这里生成了一个OP_SETLIST指令，它的A、B和C域的值分别是0、3和1，A域指明了table在栈中的位置，B域说明了从R(A+1)开始，一共有多少个栈上的变量，要被设置到table的array中。我们现在来回顾一下，OP_SETLIST的含义：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>OP_SETLIST A B C R(A)[(C-1)*FPF+i] := R(A+i), 1 &lt;= i &lt;= B
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>OP_SETLIST A B C R(A)[(C-1)*FPF+i] := R(A+i), 1 &lt;= i &lt;= B
 </span></span></code></pre></div><p>A域指向了操作目标，B域指明了从R(A+1)开始，一共有多少个栈上的变量，要被设置到R(A)的array列表中，C域指明了它的array区间，FPF指明了，一次通过OP_SETLIST指令，设置到table array列表中的最大批次，默认是50。举个例子，比如我们现在有一个table，现在有100个变量，要被设置到array中，那么这里需要生成两个OP_SETLIST指令，假设目标table在R(0)，那么第一个OP_SETLIST指令则是&lt; OP_SETLIST 0 50 1 &gt;表示设置到1~50的位置上，第二个OP_SETLIST指令则是&lt; OP_SETLIST 0 50 2 &gt;表示设置到51~100的位置上。
 这里需要注意的是，在constructor内，有赋值操作的域，是直接生成赋值指令，将对应的值设置到目标表里，其他的均是列表域，因此都需要通过压入栈，再使用OP_SETLIST指令，来将这些变量设置到table上。</p>
 <p>8、优先级处理
 接下来我们要讨论的是，优先级处理的情况。优先级的处理，主要有运算符优先级，还有就是表达式优先级。我们先看一下运算符优先级的情况，实际上lua语言对运算符的优先级，有进行分级，其分级如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
 </span></span><span style="display:flex;"><span>static const struct {
 </span></span><span style="display:flex;"><span>	lu_byte left;   // left priority for each binary operator
 </span></span><span style="display:flex;"><span>	lu_byte right;  // right priority
@@ -1074,10 +1074,10 @@ a==b为false的情况。</p>
 </span></span><span style="display:flex;"><span>};
 </span></span></code></pre></div><p>代码片段6
 我们这里的运算符优先级，是双目运算符的优先级，一个双目运算符有两个操作数，分别是左操作数和右操作数，上面花括号内的数字，分别代表左操作数和右操作数的权重，比如下面一个例子：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a  +  b
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a  +  b
 </span></span><span style="display:flex;"><span>10    10
 </span></span></code></pre></div><p>到代码片段6中，查找加法运算符的权重，得到的值，附属到了变量a和b的下方。如果出现一连串的算数运算，比如下面的例子：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>10    10
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>10    10
 </span></span><span style="display:flex;"><span>a  +  b  *  c
 </span></span><span style="display:flex;"><span>      11    11
 </span></span></code></pre></div><p>代码上方的是加法运算的操作数权重，代码下方的是乘法运算的操作数权重，根据这个权重，我们就可以判定，权重高的运算符要先运算。我们的编译器，怎么处理这样的流程的呢？通过图76来说明：
@@ -1088,11 +1088,11 @@ a==b为false的情况。</p>
 根据图77，我们可以看到，expr处理带有双目操作符的时候，操作符左边的exp一定是一个simpleexp，而simpleexp本身就要处理括号内的表达式的情况，并且simpleexp一定要优先处理。这样做的好处是，不管操作符的优先级有多高，括号内的表达式要优先完成运算。读者同样可以结合图77和代码片段5来感受这一点。</p>
 <h4 id="suffixedexp构造与编译">suffixedexp构造与编译</h4>
 <p>​    接下来，我们来看一下suffixedexp的构造，我们前面详细论述了expr的构造，之所以要先论述它，是因为它是一切的基础。我们首先来回顾一下suffixedexp的EBNF范式：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>suffixedexp ::= primaryexp {&#39;.&#39; NAME | &#39;[&#39; expr &#39;]&#39; | &#39;:&#39; NAME funcargs | funcargs}
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>suffixedexp ::= primaryexp {&#39;.&#39; NAME | &#39;[&#39; expr &#39;]&#39; | &#39;:&#39; NAME funcargs | funcargs}
 </span></span><span style="display:flex;"><span>primaryexp ::= NAME | &#39;(&#39; expr &#39;)&#39;
 </span></span><span style="display:flex;"><span>funcargs ::= &#39;(&#39;[explist]&#39;)&#39; | constructor | STRING
 </span></span></code></pre></div><p>我们可以简单地归纳，suffixedexp的主要构成部分有三块，分别是primaryexp、table访问和函数调用三块。前两者可以构成赋值语句中，=左边的variable，函数调用可以作为独立的exp存在，回顾一下代码片段3，这也是exprstat函数，首先要调用suffixedexp函数的原因，因为我们前面也说过，exprstat中，不论是赋值语句还是函数调用，他们首先都要识别出第一个exp，然后根据后续的token，判定输入的statement是个赋值语句(遇到’=‘的时候)，或是函数调用(遇到’(‘的时候)，还是不合法。这也是suffixedexp函数这么去设计的原因。在分别开始讨论三个构造之前，我们先来看一下suffixedexp函数的代码：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
 </span></span><span style="display:flex;"><span> 493 static void suffixedexp(struct lua_State* L, LexState* ls, FuncState* fs, expdesc* e) {
 </span></span><span style="display:flex;"><span> 494     primaryexp(L, ls, fs, e);
 </span></span><span style="display:flex;"><span> 495     luaX_next(L, ls);
@@ -1126,7 +1126,7 @@ a==b为false的情况。</p>
 </span></span></code></pre></div><p>代码片段7</p>
 <p>1、primaryexp构造
 代码片段7，很符合我们的EBNF范式，同时我们也可以看到，suffixedexp函数，首先要识别的就是primaryexp，它的EBNF范式在前面也已经展示过，这里展示一下它的实现逻辑：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
 </span></span><span style="display:flex;"><span> 147 static void primaryexp(struct lua_State* L, LexState* ls, FuncState* fs, expdesc* e) {
 </span></span><span style="display:flex;"><span> 148     switch (ls-&gt;t.token) {
 </span></span><span style="display:flex;"><span> 149     case TK_NAME: {
@@ -1145,7 +1145,7 @@ a==b为false的情况。</p>
 </span></span><span style="display:flex;"><span> 162 }
 </span></span></code></pre></div><p>代码片段8
 primaryexp的两个主要分支，一个是变量识别，还有一个是括号内的expr处理，这两个内容，我们在expr构造一节中，已经花了大量的篇幅去介绍，这里就不再赘述，其本质也和expr函数一样。我们可以通过图6去感知一下，expr和suffixedexp以及primaryexp的关系，他们其实是通过递归来实现嵌套逻辑的。我们的primaryexp，依然是输入一些token，输出一个expdesc结构：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a =&gt; primaryexp =&gt; expdesc
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a =&gt; primaryexp =&gt; expdesc
 </span></span><span style="display:flex;"><span>(a + b * c) =&gt; primaryexp =&gt; expdesc
 </span></span><span style="display:flex;"><span>(((a))) =&gt; primaryexp =&gt; expdesc
 </span></span><span style="display:flex;"><span>...
@@ -1153,9 +1153,9 @@ primaryexp的两个主要分支，一个是变量识别，还有一个是括号�
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/suffixedexp.png" alt="img">图78</p>
 <p>2、table访问
 我们要讨论的第二部分内容，就是table的访问。不论如何，首先我们都要先处理primaryexp，这是table的本体(即table自身)，而访问处理也是针对它来进行的。从上面的EBNF范式来看，table的组织，可以抽象为以下的形式：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>primaryexp { .NAME | &#39;[&#39; expr &#39;]&#39; }
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>primaryexp { .NAME | &#39;[&#39; expr &#39;]&#39; }
 </span></span></code></pre></div><p>直接通过’.‘来访问，和通过方括号来访问，现在我们来通过一个例子，来梳理一下table访问的流程，同时我也希望读者通过这个例子，自己去推导其他复杂的情况：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>foo.bar[&#34;call&#34;][a]
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>foo.bar[&#34;call&#34;][a]
 </span></span></code></pre></div><p>首先，上面这个表达式，会交给suffixedexp函数来处理，而处理第一个token的，则是primaryexp，此时，parser会将foo直接装载到expdesc结构之中，得到图79的结果：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/suffixedexp-2.png" alt="img">图79
 此时，我们当前的token是’.‘，因此进入了通过点来访问table域的逻辑流程之中，对应代码片段7中的第500行代码，此时需要做两件事情，第一件是将e中的信息转化为指令，第二件是，获取’.‘之后的那个simpleexp，并装载到新的expdesc结构之中，于是得到图80的结果
@@ -1177,9 +1177,9 @@ primaryexp的两个主要分支，一个是变量识别，还有一个是括号�
 到目前为止，suffixedexp对上面例子的处理就结束了，至于怎么将当前的exp转化为虚拟机指令，读者可以参阅【expr构造和编译】那一节的相关内容，这里不再赘述，由读者自行去推导。</p>
 <p>3、函数调用
 suffixedexp是处理函数调用编译流程的，这里有两种模式，一种是通过’.‘访问，还有一种是通过’:‘访问，我们前面已经花了巨量的篇幅论述expr相关的编译流程，这里不打算继续通过这种方式来，而是通过<a href="https://github.com/Manistein/dummylua-tutorial/tree/master/tools/protodump">protodump</a>工具来生成我们的虚拟机指令，由读者自己推导编译流程，关于protodump的使用，读者可以阅读Part5的【Bytecode分析工具】一节。现在我们来看两个例子，第一个是：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>foo(a, b, c)
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>foo(a, b, c)
 </span></span></code></pre></div><p>其生成的虚拟机指令如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1 lua.dump
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1 lua.dump
 </span></span><span style="display:flex;"><span> file_name = ../test.lua.out
 </span></span><span style="display:flex;"><span> +upvals+1+name [_ENV]
 </span></span><span style="display:flex;"><span> +proto+code+1 [iABC:OP_GETTABUP      A:0   B  :0   C:256 ; R(A) := UpValue[B][RK(C)]]
@@ -1212,9 +1212,9 @@ suffixedexp是处理函数调用编译流程的，这里有两种模式，一种
 </span></span><span style="display:flex;"><span> |                +name [_ENV]
 </span></span><span style="display:flex;"><span> +type_name [LClosure]
 </span></span></code></pre></div><p>第二个例子是：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>foo:bar(a, b, c)
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>foo:bar(a, b, c)
 </span></span></code></pre></div><p>其生成的虚拟机指令如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1 lua.dump
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1 lua.dump
 </span></span><span style="display:flex;"><span> file_name = ../test.lua.out
 </span></span><span style="display:flex;"><span> +proto+p
 </span></span><span style="display:flex;"><span> |     +linedefine [0]
@@ -1251,9 +1251,9 @@ suffixedexp是处理函数调用编译流程的，这里有两种模式，一种
 </span></span><span style="display:flex;"><span> +type_name [LClosure]
 </span></span></code></pre></div><h4 id="assignment构造和编译">assignment构造和编译</h4>
 <p>​    我们现在回顾一下，assignment的EBNF范式，如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>assignment ::= suffixedexp {, suffixedexp} [&#39;=&#39; explist]
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>assignment ::= suffixedexp {, suffixedexp} [&#39;=&#39; explist]
 </span></span></code></pre></div><p>这样的statement，一定要有一个等于号，位于等于号左边的是suffixedexp，但是不能是funccall类型的，而右边的则是exp列表，这个statement的工作，就是将右边的exp赋值到左边的variable，其函数实现如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// luaparser.c
 </span></span><span style="display:flex;"><span> 546 static void assignment(FuncState* fs, LH_assign* v, int nvars) {
 </span></span><span style="display:flex;"><span> 547     expdesc* var = &amp;v-&gt;v;
 </span></span><span style="display:flex;"><span> 548     check_condition(fs-&gt;ls, vkisvar(var), &#34;not var&#34;);
@@ -1283,7 +1283,7 @@ suffixedexp是处理函数调用编译流程的，这里有两种模式，一种
 </span></span><span style="display:flex;"><span> 572 }
 </span></span></code></pre></div><p>代码片段9
 我们可以看到assignment是递归调用的，我现在将通过一个例子，来阐述赋值语句的编译流程：</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a, b = c, d
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>a, b = c, d
 </span></span></code></pre></div><p>我们通过图88来说明这个流程：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part7/assignment.png" alt="img">图88
 从图88，我现在梳理出如下的信息：</p>
@@ -1382,7 +1382,7 @@ suffixedexp是处理函数调用编译流程的，这里有两种模式，一种
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">497</span>
+        <span class="site-state-item-count">498</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
