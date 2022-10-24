@@ -226,31 +226,29 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">3945 字 ~8分钟</span>
+<span class="leancloud-visitors-count">3989 字 ~8分钟</span>
 </span>
       </div>
     </header>
     <div class="post-body" itemprop="articleBody">
     <h2 id="1总述">1.总述</h2>
 <p>上一篇总结了uhttpd的工作方式，openwrt中利用它作为web服务器，实现客户端web页面配置功能。对于request处理方式，采用的是cgi，而所用的cgi程序就是luci，工作框架如下图所示：</p>
-<p><img src="https://s2.51cto.com/images/blog/202108/08/3afe08f62b3ff0647147519b2175aa7f.png?x-oss-process=image/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_30,g_se,x_10,y_10,shadow_20,type_ZmFuZ3poZW5naGVpdGk=/format,webp/resize,m_fixed,w_750" alt="Luci实现框架_子节点"></p>
+<p><img src="http://shanks.link/img/openwrt/2022-10-24152931.png" alt="Luci实现框架_子节点"></p>
 <p>Client端和serv端采用cgi方式交互，uhttpd服务器的cgi方式中，fork出一个子进程，子进程利用execl替换为luci进程空间，并通过setenv环境变量的方式，传递一些固定格式的数据（如PATH_INFO）给luci。另外一些非固定格式的数据（post-data）则由父进程通过一个w_pipe写给luci的stdin，而luci的返回数据则写在stdout上，由父进程通过一个r_pipe读取。</p>
 <p>下面的图描述了web配置时的数据交互：</p>
-<p><img src="https://s2.51cto.com/images/blog/202108/08/d3cc57dba9e05c34d2f1bc9ccf7972ce.png?x-oss-process=image/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_30,g_se,x_10,y_10,shadow_20,type_ZmFuZ3poZW5naGVpdGk=/format,webp/resize,m_fixed,w_750" alt="Luci实现框架_LuCI_02"></p>
+<p><img src="http://shanks.link/img/openwrt/2022-10-24152956.png" alt="Luci实现框架_LuCI_02"></p>
 <ol>
-<li></li>
 <li>首次运行时，是以普通的file方式获得docroot/index.html，该文件中以meta的方式自动跳转到cgi的url，这是web服务器的一般做法。</li>
 <li>然后第一次执行luci，path_info=&rsquo;/&rsquo;，会alise到&rsquo;/admin&rsquo;（&rsquo;/&lsquo;会索引到 tree.rootnode，并执行其target方法，即alise(&rsquo;/admin&rsquo;)，即重新去索引adminnode，这在后面会详细描述），该节点需要认证，所以返回一个登录界面。</li>
 <li>第3次交互，过程同上一次的，只是这时已post来了登录信息，所以serv端会生成一个session值，然后执行&rsquo;/admin&rsquo;的target（它的target为firstchild，即索引第一个子节点），最终返回/admin/status.html，同时会把session值以cookie的形式发给client。这就是从原始状态到得到显示页面的过程，之后主要就是点击页面上的连接，产生新的request。</li>
 <li>每个链接的url中都会带有一个stok值（它是serv生成的，并放在html中的url里），并且每个新request都要带有session值，它和stok值一起供serv端联合认证。</li>
-<li></li>
 </ol>
 <h2 id="2luci程序流程">2.luci程序流程</h2>
 <p>前面已经说明了，luci作为web服务器的cgi程序，是通过execl函数替换到进程空间的，并且详细说明了它与其它进程的交互方法。另外上一节给出了初始阶段http报文，可以看到从第2次交互开始，所有request都是cgi方式（除一些css、js等resource文件外），且执行的cgi程序都是luci，只是带的参数不同，且即使所带参数相同（如都是&rsquo;/&rsquo;），由于需要认证，执行的过程也是不同的。</p>
 <p>正是由于多种情况的存在，使得luci中需要多个判断分支，代码多少看起来有点乱，但openwrt还是把这些分支都糅合在了一个流程线中。下面首先给出整体流程，首先介绍一下lua语言中一个执行方式coroutine，它可以创造出另一个执行体，但却没有并行性，如下图所示，每一时刻只有一个执行体在执行，通过resume、yield来传递数据，且数据可以是任意类型，任意多个的。</p>
-<p><img src="https://s2.51cto.com/images/blog/202108/08/d436163b0680482d5f9b1a48028fb225.png?x-oss-process=image/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_30,g_se,x_10,y_10,shadow_20,type_ZmFuZ3poZW5naGVpdGk=/format,webp/resize,m_fixed,w_750" alt="Luci实现框架_html_03"></p>
+<p><img src="http://shanks.link/img/openwrt/2022-10-24153055.png" alt="Luci实现框架_html_03"></p>
 <p>Luci正是利用了这种方式，它首先执行的是running()函数，其中create出另一个执行体httpdispatch，每次httpdispatch执行yield返回一些数据时，running()函数就读取这些数据，做相应处理，然后再次执行resume(httpdispath)，……如此直到httpdispatch执行完毕，如下图所示：</p>
-<p><img src="https://s2.51cto.com/images/blog/202108/08/426c78d159bfe3c20b60d74443daede2.png?x-oss-process=image/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_30,g_se,x_10,y_10,shadow_20,type_ZmFuZ3poZW5naGVpdGk=/format,webp/resize,m_fixed,w_750" alt="Luci实现框架_LuCI_04"></p>
+<p><img src="http://shanks.link/img/openwrt/2022-10-24153109.png" alt="Luci实现框架_LuCI_04"></p>
 <p>如上图所示，其实luci真正的主体部分正是dispatch，该函数中有多个判断分支，全部糅合在一起，代码比较烦，总体上有4个部分，下面对它们进行一些描述。</p>
 <p>首先说明一下代码组成，在openwrt文件系统中，lua语言的代码不要编译，类似一种脚本语言被执行，还有一些uhttpd服务器的主目录，它们是：</p>
 <p>/www/index.html</p>
@@ -264,25 +262,25 @@
 <h3 id="21节点树node-tree">2.1节点树node-tree</h3>
 <p>在controller目录下，每个.lua文件中，都有一个index()函数，其中主要调用entry()函数，形如entry(path,target,title,order)，path形如{admin,network,wireless}，entry()函数根据这些创建一个node，并把它放在全局node-tree的相应位置，后面的参数都是该node的属性，还可以有其他的参数。其中最重要的就是target。</p>
 <p>Createtree()函数就是要找到controller目录下所有的.lua文件，并找到其中的index()函数执行，从而生成一个node-tree。这样做的io操作太多，为了效率，第一次执行后，把生成的node-tree放在/tmp/treecache文件中，以后只要没有更新（一般情况下，服务器里的.lua文件是不会变的），直接读该文件即可。生成的node-tree如下：</p>
-<p><img src="https://s2.51cto.com/images/blog/202108/08/d3ec91c41e72fff2cd5d0addf1c5d7a5.png?x-oss-process=image/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_30,g_se,x_10,y_10,shadow_20,type_ZmFuZ3poZW5naGVpdGk=/format,webp/resize,m_fixed,w_750" alt="Luci实现框架_lua_05"></p>
+<p><img src="http://shanks.link/img/openwrt/2022-10-24153125.png" alt="Luci实现框架_lua_05"></p>
 <p>这里要注意的是，每次dispatch()会根据path_info逐层索引，且每一层都把找到的节点信息放在一个变量track中，这样做使得上层node的信息会影响下层node，而下层node的信息又会覆盖上层node。比如{/admin/system}，最后的auto=false，target=aa，而由于admin有sysauth值，它会遗传给它的子节点，也即所有admin下的节点都需要认证。</p>
 <h3 id="22target简介">2.2target简介</h3>
 <p>对每个节点，最重要的属性当然是target，这也是dispatch()流程最后要执行的方法。target主要有：alise、firstchild、call、cbi、form、template。这几个总体上可以分成两类，前两种主要用于链接其它node，后一个则是主要的操作、以及页面生成。下面分别描述。</p>
 <p>**链接方法：**在介绍初始登录流程时，已经讲到了这种方法。比如初始登录时，url中的path_info仅为&rsquo;/&rsquo;，这应该会索引到rootnode节点。而该节点本身是没有内容显示的，所以它用alias(&lsquo;admin&rsquo;)方法，自动链接到admin节点。再比如，admin节点本身也没有内容显示，它用firstchild()方法，自动链接到它的第一个子节点/admin/status。</p>
 <p>**操作方法：**这种方法一般用于一个路径的叶节点leaf，它们会去执行相应的操作，如修改interface参数等，并且动态生成页面html文件，传递给client。这里实际上是利用了所谓的MVC架构，这在后面再描述，这里主要描述luci怎么把生成的html发送给client端。</p>
 <p>Call、cbi、form、template这几种方法，执行的原理各不相同，但最终都会生成完整的http-response报文（包括html文件），并调用luci.template.render()，luci.http.redirect()等函数，它们会调用几个特殊的函数，把报文内容返回给luci.running()流程。</p>
-<p><img src="https://s2.51cto.com/images/blog/202108/08/ac37859b57ba683661b2a44963f67054.png?x-oss-process=image/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_30,g_se,x_10,y_10,shadow_20,type_ZmFuZ3poZW5naGVpdGk=/format,webp/resize,m_fixed,w_750" alt="Luci实现框架_LuCI_06"></p>
+<p><img src="http://shanks.link/img/openwrt/2022-10-24153146.png" alt="Luci实现框架_LuCI_06"></p>
 <p>如上图所示，再联系luci.running()流程，就很容易看出，生成的完整的http-response报文会通过io.write()写在stdout上，而uhttpd架构已决定了，这些数据将传递给父进程，并通过tcp连接返回给client端。</p>
 <h2 id="3sysauth用户认证">3.sysauth用户认证</h2>
 <p>2.1节已描述了，由于节点是由上而下逐层索引的，所以只要一个节点有sysauth值，那么它所有的子节点都需要认证。不难想象，/admin节点有sysauth值，它以下的所有子节点都是需要认证才能查看、操作的；/mini节点没有sysauth值，那么它以下的所有子节点都不需要认证。</p>
 <p>luci中关于登陆密码，用到的几个函数为：</p>
-<p><img src="https://s2.51cto.com/images/blog/202108/08/184360133ccd1325e3f77e2a489540d8.png?x-oss-process=image/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_30,g_se,x_10,y_10,shadow_20,type_ZmFuZ3poZW5naGVpdGk=/format,webp/resize,m_fixed,w_750" alt="Luci实现框架_LuCI_07"></p>
+<p><img src="http://shanks.link/img/openwrt/2022-10-24153158.png" alt="Luci实现框架_LuCI_07"></p>
 <p>可以看出它的密码是用的linux的密码，而openwrt的精简内核没有实现多用户机制，只有一个root用户，且开机时自动以root用户登录。要实现多用户，必须在web层面上，实现另外一套（user、passwd）系统。</p>
 <p>另外，认证后，serv端会发给client一个session值，且它要一直以cookie的形式存在于request报文中，供serv端来识别用户。这是web服务器的一般做法，这里就不多讲了。</p>
 <h2 id="4mvc界面生成">4.MVC界面生成</h2>
 <p>这其实是luci的精华所在，第二节开始介绍/usr/lib/lua/luci/下有三个目录model、view、controller，它们对应M、V、C。第2.2节介绍了生成的界面怎么传递给client，下面简单介绍生成界面的方法。</p>
 <p>Call()方法会调用controller里的函数，主要通过openwrt系统的uci、network、inconfig等工具对系统进行设置，如果需要还会生成新界面。动态生成界面的方法有两种，一是通过cbi()/form()方法，它们利用model中定义的模板map，生成html文件；另一种是通过template()方法，利用view中定义的htm（一种类似html的文件），直接生成界面。</p>
-<p><img src="https://s2.51cto.com/images/blog/202108/08/f54a9f4bdc5d03afe6fe880c1fab28f2.png?x-oss-process=image/watermark,size_16,text_QDUxQ1RP5Y2a5a6i,color_FFFFFF,t_30,g_se,x_10,y_10,shadow_20,type_ZmFuZ3poZW5naGVpdGk=/format,webp/resize,m_fixed,w_750" alt="Luci实现框架_LuCI_08"></p>
+<p>![Luci实现框架_LuCI_08](/img/openwrt/2022-10-24 153213.png)</p>
 <p>上面的标题是由node-tree生成的，下面的内容由每个node通过上面的方法来动态生成。这套系统是很复杂的，但只要定义好了，使用起来就非常方法，增加页面，修改页面某个内容等操作都非常简单。</p>
 <p><a href="https://blog.51cto.com/u_15127670/4526899">以上内容转载自本链接，若有侵权请联系站长</a></p>
 
