@@ -1,0 +1,1368 @@
+---
+title: "OpenWrt 系统UCI详解(Lua、C语言调用uci接口实例)"
+date: 2022-10-24T13:37:08+08:00
+tags: [OpenWrt]
+categories: [OpenWrt]
+---
+
+### UCI简介
+
+"uci"是"Unified [Configuration](https://so.csdn.net/so/search?q=Configuration&spm=1001.2101.3001.7020) Interface"(统一配置界面)的缩写,用于OpenWrt整个系统的配置集中化。
+
+很多后台服务有自己的配置文件，并且配置文件格式都不相同，[OpenWrt](https://so.csdn.net/so/search?q=OpenWrt&spm=1001.2101.3001.7020)系统中需要开启各种服务，为了解决配置不兼容的问题，统一采用uci格式的配置文件。
+
+![img](https://img-blog.csdnimg.cn/2021041522473418.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+ 
+
+当然统一的前提是需要各个模块做好适配，所以要想把某个服务集成到OpenWrt系统中，需要增加一个转换层，用于uci配置到服务配置的转换，通常这个工作放在init脚本中处理。
+
+![img](https://img-blog.csdnimg.cn/20210415224743835.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+ 
+
+以samba服务器为例，
+
+在一般的linux系统中，启动samba服务直接修改/etc/samba/smb.conf重启服务即可，但在openwrt中，不直接修改/etc/samba/smb.conf，而是修改/etc/config/samba配置文件，然后执行/etc/init.d/samba restart
+
+![img](https://img-blog.csdnimg.cn/20210415224800742.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+以下为init脚本的部分代码，这段代码中就包含了uci配置到samba配置的转换工作。
+
+ 
+
+![img](https://img-blog.csdnimg.cn/20210415224815320.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+### uci配置格式
+
+ 
+
+config 'example' 'test'
+
+​    option  'string'    'some value'
+
+​    option  'boolean'   '1'
+
+​    list   'collection'  'first item'
+
+​    list   'collection'  'second item'
+
+ 
+
+config 'example' 'test' 语句表示一个section的开始，这里的配置类型是example，配置名是test。配置中也允许出现匿名节，即自定义了配置类型，而没有配置名的节。配置类型对应配置处理程序来说是十分重要的，因为配置程序需要根据这些信息来处理这些配置项。
+
+ 
+
+option 'string' 'some value' 和 option 'boolean' '1' 定义了一些简单值。文本选项和布尔选项在语法上没有什么差异。布尔选项中可以用'0' ， 'no'， 'off'， 或者'false'来表示false值，或者也可以用'1'， 'yes'，'on'或者'true'来表示真值。
+
+ 
+
+以list关键字开头的多个行，可用于定义包含多个值的选项。所有共享一个名称的list语句，会组装形成一个值列表，列表中每个值出现的顺序，和它在配置文件中的顺序相同。如上例中，列表的名称是'collection'，它包含了两个值，即'first item'和'second item'。
+
+ 
+
+'option'和'list'语句的缩进可以增加配置文件的可读性，但是在语法不是必须的。
+
+ 
+
+通常不需要为标识符和值加引号，只有当值包括空格或者制表符的时候，才必须加引号。同时，在使用引号的时候，可以用双引号代替单引号。
+
+ 
+
+下面列举的例子都是符合uci语法的正确配置：
+
+- option example value
+- option 'example' value
+- option example "value"
+- option "example"   'value'
+- option  'example' "value"
+
+ 
+
+反之，以下配置则存在语法错误
+
+- option 'example" "value' (引号不匹配)
+- option example some value with space (值中包含空格，需要为值加引号)
+
+还有一点是必须知道的，即UCI标识符和配置文件名称所包含的字符必须是由a-z， 0-9和_组成。 选项值则可以包含任意字符，只要这个值是加了引号的。
+
+### uci命令的用法
+
+![img](https://img-blog.csdnimg.cn/20210415224842300.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+uci配置文件支持通过uci shell命令进行操作，支持set、get、show、export等基本操作。当然最常用的就是set和get命令。
+
+ 
+
+在进行uci命令操作之前，我们先查看/etc/config/有哪些配置文件，这样我们可以知道操作哪个配置文件（当然也可以直接uci show，可以看到所有的配置信息，但数据较多，还是习惯先看看config目录有哪些配置）
+
+![img](https://img-blog.csdnimg.cn/20210415224903594.png)
+
+现在可以针对某个配置进行操作，比如network配置，先通过cat查看配置文件中的内容，看看数据格式
+
+![img](https://img-blog.csdnimg.cn/20210415224917970.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+然后通过 uci show network命令查看具体的uci配置选项，用于查看具体的uci变量名称
+
+![img](https://img-blog.csdnimg.cn/20210415224932432.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+ 
+
+ 
+
+比如我们获取单个option变量值，获取lan口ip地址
+
+可以通过uci get network.lan.ipaddr 命令获取
+
+![img](https://img-blog.csdnimg.cn/20210415224945879.png)
+
+也可以通过set命令修改某个变量的值
+
+如设置lan口ip地址为192.168.188.1
+
+uci set network.lan.ipaddr=192.168.188.1
+
+ 
+
+![img](https://img-blog.csdnimg.cn/20210415224957604.png)
+
+ 
+
+可以看到已经成功修改了lan ip的值，但值得注意的是，通过cat /etc/config/network并不能查看到最新设置的值，这是因为通过uci set命令只修改了变量的临时值，并没有保存到配置文件中。这个临时值保存在/tmp/.uci/目录中。 
+
+![img](https://img-blog.csdnimg.cn/20210415225013940.png)
+
+ 
+
+ 
+
+临时目录中的文件内容只显示修改的变量，如果多次修改会显示多个内容，会显示所有的历史记录。现在我们看看多次修改后临时目录文件中的内容
+
+![img](https://img-blog.csdnimg.cn/20210415225028836.png)
+
+ 
+
+为了让修改的值在/etc/config目录中生效，我们还需要执行uci commit命令，该命令类似于svn commit，会把修改的记录提交。
+
+ 
+
+uci commit会将所有改变提交，我们也可以只提交某个配置文件的修改，如uci commit network，这样只会提交network的修改内容。
+
+ 
+
+### 常用的uci配置和命令
+
+***\**\*重要配置文件\*\**\***
+
+| 配置文件             | 说明                               |
+| -------------------- | ---------------------------------- |
+| /etc/config/system   | 系统配置，如主机名、时区等         |
+| /etc/config/network  | 网络配置，lan口ip、wan口ip、vlan等 |
+| /etc/config/dhcp     | Dhcp服务器配置                     |
+| /etc/config/firewall | 防火墙配置                         |
+| /etc/config/uhttpd   | Web服务器配置（默认）              |
+| /etc/config/dropbear | Ssh服务器配置                      |
+| /etc/config/luci     | Luci框架配置                       |
+|                      |                                    |
+
+***\**\*常用配置命令\*\**\***
+
+ 
+
+- 网络配置
+
+| 命令                                       | 说明                                           |
+| ------------------------------------------ | ---------------------------------------------- |
+| uci show network                           | 查看所有网络配置                               |
+| uci get network.lan.ipaddr                 | 获取lan口ip地址                                |
+| uci set network.lan.ipaddr=192.168.2.1     | 修改lan口ip地址为192.168.2.1                   |
+| uci get network.wan.proto                  | 查看wan口ip地址获取方式（dhcp、static、pppoe） |
+| uci set network.wan.proto=static           | 配置wan口ip地址获取方式为静态                  |
+| uci get network.wan.ipaddr                 | 获取wan口ip                                    |
+| uci set network.wan.ipaddr=192.168.100.100 | 配置wan口ip为192.168.100.100                   |
+| uci get network.wan.netmask                | 获取wan口子网掩码                              |
+| uci set network.wan.netmask=255.255.255.0  | 配置wan口子网掩码为255.255.255.0               |
+| uci get network.wan.gateway                | 获取默认网关地址                               |
+| uci set network.wan.gateway=192.168.100.1  | 配置默认网关地址为192.168.100.1                |
+| uci get network.lan.ifname                 | 获取lan口接口名(eth0)                          |
+| uci get network.wan.ifname                 | 获取wan口接口名(eth1)                          |
+| uci show network.wan                       | 查看所有wan配置                                |
+| uci show network.lan                       | 查看所有lan配置                                |
+| uci commit network                         | 保存网络配置                                   |
+| uci revert network                         | 放弃修改的网络配置（在commit之前可以revert）   |
+
+ 
+
+ 
+
+- 其他配置
+
+ 
+
+ 
+
+| 命令                                       | 说明                       |
+| ------------------------------------------ | -------------------------- |
+| uci show system                            | 查看所有系统配置           |
+| uci get system.@system[0].hostname         | 获取系统主机名             |
+| uci get system.@system[0].timezone         | 获取当前系统时区(CST-8)    |
+| uci get system.ntp.enabled                 | 获取ntp开关                |
+| uci get luci.ccache.enable                 | 查看luci是否启用缓存       |
+| uci get luci.languages.zh_cn               | 获取luci当前使用的语言     |
+| uci get uhttpd.main.home                   | 获取web服务器根目录        |
+| uci get uhttpd.main.listen_http            | 获取web服务器监听ip和端口  |
+| uci get uhttpd.main.redirect_https         | 查看web服务器是否强制https |
+| uci get firewall.@zone[1].masq             | 查看是否开启地址伪装(snat) |
+| uci get dropbear.@dropbear[0].PasswordAuth | 查看ssh是否开启密码认证    |
+| uci get dropbear.@dropbear[0].Port         | 查看ssh监听端口号          |
+| uci get dropbear.@dropbear[0].Interface    | 查看ssh监听的网卡接口      |
+| uci show                                   | 查看所有uci配置            |
+|                                            |                            |
+
+ 
+
+ 
+
+### c语言中使用uci
+
+## ***\**\*引用说明\*\**\***
+
+头文件 <uci.h>
+
+引用库: +libuci
+
+ 
+
+## ***\**\*常用结构体\*\**\***
+
+ 
+
+| 结构体             | 说明                                                         | 相关接口                                            |
+| ------------------ | ------------------------------------------------------------ | --------------------------------------------------- |
+| struct uci_context | Uci上下文，用于存储配置路径、配置package等，使用uci前必须分配一个ctx | uci_loaduci_unloaduci_alloc_contextuci_free_context |
+| struct uci_package | 对应一个配置包，如network、wireless                          | uci_lookup_packageuci_loaduci_unload                |
+| struct uci_section | 对应配置的一个节(section)                                    | uci_lookup_section                                  |
+| struct uci_option  | 对应某个配置项                                               | uci_lookup_option_stringuci_lookup_option           |
+|                    |                                                              |                                                     |
+
+ 
+
+## ***\**\*常用接口\*\**\***
+
+ 
+
+| 常用接口                                                     | 说明                      |
+| ------------------------------------------------------------ | ------------------------- |
+| int uci_set(struct uci_context *ctx, struct uci_ptr *ptr)    | 设置uci值                 |
+| int uci_del_list(struct uci_context *ctx, struct uci_ptr *ptr) | 删除list option           |
+| int uci_add_list(struct uci_context *ctx, struct uci_ptr *ptr) | 增加list option           |
+| int uci_delete(struct uci_context *ctx, struct uci_ptr *ptr) | 删除节点（option）        |
+| int uci_lookup_ptr(struct uci_context *ctx, struct uci_ptr *ptr, char *str, bool extended) | 查询元素指针              |
+| int uci_rename(struct uci_context *ctx, struct uci_ptr *ptr) | 重命名节（option）        |
+| int uci_add_section(struct uci_context *ctx, struct uci_package *p, const char *type, struct uci_section **res) | 添加一个节                |
+| struct uci_context *uci_alloc_context(void)                  | 分配上下文空间            |
+| void uci_free_context(struct uci_context *ctx)               | 释放上下文空间            |
+| int uci_load(struct uci_context *ctx, const char *name, struct uci_package **package) | 加载配置到内存            |
+| int uci_set_confdir(struct uci_context *ctx, const char *dir) | 设置配置目录              |
+| int uci_commit(struct uci_context *ctx, struct uci_package **package, bool overwrite) | 提交修改的值              |
+| struct uci_option *uci_lookup_option(struct uci_context *ctx, struct uci_section *s, const char *name) | 查询option指针            |
+| const char *uci_lookup_option_string(struct uci_context *ctx, struct uci_section *s, const char *name) | 获取一个option string值   |
+| struct uci_section *uci_lookup_section(struct uci_context *ctx, struct uci_package *p, const char *name) | 查询package中的section    |
+| struct uci_package *uci_lookup_package(struct uci_context *ctx, const char *name) | 在上下文中获取package指针 |
+|                                                              |                           |
+
+ 
+
+## ***\**\*C语言操作uci配置实例\*\**\***
+
+ 
+
+```cpp
+#include <stdio.h>
+
+
+
+#include <string.h>
+
+
+
+#include <stdlib.h>
+
+
+
+#include <uci.h>
+
+
+
+ 
+
+
+
+static struct uci_context *uci_ctx = NULL;
+
+
+
+static struct uci_package *uci_test;
+
+
+
+static struct uci_package *
+
+
+
+config_init_package(const char *config)
+
+
+
+{
+
+
+
+    struct uci_context *ctx = uci_ctx;
+
+
+
+    struct uci_package *p = NULL;
+
+
+
+ 
+
+
+
+    if (!ctx)
+
+
+
+    {
+
+
+
+        ctx = uci_alloc_context();
+
+
+
+        uci_ctx = ctx;
+
+
+
+        ctx->flags &= ~UCI_FLAG_STRICT;
+
+
+
+        //if (config_path)
+
+
+
+        //  uci_set_confdir(ctx, config_path);
+
+
+
+    }
+
+
+
+    else
+
+
+
+    {
+
+
+
+        p = uci_lookup_package(ctx, config);
+
+
+
+        if (p)
+
+
+
+            uci_unload(ctx, p);
+
+
+
+    }
+
+
+
+ 
+
+
+
+    if (uci_load(ctx, config, &p))
+
+
+
+        return NULL;
+
+
+
+ 
+
+
+
+    return p;
+
+
+
+}
+
+
+
+int config_alloc(void)
+
+
+
+{
+
+
+
+    uci_test = config_init_package("test");
+
+
+
+    if (!uci_test)
+
+
+
+    {
+
+
+
+        printf("Failed to load test config\n");
+
+
+
+        return -1;
+
+
+
+    }
+
+
+
+    return 0;
+
+
+
+}
+
+
+
+ 
+
+
+
+int config_free(void)
+
+
+
+{
+
+
+
+    if (uci_test)
+
+
+
+    {
+
+
+
+        uci_unload(uci_ctx, uci_test);
+
+
+
+        uci_test = NULL;
+
+
+
+    }
+
+
+
+    if (uci_ctx)
+
+
+
+    {
+
+
+
+        uci_free_context(uci_ctx);
+
+
+
+        uci_ctx = NULL;
+
+
+
+    }
+
+
+
+}
+
+
+
+ 
+
+
+
+int main(int argc, char *argv[])
+
+
+
+{
+
+
+
+    int ret = 0;
+
+
+
+    int enable = 0;
+
+
+
+    config_alloc();
+
+
+
+    struct uci_section *global_sec = uci_lookup_section(uci_ctx, uci_test, "global");
+
+
+
+    if (!global_sec)
+
+
+
+    {
+
+
+
+        printf("get global section failed\n");
+
+
+
+        config_free();
+
+
+
+        return 0;
+
+
+
+    }
+
+
+
+ 
+
+
+
+    char *name = uci_lookup_option_string(uci_ctx, global_sec, "name");
+
+
+
+    if (!name)
+
+
+
+    {
+
+
+
+        printf("name option not found.\n");
+
+
+
+        config_free();
+
+
+
+        return 0;
+
+
+
+    }
+
+
+
+    printf("name = %s\n", name);
+
+
+
+    free(name);
+
+
+
+    struct uci_ptr ptr ={
+
+
+
+                .package = "test",
+
+
+
+                .section = "global",
+
+
+
+                .option = "name",
+
+
+
+                .value = "xxxxxxxxxx"
+
+
+
+            };
+
+
+
+    ret = uci_set(uci_ctx, &ptr);   
+
+
+
+    if(ret != UCI_OK)
+
+
+
+    {
+
+
+
+        printf("set name...failed\n");
+
+
+
+    }
+
+
+
+    else{
+
+
+
+        printf("set name...ok\n");
+
+
+
+    }
+
+
+
+    uci_save(uci_ctx, ptr.p);
+
+
+
+    uci_commit(uci_ctx, &ptr.p, false);
+
+
+
+    config_free();
+
+
+
+    return 0;
+
+
+
+}
+```
+
+ 
+
+# ***\**\*Lua中使用uci\*\**\***
+
+## ***\**\*配置文件实例\*\**\***
+
+/etc/config/test
+
+```vbnet
+config global 'global'
+
+
+
+    option name 'derry'
+
+
+
+    option id '1'
+
+
+
+    list address 'shenzhen'
+
+
+
+    list address 'guangzhou'
+
+
+
+    list address 'beijing'
+```
+
+ 
+
+## ***\**\*cursor初始化的几种方式\*\**\***
+
+\1. 不带参数初始化（配置目录默认/etc/config）
+
+x = uci.cursor()
+
+\2. 包含状态值
+
+x = uci.cursor(nil, "/var/state")
+
+\3. 指定配置目录
+
+x = uci.cursor("/etc/mypackage/config", "/tmp/mypackage/.uci")
+
+## ***\**\*Lua常用的uci接口\*\**\***
+
+| lua接口                                                    | 说明                                                         |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
+| x:get("config", "sectionname", "option")                   | 返回字符串 或 nil(没找到数据时)                              |
+| x:set("config", "sectionname", "option", "value")          | 设置简单的字符串变量                                         |
+| x:set("config", "sectionname", "option", { "foo", "bar" }) | 设置列表变量                                                 |
+| x:delete("config", "section", "option")                    | 删除选项                                                     |
+| x:delete("config", "section")                              | 删除段                                                       |
+| x:add("config", "type")                                    | 添加一个匿名section（段）                                    |
+| x:set("config", "name", "type")                            | 添加一个类型为 “type”的section（段），名称为”name”           |
+| x:foreach("config", "type", function(s) ... end)           | 遍历所有类型为的"type"段,并以每个"s"为参数调用回调函数. s 是一个包含所有选型和两个特有属性的列表s['.type'] → 段类型s['.name'] → 段名称如果回调函数返回 false [NB: not nil!], foreach() 在这个点会终止,不再继续遍历任何剩余的段. 如果至少存在一个段且回调函数没有产生错误,foreach() 会返回 true; 否则返回false. |
+| x:revert("config")                                         | 取消修改的值                                                 |
+| x:commit("config")                                         | 保存修改的值到配置目录文件，默认目录/etc/config              |
+
+## ***\**\*Lua操作uci配置实例1\*\**\***
+
+```php
+#!/usr/bin/lua
+
+
+
+require("uci")
+
+
+
+x = uci.cursor()
+
+
+
+function show_test_config()
+
+
+
+    name = x:get("test", "global", "name")
+
+
+
+    id = x:get("test", "global", "id")
+
+
+
+    addr_list = x:get("test", "global", "address")
+
+
+
+    print("name="..name)
+
+
+
+    print("id="..id)
+
+
+
+for key, value in ipairs(addr_list) 
+
+
+
+do 
+
+
+
+print("address["..key.."]----"..value) 
+
+
+
+end
+
+
+
+end
+
+
+
+ 
+
+
+
+print("==========before change=========")
+
+
+
+show_test_config()
+
+
+
+x:set("test", "global", "name", "xxxxxxx")
+
+
+
+x:set("test", "global", "id", "8888888")
+
+
+
+ 
+
+
+
+x:set("test","global","address",{"1111","2222","33333","4444","5555"})
+
+
+
+x:commit("test")
+
+
+
+print("==========after change=========")
+
+
+
+show_test_config()
+```
+
+运行结果：
+
+![img](https://img-blog.csdnimg.cn/20210415225432381.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+## ***\**\*Lua操作uci配置实例2\*\**\***
+
+x=uci.cursor()
+
+conf=x:get_all("test", "global")
+
+```lua
+#!/usr/bin/lua
+
+
+
+require("uci")
+
+
+
+x=uci.cursor()
+
+
+
+conf=x:get_all("test", "global")
+
+
+
+ 
+
+
+
+print(conf["name"]);
+
+
+
+print(conf["id"]);
+
+
+
+for key, value in ipairs(conf["address"])
+
+
+
+do
+
+
+
+    print(value);
+
+
+
+end
+```
+
+运行结果：
+
+![img](https://img-blog.csdnimg.cn/20210415225507551.png)
+
+**更多OpenWrt技术文章或固件可以扫描关注我的微信公众号(OpenWrt)获取**
+
+**还可以获取文中实例源码**
+
+![img](https://img-blog.csdnimg.cn/20210415225531727.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2R4dDExMDc=,size_16,color_FFFFFF,t_70)
+
+   微信扫一扫
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+[![img](https://profile.csdnimg.cn/4/7/F/3_dxt1107)i-derry](https://blog.csdn.net/dxt1107)
+
+[关注](javascript:;)
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/newHeart2021Black.png)8
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/newUnHeart2021Black.png)
+- [![img](https://csdnimg.cn/release/blogv2/dist/pc/img/newCollectBlack.png)68](javascript:;)
+- [![打赏](https://csdnimg.cn/release/blogv2/dist/pc/img/newRewardBlack.png)](javascript:;)
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/newComment2021Black.png)0
+- 
+- [![img](https://csdnimg.cn/release/blogv2/dist/pc/img/newShareBlack.png)](javascript:;)
+
+专栏目录
+
+[*UCI* *接口**详解*](https://download.csdn.net/download/xiaoyezi19930328/9945036)
+
+08-22
+
+[*uci* 脚本详细教程](https://download.csdn.net/download/xiaoyezi19930328/9945036)
+
+[*OpenWrt* *UCI**详解**(*C和*Lua*语言使用*uci**接口**实例**)**.*docx](https://download.csdn.net/download/dxt1107/16683723)
+
+04-15
+
+[*OpenWrt* *UCI**详解*，包含*uci*命令的基本操作，*c语言**、**lua*语言*调用**uci**接口**实例*](https://download.csdn.net/download/dxt1107/16683723)
+
+
+
+[图片压缩工具:*uci*_iSH_的博客](https://blog.csdn.net/qq_35981895/article/details/72888018)
+
+10-7
+
+[图片压缩工具:*uci**UCI* *(*Ultra Compact Image*)* 由 dwing编写,是一种基H*.*264/HEVC intra帧压缩算法和数据流格式的静态图像封装格式*.*而且不受图像宽高的一些限制,支持alpha透明通道等特性,与JPEG,JPEG2000,HD-Photo等静态图像压缩算法相比*.**.**.*](https://blog.csdn.net/qq_35981895/article/details/72888018)
+
+[ARMv8常用寄存器记录_小坚学Linux的博客_armv8通用寄存器](https://blog.csdn.net/sinat_22338935/article/details/126243280)
+
+10-20
+
+[*UCI* 设置此位后,在AArch64中为DC CVAU*、*DC CIVAC*、*DC CVAC和IC IVAU指令启用EL0访问。 EE 异常字节顺序。0表示小端,1表示大端。 EOE EL0显式数据访问的字节序。0表示小端,1表示大端。 WXN 写权限不可执行 XN *(*eXecute Never*.**.**.*](https://blog.csdn.net/sinat_22338935/article/details/126243280)
+
+[*openwrt*之*uci*使用](https://blog.csdn.net/pyt1234567890/article/details/111407523)
+
+[Eric](https://blog.csdn.net/pyt1234567890)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 1078
+
+[“*uci*”是“Unified Configuration Interface”*(*统一配置界面*)*的缩写,意在*OpenWrt*整个*系统*的配置集中化。 用法: *uci* [\]  [] 命令: batch export [] import [] changes [] commit [
+
+[*uci* 命令*、*shell*接口**、*API*接口*热门推荐](https://blog.csdn.net/jf_xu/article/details/72629302)
+
+[jfxu](https://blog.csdn.net/jf_xu)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 1万+
+
+[*uci* 命令: *uci* help: Usage: *uci* [\] []  Commands:     batch     export   []     导出配置文件     import   []   以*uci*语法导入配置文件     changes  []   列出配置文件分阶段修改的内容（即使没有commit），若未指](https://blog.csdn.net/jf_xu/article/details/72629302)
+
+[带你入门Greenplum源码中的原子操作_Greenplum中文社区的博客-CSDN博 *.**.**.*](https://blog.csdn.net/gp_community/article/details/124636303)
+
+10-4
+
+[Greenplum中的原子操作函数主要位于src/include/port/atomics*.*h中,这些函数基本可以分为如下三类: barrier内存屏障*(*后文中会进行介绍*)*宏;例如:pg_memory_barrier 32bit数原子操作;例如:pg_atomic_read_u32*(**)*, pg_atomic_fetch_add_u*.**.**.*](https://blog.csdn.net/gp_community/article/details/124636303)
+
+[【智能*路由器*】C代码*调用**uci*的API读*openwrt*配置文件指南二](https://arvik.blog.csdn.net/article/details/96320736)
+
+[图像、视频、算法、Linux](https://blog.csdn.net/u012819339)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 2371
+
+[【智能*路由器*】系列文章连接 http://blog*.*csdn*.*net/u012819339/article/category/5803489 介绍 本篇博客是对 【智能*路由器*】C代码*调用**uci*的API读*openwrt*配置文件指南 文章的补充 网上依旧有一些网友有C代码*调用**uci*设置的需求，这里整理了arvik以前项目中编写的*c语言**调用**uci*的两个*接口*，供大家在项目中参考使用 *接口* *接口* *uci**.**.**.*](https://arvik.blog.csdn.net/article/details/96320736)
+
+[*OpenWrt*之*lua*网络编程_l*uci*下的*lua*socket安装](https://blog.csdn.net/qq_41953807/article/details/106758029)
+
+[fager漫长路](https://blog.csdn.net/qq_41953807)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 1620
+
+[写在前 *openwrt*的软路由上，提供了nixio，可以依赖它的socket进行编程，但是语法语义比较原始，不太容易使用，使用的样例可以参照： 自定义*openwrt*的配置界面：l*uci*进阶之路 里面定义了如何使用l*uci*的http方法，和自定义的resttemplate*.**lua*工具文件*(*里面封装了如何使用nixio进行socket编程*)* 本篇文章，将使用大家都在用的*lua*socket库，因为*lua*语言官方并不提供网络编程模块，*lua*socket库是外部库，使用*c语言*和*lua*语言编写而成的现成的库，可以用来](https://blog.csdn.net/qq_41953807/article/details/106758029)
+
+[*OpenWrt**系统*配置*UCI*](https://blog.csdn.net/hzlarm/article/details/102993291)
+
+[hzlarm的博客](https://blog.csdn.net/hzlarm)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 4771
+
+[*UCI*简介 MVC*(*Model-View-Control*)*模式是经典的Web开发编程模式。 *openWrt*也是采用该设计模式，模型层采用统一配置*接口**UCI*，是Unified Configuration Interface的缩写，翻译成中文就是统一配置*接口*，用途就是为*OpenWrt*提供一个集中控制的*接口*。*OpenWrt*实现的这个工具，能够让你的不管是*Lua*还是PHP程序，或者SHELL程序或C程序*.**.**.*](https://blog.csdn.net/hzlarm/article/details/102993291)
+
+[*openwrt* *c语言*使用*uci*](https://blog.csdn.net/x13163303344/article/details/79871921)
+
+[x13163303344的专栏](https://blog.csdn.net/x13163303344)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 2739
+
+[在ubuntu上用eclipse来编译的C文件，然后生成bin文件放在*openwrt*的机器上运行想使用*c语言*来*调用**uci*的一些*接口*来实现读取和修改配置的工作ubuntu上安装*uci*参考：https://blog*.*csdn*.*net/rainforest_c/article/details/70142987*C语言**调用**uci*的说明参考：https://blog*.*csdn*.*net/bytxl/articl*.**.**.*](https://blog.csdn.net/x13163303344/article/details/79871921)
+
+[无线专题 *openwrt* feeds*、*web框架l*uci**(**lua*语言*)**、**UCI* *(*统一配置*接口**)*](https://blog.csdn.net/qq_36741413/article/details/124045156)
+
+[雷子的博客](https://blog.csdn.net/qq_36741413)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 793
+
+[*OpenWrt* 可以被描述为一个嵌入式的 Linux 发行版。（主流*路由器*固件有 dd-wrt,tomato,*openwrt*,padavan四类）对比其他单一的*、*静态的*系统*（比如ubuntu），*OpenWrt*的包管理提供了一个完全可写的文件*系统*，可扩展性好，可以在线安装您所需要的功能，允许您自定义的设备，以适应任何应用。 对于开发人员，*OpenWrt* 是使用框架来构建应用程序，而无需建立一个完整的固件来支持；对于用户来说，这意味着其拥有完全定制的能力，可以用前所未有的方式使用该设备。 1*、*首次编译建议用单线](https://blog.csdn.net/qq_36741413/article/details/124045156)
+
+[程序使用*uci**接口*时没有*uci**.*h的解决方法](https://blog.csdn.net/flexman09/article/details/51546277)
+
+[flexman09的专栏](https://blog.csdn.net/flexman09)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 3626
+
+[转自http://blog*.*chinaunix*.*net/xmlrpc*.*php?r=blog/article&uid=28413840&id=4283561 最近做的工作用*openwrt* SDK开发，其中有一部分*C语言*读数据我们用*LUA* for C API ，直接在头文件中像下面这样写会有问题 #include *uci**.*h> 编译时会出现错误如下：](https://blog.csdn.net/flexman09/article/details/51546277)
+
+[*uci*的api*接口*的使用（总结）](https://blog.csdn.net/flexman09/article/details/52033837)
+
+[flexman09的专栏](https://blog.csdn.net/flexman09)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 5938
+
+[进行*uci* set 设置时，模式如下： 1；c = *uci*_alloc_context*(**)*; 2；*uci*_lookup_ptr（）设置ptr 3；*uci*_set*(*ctx, &ptr*)*; 或其他命令 4；*uci*_commit 5；*uci*_unload 4；*uci*_free_context*(*c*)*； 进行*uci* add时，则需要*uci*_load函数。 其他文章： c程序](https://blog.csdn.net/flexman09/article/details/52033837)
+
+[一文打尽*UCI*统一配置*接口**、**UCI*配置文件*、**UCI*工具用法*、**UCI*配置脚本*、**UCI* API编程*接口*（Libubox库*、**UCI*库）](https://dongshao.blog.csdn.net/article/details/102527800)
+
+[董哥的黑板报](https://blog.csdn.net/qq_41453285)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 5317
+
+[接下来几篇文章首先讲述 *UCI* 配置及配置*接口*，接着讲述*系统*内核设置，最后还会讲述一些非 *UCI* *系统*配置，这些配置通常不提供用户修改*接口*，但在*系统*运行时也是非常重要的 一*、**UCI*简介 MVC（Model-View-Control）模式是经典的Web开发编程模式，*OpenWrt*也采用该设 计模式。该设计模式为分层设计，模型层负责数据的持久化操作。*OpenWrt* 的模型层采用 统一配置*接口*（U*.**.**.*](https://dongshao.blog.csdn.net/article/details/102527800)
+
+[*Openwrt* *UCI*入门操作最新发布](https://blog.csdn.net/qq_60504871/article/details/125906002)
+
+[qq_60504871的博客](https://blog.csdn.net/qq_60504871)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 1627
+
+[很多后台服务有自己的配置文件，并且配置文件格式都不相同，*OpenWrt**系统*中需要开启各种服务，为了解决配置不兼容的问题，统一采用*uci*格式的配置文件。常用的有*uci*show*、**uci*set*、**uci*get等，如*uci*shownetwork。option对应的结构体（选项结构体）对应配置文件里节中的option或者list。package对应的结构体如下（包结构体）它对应一个配置文件内容。section对应的结构体（节结构体）它对应配置文件中的节。3*.**UCI*-C使用方法。*.**.**.**.**.**.**.**.**.*](https://blog.csdn.net/qq_60504871/article/details/125906002)
+
+[*OpenWrt*上*UCI*库的使用*(**C语言**调用**)*](https://blog.csdn.net/hexf9632/article/details/109096300)
+
+[努力搬砖ing...](https://blog.csdn.net/hexf9632)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 2176
+
+[文章目录1 L*UCI* 配置文件简介2 简单的基本关系3 结构体介绍4 部分API介绍5 代码实战 1 L*UCI* 配置文件简介 L*UCI* 的配置文件一般存储在 /etc/config 目录下。比如网络配置文件则是 /etc/config/network，无线的配置文件是 /etc/config/wireless。更多配置文件的含义参考官方 WIKI*.* 2 简单的基本关系 这里画一个图让大家大致了解配置文件的内容和 *uci* 的几个基本结构之间的对应关系。（例举文件为 uhttpd 的配置文件） 3 结构](https://blog.csdn.net/hexf9632/article/details/109096300)
+
+[redis软件中 redis*.*conf里面知识点的详情解读](https://jing21.blog.csdn.net/article/details/108637575)
+
+[一天不写代码难受的博客](https://blog.csdn.net/python113)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 80
+
+[我们在虚拟机里面启动redis，之后进入这个软件的目录，就可以看见这个配置文件 进入到这个配置文件 解读通用配置里面的东西： 这个下面的配置是快照，做持久化的时候会配置这个里面的东西 这个下面是和安全相关的配置 可以在配置文件里面配置密码，也可以使用命令进行配置 以下是使用命令进行配置密码 这个下面是aof的配置 *.**.**.*](https://jing21.blog.csdn.net/article/details/108637575)
+
+[*lua*管理linux,*Lua**调用**uci*命令及linux命令](https://blog.csdn.net/weixin_33907300/article/details/116875984)
+
+[weixin_33907300的博客](https://blog.csdn.net/weixin_33907300)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 429
+
+[简介最近项目接触到*Openwrt*的编译和使用，op本身是一个定制的linux*系统*，兼容的包和语言也有很多，随着物联网的发展，相信在*路由器*方面的应用会越来越多，l*uci*作为一个已经在*openwrt*上集成的web管理工具有很强大的功能，但我的项目里面需要修改和使用自己的配置文件，因此整理一下*lua*+*uci*的使用。*lua*使用*uci**openwrt*-*lua*-*uci*官方介绍->地址*lua*+*uci*使用笔记*.**.**.*](https://blog.csdn.net/weixin_33907300/article/details/116875984)
+
+[*openwrt* *uci*的使用](https://blog.csdn.net/baidu_32696097/article/details/49755173)
+
+[baidu_32696097的博客](https://blog.csdn.net/baidu_32696097)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 640
+
+[想要编写*UCI*需要下载*uci*,h这个头文件。 static int lc_*uci*_set*(*const char *str*)*; static char *lc_*uci*_get*(*const char *str*)*; static int lc_*uci*_add*(*const char *str*)*; static int lc_*uci*_del*(*char *str*)*; unsigned char de](https://blog.csdn.net/baidu_32696097/article/details/49755173)
+
+[*C语言*解析*uci*文件内容,*C语言*通过定义结构体*UCI*读写配置文件](https://blog.csdn.net/weixin_29285605/article/details/117347855)
+
+[weixin_29285605的博客](https://blog.csdn.net/weixin_29285605)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 533
+
+[***C语言*通过定义结构体*UCI*读写配置文件1*、*配置文件名称:roaming#define *UCI*_ROAM_FILE "/etc/config/roaming" //配置文件config wlan "wlan0"option basicnetwork_name ‘siot‘option basicstate ‘enable‘option securitysuite ‘wpa2*.**.**.*](https://blog.csdn.net/weixin_29285605/article/details/117347855)
+
+[*c语言*程序读取*uci*配置,*UCI* *(*统一配置*接口**)* – 技术参考资料](https://blog.csdn.net/weixin_30499067/article/details/117079552)
+
+[weixin_30499067的博客](https://blog.csdn.net/weixin_30499067)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 496
+
+[花一点时间来理解 "section" 和 "type" 之间的差异是值得的*.* 让我们从一个例程开始:#*uci* show systemsystem*.*@system[0\]=systemsystem*.*@system[0]*.*hostname=*OpenWrt*system*.*@system[0]*.*timezone=UTCsystem*.*@rdate[0]=rdatesystem*.*@rdate[0]*.*server=*.**.**.*](https://blog.csdn.net/weixin_30499067/article/details/117079552)
+
+### “相关推荐”对你有帮助么？
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel1.png)
+
+    非常没帮助
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel2.png)
+
+    没帮助
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel3.png)
+
+    一般
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel4.png)
+
+    有帮助
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel5.png)
+
+    非常有帮助
+
+©️2022 CSDN 皮肤主题：大白 设计师：CSDN官方博客 [返回首页](https://blog.csdn.net/)
+
+- [关于我们](https://www.csdn.net/company/index.html#about)
+- [招贤纳士](https://www.csdn.net/company/index.html#recruit)
+- [商务合作](https://marketing.csdn.net/questions/Q2202181741262323995)
+- [寻求报道](https://marketing.csdn.net/questions/Q2202181748074189855)
+- ![img](https://g.csdnimg.cn/common/csdn-footer/images/tel.png)400-660-0108
+- ![img](https://g.csdnimg.cn/common/csdn-footer/images/email.png)[kefu@csdn.net](mailto:webmaster@csdn.net)
+- ![img](https://g.csdnimg.cn/common/csdn-footer/images/cs.png)[在线客服](https://csdn.s2.udesk.cn/im_client/?web_plugin_id=29181)
+- 工作时间 8:30-22:00
+
+- [公安备案号11010502030143](http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11010502030143)
+- [京ICP备19004658号](http://beian.miit.gov.cn/publish/query/indexFirst.action)
+- [京网文〔2020〕1039-165号](https://csdnimg.cn/release/live_fe/culture_license.png)
+- [经营性网站备案信息](https://csdnimg.cn/cdn/content-toolbar/csdn-ICP.png)
+- [北京互联网违法和不良信息举报中心](http://www.bjjubao.org/)
+- [家长监护](https://download.csdn.net/tutelage/home)
+- [网络110报警服务](http://www.cyberpolice.cn/)
+- [中国互联网举报中心](http://www.12377.cn/)
+- [Chrome商店下载](https://chrome.google.com/webstore/detail/csdn开发者助手/kfkdboecolemdjodhmhmcibjocfopejo?hl=zh-CN)
+- [账号管理规范](https://blog.csdn.net/blogdevteam/article/details/126135357)
+- [版权与免责声明](https://www.csdn.net/company/index.html#statement)
+- [版权申诉](https://blog.csdn.net/blogdevteam/article/details/90369522)
+- [出版物许可证](https://img-home.csdnimg.cn/images/20220705052819.png)
+- [营业执照](https://img-home.csdnimg.cn/images/20210414021142.jpg)
+- ©1999-2022北京创新乐知网络技术有限公司
+
+[![img](https://profile.csdnimg.cn/4/7/F/3_dxt1107)](https://blog.csdn.net/dxt1107)
+
+[i-derry](https://blog.csdn.net/dxt1107)
+
+码龄13年[![img](https://csdnimg.cn/identity/nocErtification.png) 暂无认证](https://i.csdn.net/#/uc/profile?utm_source=14998968)
+
+
+
+
+
+
+
+- 56万+
+
+    访问
+
+- [![img](https://csdnimg.cn/identity/blog5.png)](https://blog.csdn.net/blogdevteam/article/details/103478461)
+
+    等级
+
+- 2339
+
+    积分
+
+- 172
+
+    粉丝
+
+- 62
+
+    获赞
+
+- 43
+
+    评论
+
+- 362
+
+    收藏
+
+![分享达人](https://csdnimg.cn/medal/fenxiangdaren@240.png)
+
+![专栏达人](https://csdnimg.cn/medal/zhuanlandaren@240.png)
+
+![持之以恒](https://csdnimg.cn/medal/chizhiyiheng@240.png)
+
+![勤写标兵](https://csdnimg.cn/medal/qixiebiaobing4@240.png)
+
+![知无不言](https://csdnimg.cn/f19b84c244aa4e6d8bf469b4aff1f98c.png)
+
+[私信](https://im.csdn.net/chat/dxt1107)
+
+关注
+
+![img](https://csdnimg.cn/cdn/content-toolbar/csdn-sou.png?v=1587021042)
+
+### 热门文章
+
+- [mac地址对应的厂商 ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 329419](https://blog.csdn.net/dxt1107/article/details/40784351)
+- [极路由刷个人编译的openwrt固件全过程 ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 31071](https://blog.csdn.net/dxt1107/article/details/81609033)
+- [通过OpenWrt路由器实现王者荣耀、快手、抖音过滤 ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 27275](https://blog.csdn.net/dxt1107/article/details/88652159)
+- [OpenWrt如何开启webdav，实现文件共享 ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 13282](https://blog.csdn.net/dxt1107/article/details/109810905)
+- [PyQt给QLabel添加双击事件 ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/readCountWhite.png) 12845](https://blog.csdn.net/dxt1107/article/details/47806965)
+
+### 最新评论
+
+- OpenWrt内核模块开发(二)-通过linux netfilter框架拦截协议栈报文
+
+    [weixin_45429807: ](https://blog.csdn.net/weixin_45429807)博主，想请教一下，我看现在流行eBPF框架做内核开发，这套技术能用到OpenWrt系统上吗？
+
+- 开发了一个游戏卡顿OpenWrt路由器插件
+
+    [淡淡如画: ](https://blog.csdn.net/u012497069)百度链接时效了 能给个github地址么
+
+- 王者荣耀后台协议分析，教你如何通过路由器屏蔽游戏
+
+    [ny_free: ](https://blog.csdn.net/qq_42777490)echo 0 >/proc/sys/oaf/test_mode
+
+- OpenWrt内核模块开发(七)-通过linux netfilter框架实现url(域名)过滤
+
+    [qq_43983042: ](https://blog.csdn.net/qq_43983042)9和7
+
+- 如何解决FAT文件系统出现readonly的问题
+
+    [f大熊: ](https://blog.csdn.net/fun_tion)大神啊，解决了困扰我许久的问题！![表情包](https://g.csdnimg.cn/static/face/emoji/029.png)
+
+### 您愿意向朋友推荐“博客详情页”吗？
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel1.png)
+
+    强烈不推荐
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel2.png)
+
+    不推荐
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel3.png)
+
+    一般般
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel4.png)
+
+    推荐
+
+- ![img](https://csdnimg.cn/release/blogv2/dist/pc/img/npsFeel5.png)
+
+    强烈推荐
+
+### 最新文章
+
+- [openwrt luci框架常用http接口](https://blog.csdn.net/dxt1107/article/details/121102009)
+- [openwrt web框架luci简介，20行代码写一个前后端交互页面](https://blog.csdn.net/dxt1107/article/details/121101883)
+- [王者荣耀后台协议分析，教你如何通过路由器屏蔽游戏](https://blog.csdn.net/dxt1107/article/details/121101767)
+
+[2021年18篇](https://blog.csdn.net/dxt1107?type=blog&year=2021&month=11)
+
+[2020年2篇](https://blog.csdn.net/dxt1107?type=blog&year=2020&month=11)
+
+[2019年5篇](https://blog.csdn.net/dxt1107?type=blog&year=2019&month=04)
+
+[2018年6篇](https://blog.csdn.net/dxt1107?type=blog&year=2018&month=12)
+
+[2017年3篇](https://blog.csdn.net/dxt1107?type=blog&year=2017&month=08)
+
+[2016年4篇](https://blog.csdn.net/dxt1107?type=blog&year=2016&month=09)
+
+[2015年6篇](https://blog.csdn.net/dxt1107?type=blog&year=2015&month=11)
+
+[2014年7篇](https://blog.csdn.net/dxt1107?type=blog&year=2014&month=11)
+
+[2013年1篇](https://blog.csdn.net/dxt1107?type=blog&year=2013&month=10)
+
+[2012年2篇](https://blog.csdn.net/dxt1107?type=blog&year=2012&month=11)
+
+[2011年5篇](https://blog.csdn.net/dxt1107?type=blog&year=2011&month=06)
+
+[2010年5篇](https://blog.csdn.net/dxt1107?type=blog&year=2010&month=12)
+
+![img](https://kunyu.csdn.net/1.png?p=530&adId=1015188&a=1015188&c=0&k=OpenWrt%E7%B3%BB%E7%BB%9FUCI%E8%AF%A6%E8%A7%A3Lua%E3%80%81C%E8%AF%AD%E8%A8%80%E8%B0%83%E7%94%A8uci%E6%8E%A5%E5%8F%A3%E5%AE%9E%E4%BE%8B&spm=1001.2101.3001.4647&articleId=115742249&d=1&t=3&u=351901827daa476e99ea87824c7d468b)
+
+### 目录
+
+1. [uci简介](https://blog.csdn.net/dxt1107/article/details/115742249#t0)
+2. [uci配置格式](https://blog.csdn.net/dxt1107/article/details/115742249#t1)
+3. [uci命令的用法](https://blog.csdn.net/dxt1107/article/details/115742249#t2)
+4. [常用的uci配置和命令](https://blog.csdn.net/dxt1107/article/details/115742249#t3)
+5. [c语言中使用uci](https://blog.csdn.net/dxt1107/article/details/115742249#t4)
+6. 1. [引用说明](https://blog.csdn.net/dxt1107/article/details/115742249#t5)
+    2. [常用结构体](https://blog.csdn.net/dxt1107/article/details/115742249#t6)
+    3. [常用接口](https://blog.csdn.net/dxt1107/article/details/115742249#t7)
+    4. [C语言操作uci配置实例](https://blog.csdn.net/dxt1107/article/details/115742249#t8)
+7. [Lua中使用uci](https://blog.csdn.net/dxt1107/article/details/115742249#t9)
+8. 1. [配置文件实例](https://blog.csdn.net/dxt1107/article/details/115742249#t10)
+    2. [cursor初始化的几种方式](https://blog.csdn.net/dxt1107/article/details/115742249#t11)
+    3. [Lua常用的uci接口](https://blog.csdn.net/dxt1107/article/details/115742249#t12)
+    4. [Lua操作uci配置实例1](https://blog.csdn.net/dxt1107/article/details/115742249#t13)
+    5. [Lua操作uci配置实例2](https://blog.csdn.net/dxt1107/article/details/115742249#t14)
+
+![img](https://kunyu.csdn.net/1.png?p=479&adId=1015221&a=1015221&c=0&k=OpenWrt%E7%B3%BB%E7%BB%9FUCI%E8%AF%A6%E8%A7%A3Lua%E3%80%81C%E8%AF%AD%E8%A8%80%E8%B0%83%E7%94%A8uci%E6%8E%A5%E5%8F%A3%E5%AE%9E%E4%BE%8B&spm=1001.2101.3001.4834&articleId=115742249&d=1&t=3&u=7c3c7e1f2d01455eaaf4a538ec6042c4)
+
+### 分类专栏
+
+- ![img](https://img-blog.csdn.net/column?imageView2/1/w/64/h/64/interlace/1)openwrt开发
+
+    17篇
+
+- ![img](https://img-blog.csdnimg.cn/20210719100429610.jpg?x-oss-process=image/resize,m_fixed,h_64,w_64)Linux内核开发
+
+    11篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756916.png?x-oss-process=image/resize,m_fixed,h_64,w_64)算法
+
+    3篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756913.png?x-oss-process=image/resize,m_fixed,h_64,w_64)c语言
+
+    6篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756780.png?x-oss-process=image/resize,m_fixed,h_64,w_64)行为管理
+
+    3篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756927.png?x-oss-process=image/resize,m_fixed,h_64,w_64)linux
+
+    6篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756916.png?x-oss-process=image/resize,m_fixed,h_64,w_64)shell
+
+    4篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756780.png?x-oss-process=image/resize,m_fixed,h_64,w_64)python
+
+    6篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756754.png?x-oss-process=image/resize,m_fixed,h_64,w_64)防火墙
+
+    2篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756930.png?x-oss-process=image/resize,m_fixed,h_64,w_64)portal
+
+    2篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756928.png?x-oss-process=image/resize,m_fixed,h_64,w_64)路由器
+
+    13篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756930.png?x-oss-process=image/resize,m_fixed,h_64,w_64)Android
+
+    1篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756928.png?x-oss-process=image/resize,m_fixed,h_64,w_64)mongodb
+
+    1篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756927.png?x-oss-process=image/resize,m_fixed,h_64,w_64)wifi
+
+    5篇
+
+- ![img](https://img-blog.csdnimg.cn/20201014180756925.png?x-oss-process=image/resize,m_fixed,h_64,w_64)openwrt
+
+    11篇
+
+![img](https://img-operation.csdnimg.cn/csdn/silkroad/img/1666168836091.png)![img](https://img-operation.csdnimg.cn/csdn/silkroad/img/1666149376891.gif)![img](https://kunyu.csdn.net/1.png?p=932&adId=1016044&a=1016044&c=439609&k=-&spm=3001.9017&d=1&t=3&u=66094b8c5d7f4807a62846966ebe032d)
+
+![img](https://csdnimg.cn/release/blogv2/dist/pc/img/iconShowDirectory.png)![img](https://csdnimg.cn/release/blogv2/dist/pc/img/iconSideBeta.png)![img](https://csdnimg.cn/release/blogv2/dist/pc/img/iconHideSide.png)![img](https://csdnimg.cn/release/blogv2/dist/pc/img/iconSideBeta.png)![img](https://g.csdnimg.cn/side-toolbar/3.4/images/guide.png)![img](https://g.csdnimg.cn/side-toolbar/3.4/images/kefu.png)举报
