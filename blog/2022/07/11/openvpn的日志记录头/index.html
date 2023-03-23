@@ -233,52 +233,52 @@
     <div class="post-body" itemprop="articleBody">
     <p>​		日志记录机制是很多大型软件必不可少的组成部分，日志记录其实是蛮有趣的，既不能记录太多又要切中要害，因此很多程序将日志记录分为若干级别，比如调试级别只输出错误和调试信息，而错误级别则不再输出调试信息等，另外需要管理日志记录的分类，想完全实现这些机制是要动一番脑筋的，既有效又巧妙的实现遍布各大开源代码中，其中linux内核以及openvpn的记录都不错，都将日志作为一个协议而编码，该协议的通信双方是代码的处理逻辑部分和实际日志记录部分，不像printf或者fprintf仅仅记录内容本身，printk还包含一个级别信息，我们将此信息称作日志头，而消息本身就是日志体了，openvpn的实现更加精妙，本文详述其日志头的构成。实际上任何的消息如果想更加方便的管理和应用，都可以增加一个协议头，毕竟协议本身就是为了方便隔离的交互双方的耦合的。</p>
 <p>​		openvpn的log头分为三个部分，第一个部分是日志的级别，第二个部分用于过滤太多的日志，第三个部分携带了其它一些信息，这三个部分统一编码到了一个32位的数字中，注释如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"> * Mask map:
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"> * Bits 0-3:   log level
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"> * Bits 4-23:  M_x flags
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"> * Bits 24-31: mute level
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"> */</span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define LOGLEV(log_level, mute_level, other) ((log_level) | ENCODE_MUTE_LEVEL(mute_level) | other)
-</span></span></span></code></pre></div><p>其中other可以是任何的信息，这个信息在实际输出日志的时候才会使用，前面二者log_level和mute_level和日志的内容和类别没有关系，它们合力决定日志是否输出，需要注意的是，other虽然可以携带任何信息其也不是完全没有限制的，other的大小必须保证在20位以内，并且只能占据第4位到第23位，由于openvpn已经内定了很多的M_msg标识，比如：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define M_FATAL           (1&lt;&lt;4)     </span><span style="color:#f00;font-style:italic">/* exit program */</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define M_NONFATAL        (1&lt;&lt;5)     </span><span style="color:#f00;font-style:italic">/* non-fatal error */</span><span style="color:#f00;font-style:italic">
-</span></span></span></code></pre></div><p>为了不引起冲突，最好使用一个位来标明一个携带的信息，并且不能和openvpn内定的相冲突。    日志记录头的三者巧妙统一于32位数字中，log_level不移位，占据低4位，mute_level需要移动到最高8位，other占据其它剩余的位，具体占据多少位是可配置的，比如完全可以让log_level只占据低2位，留给M_msg多一些的空间&hellip;mute_level是用来控制同类连续日志的最大输出量的，这很有用，抛开openvpn本身在别的环境下，比如多个函数写入日志相同的信息，这就有必要控制一下了，否则日志文件很快就爆了，至于同类日志最多连续输出多少，这是可以配置的，只要连续进来两个mute_level一样的日志需要输出，那么就计数一次并且在计数没有到配置上限时依然输出日志，一旦达到配置的同类日志上线就不再输出该日志了：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">bool</span> <span style="color:#c34e00">dont_mute</span> (<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> flags)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">bool</span> ret = true;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (mute_cutoff &gt; 0 &amp;&amp; !(flags &amp; M_NOMUTE)) {
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">const</span> <span style="color:#00f">int</span> mute_level = <span style="color:#c34e00">DECODE_MUTE_LEVEL</span> (flags); <span style="color:#f00;font-style:italic">//从flag的高8位取出mute_level
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">if</span> (mute_level &gt; 0 &amp;&amp; mute_level == mute_category) { <span style="color:#f00;font-style:italic">//如果和上次需要输出日志的mute_level相同则计数并判断
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">if</span> (mute_count == mute_cutoff)
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">msg</span> (M_INFO | M_NOMUTE, <span style="color:#009c00">&#34;NOTE: --mute triggered...&#34;</span>); <span style="color:#f00;font-style:italic">//M_NOMUTE表明自己不再受限制之列
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">if</span> (++mute_count &gt; mute_cutoff)  <span style="color:#f00;font-style:italic">//判断是否到达配置的上限
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        ret = false;
-</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {  <span style="color:#f00;font-style:italic">//进来一个带有新的mute_level的日志需要输出，记录全局变量，以备下次输出日志时判断，如上if所述
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">const</span> <span style="color:#00f">int</span> suppressed = mute_count - mute_cutoff;
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">if</span> (suppressed &gt; 0)
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">msg</span> (M_INFO | M_NOMUTE, 
-</span></span><span style="display:flex;"><span>        <span style="color:#009c00">&#34;%d variation(s) on previous %d message(s) suppressed by --mute&#34;</span>,
-</span></span><span style="display:flex;"><span>         suppressed,
-</span></span><span style="display:flex;"><span>         mute_cutoff);
-</span></span><span style="display:flex;"><span>      mute_count = 1;
-</span></span><span style="display:flex;"><span>      mute_category = mute_level;  <span style="color:#f00;font-style:italic">//记录全局变量，“上次的”mute_level
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> ret;
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>在errlevel.c中定义了很多的LOGLEV，比如：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define D_LINK_ERRORS        LOGLEV(1, 1, M_NONFATAL) 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>....
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define D_HANDSHAKE          LOGLEV(2, 20, 0) 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>....
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define D_REGISTRY           LOGLEV(11, 70, M_DEBUG)
-</span></span></span></code></pre></div><p>D_LINK_ERRORS的日志记录级别为1，mute_level为1，携带的信息是“非致命错误”，D_HANDSHAKE的解释一样&hellip;可以看出日志记录级别之间，就是LOGLEV的第一个参数连续递增的时候，第二个参数却是跳跃递增的，中间留了一些空隙，这是为了扩展性设计的，使得可以扩充X级别的日志，自己定义一些只有自己新增加的逻辑中才会输出的日志。在openvpn的日志机制中，日志级别占有低4位，一共15个级别，目前已经使用了11个(2.1.1版本)，还有少量几个可用，不过一般这样做没有什么意义，在已有的级别自定义日志会更常用，实在用光了低4位的所有level，那就将之扩到5位，压缩一些别的空间，比如压缩一下mute_level的空间。    在openvpn中，所有的日志都通过x_msg输出的，在该函数的前面(x_msg也可能就是一个printf函数)，有下面的语句(MSG_TEST判断在定义HAVE_VARARG_MACROS的情况下在x_msg外部判断)：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">if</span> (!<span style="color:#c34e00">MSG_TEST</span> (flags))
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span>;
-</span></span></code></pre></div><p>可见MSG_TEST决定了是否输出日志，这个宏很简单：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define MSG_TEST(flags) (unlikely((((unsigned int)flags) &amp; M_DEBUG_LEVEL) &lt;= x_debug_level) &amp;&amp; dont_mute (flags))
-</span></span></span></code></pre></div><p>就是取出日志级别，和配置相比较，只要级别比配置级别小就输出，另外还判断mute_level，如果连续的同类日志太多了，也有可能不再输出。最后，32位的日志标志的other的处理在实际输出之前进行，它主要是控制输出内容的，比如在M_SSL被设置的情况下就会输出ssl的消息，如ERR_error_string。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">/*
+</span><span style="color:#f00;font-style:italic"> * Mask map:
+</span><span style="color:#f00;font-style:italic"> * Bits 0-3:   log level
+</span><span style="color:#f00;font-style:italic"> * Bits 4-23:  M_x flags
+</span><span style="color:#f00;font-style:italic"> * Bits 24-31: mute level
+</span><span style="color:#f00;font-style:italic"> */</span>
+<span style="color:#f00;font-style:italic">#define LOGLEV(log_level, mute_level, other) ((log_level) | ENCODE_MUTE_LEVEL(mute_level) | other)
+</span></code></pre></div><p>其中other可以是任何的信息，这个信息在实际输出日志的时候才会使用，前面二者log_level和mute_level和日志的内容和类别没有关系，它们合力决定日志是否输出，需要注意的是，other虽然可以携带任何信息其也不是完全没有限制的，other的大小必须保证在20位以内，并且只能占据第4位到第23位，由于openvpn已经内定了很多的M_msg标识，比如：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#define M_FATAL           (1&lt;&lt;4)     </span><span style="color:#f00;font-style:italic">/* exit program */</span><span style="color:#f00;font-style:italic">
+</span><span style="color:#f00;font-style:italic">#define M_NONFATAL        (1&lt;&lt;5)     </span><span style="color:#f00;font-style:italic">/* non-fatal error */</span><span style="color:#f00;font-style:italic">
+</span></code></pre></div><p>为了不引起冲突，最好使用一个位来标明一个携带的信息，并且不能和openvpn内定的相冲突。    日志记录头的三者巧妙统一于32位数字中，log_level不移位，占据低4位，mute_level需要移动到最高8位，other占据其它剩余的位，具体占据多少位是可配置的，比如完全可以让log_level只占据低2位，留给M_msg多一些的空间&hellip;mute_level是用来控制同类连续日志的最大输出量的，这很有用，抛开openvpn本身在别的环境下，比如多个函数写入日志相同的信息，这就有必要控制一下了，否则日志文件很快就爆了，至于同类日志最多连续输出多少，这是可以配置的，只要连续进来两个mute_level一样的日志需要输出，那么就计数一次并且在计数没有到配置上限时依然输出日志，一旦达到配置的同类日志上线就不再输出该日志了：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">bool</span> <span style="color:#c34e00">dont_mute</span> (<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> flags)
+{
+  <span style="color:#00f">bool</span> ret = true;
+  <span style="color:#00f">if</span> (mute_cutoff &gt; 0 &amp;&amp; !(flags &amp; M_NOMUTE)) {
+      <span style="color:#00f">const</span> <span style="color:#00f">int</span> mute_level = DECODE_MUTE_LEVEL (flags); <span style="color:#f00;font-style:italic">//从flag的高8位取出mute_level
+</span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">if</span> (mute_level &gt; 0 &amp;&amp; mute_level == mute_category) { <span style="color:#f00;font-style:italic">//如果和上次需要输出日志的mute_level相同则计数并判断
+</span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">if</span> (mute_count == mute_cutoff)
+        msg (M_INFO | M_NOMUTE, <span style="color:#009c00">&#34;NOTE: --mute triggered...&#34;</span>); <span style="color:#f00;font-style:italic">//M_NOMUTE表明自己不再受限制之列
+</span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">if</span> (++mute_count &gt; mute_cutoff)  <span style="color:#f00;font-style:italic">//判断是否到达配置的上限
+</span><span style="color:#f00;font-style:italic"></span>        ret = false;
+    } <span style="color:#00f">else</span> {  <span style="color:#f00;font-style:italic">//进来一个带有新的mute_level的日志需要输出，记录全局变量，以备下次输出日志时判断，如上if所述
+</span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">const</span> <span style="color:#00f">int</span> suppressed = mute_count - mute_cutoff;
+      <span style="color:#00f">if</span> (suppressed &gt; 0)
+        msg (M_INFO | M_NOMUTE, 
+        <span style="color:#009c00">&#34;%d variation(s) on previous %d message(s) suppressed by --mute&#34;</span>,
+         suppressed,
+         mute_cutoff);
+      mute_count = 1;
+      mute_category = mute_level;  <span style="color:#f00;font-style:italic">//记录全局变量，“上次的”mute_level
+</span><span style="color:#f00;font-style:italic"></span>    }
+    }
+  <span style="color:#00f">return</span> ret;
+}
+</code></pre></div><p>在errlevel.c中定义了很多的LOGLEV，比如：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#define D_LINK_ERRORS        LOGLEV(1, 1, M_NONFATAL) 
+</span><span style="color:#f00;font-style:italic"></span>....
+<span style="color:#f00;font-style:italic">#define D_HANDSHAKE          LOGLEV(2, 20, 0) 
+</span><span style="color:#f00;font-style:italic"></span>....
+<span style="color:#f00;font-style:italic">#define D_REGISTRY           LOGLEV(11, 70, M_DEBUG)
+</span></code></pre></div><p>D_LINK_ERRORS的日志记录级别为1，mute_level为1，携带的信息是“非致命错误”，D_HANDSHAKE的解释一样&hellip;可以看出日志记录级别之间，就是LOGLEV的第一个参数连续递增的时候，第二个参数却是跳跃递增的，中间留了一些空隙，这是为了扩展性设计的，使得可以扩充X级别的日志，自己定义一些只有自己新增加的逻辑中才会输出的日志。在openvpn的日志机制中，日志级别占有低4位，一共15个级别，目前已经使用了11个(2.1.1版本)，还有少量几个可用，不过一般这样做没有什么意义，在已有的级别自定义日志会更常用，实在用光了低4位的所有level，那就将之扩到5位，压缩一些别的空间，比如压缩一下mute_level的空间。    在openvpn中，所有的日志都通过x_msg输出的，在该函数的前面(x_msg也可能就是一个printf函数)，有下面的语句(MSG_TEST判断在定义HAVE_VARARG_MACROS的情况下在x_msg外部判断)：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">if</span> (!MSG_TEST (flags))
+    <span style="color:#00f">return</span>;
+</code></pre></div><p>可见MSG_TEST决定了是否输出日志，这个宏很简单：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#define MSG_TEST(flags) (unlikely((((unsigned int)flags) &amp; M_DEBUG_LEVEL) &lt;= x_debug_level) &amp;&amp; dont_mute (flags))
+</span></code></pre></div><p>就是取出日志级别，和配置相比较，只要级别比配置级别小就输出，另外还判断mute_level，如果连续的同类日志太多了，也有可能不再输出。最后，32位的日志标志的other的处理在实际输出之前进行，它主要是控制输出内容的，比如在M_SSL被设置的情况下就会输出ssl的消息，如ERR_error_string。</p>
 <p>总结：</p>
 <ol>
 <li>
@@ -373,7 +373,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

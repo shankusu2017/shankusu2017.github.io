@@ -239,134 +239,134 @@
 <li>如果使用tap模式，并且开启了c2c，那么所有的client连同server共同组成一个虚拟子网，内部arp可流通，作为一个虚拟以太网和真实的以太网是一样的，OpenVPN服务器就是一个以太网交换机，可以设置任意的client或者server作为网关，这个意义上，OpenVPN服务器是一个三层交换机。</li>
 </ol>
 <p>具体的代码都在multi_process_incoming_link中：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">bool</span> <span style="color:#c34e00">multi_process_incoming_link</span> (<span style="color:#00f">struct</span> multi_context *m, <span style="color:#00f">struct</span> multi_instance *instance, <span style="color:#00f">const</span> <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> mpp_flags)
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> context *c;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> mroute_addr src, dest;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> mroute_flags;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> multi_instance *mi;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#00f">bool</span> ret = true;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	...
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> (<span style="color:#c34e00">BLEN</span> (&amp;c-&gt;c2.buf) &gt; 0) {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		<span style="color:#c34e00">process_incoming_link</span> (c);   <span style="color:#f00;font-style:italic">//此操作进行解密，vpn作为客户段来说只调用这一个函数而不进行下面的地址判断
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>		<span style="color:#00f">if</span> (<span style="color:#c34e00">TUNNEL_TYPE</span> (m-&gt;top.c1.tuntap) == DEV_TYPE_TUN) {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	      		mroute_flags = <span style="color:#c34e00">mroute_extract_addr_from_packet</span> (&amp;src, <span style="color:#f00;font-style:italic">//从ip数据报中解析出源/目的ip地址
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>							      &amp;dest,
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							      NULL,
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							      NULL,
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							      &amp;c-&gt;c2.to_tun,
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							      DEV_TYPE_TUN);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			<span style="color:#f00;font-style:italic">//确保源ip地址是自己的一个客户端的，这就是说，要在客户端进行源地址转换
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>			<span style="color:#00f">else</span> <span style="color:#00f">if</span> (<span style="color:#c34e00">multi_get_instance_by_virtual_addr</span> (m, &amp;src, true) != m-&gt;pending) {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		  		...<span style="color:#f00;font-style:italic">//打印错误日志
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>				c-&gt;c2.to_tun.len = 0;  <span style="color:#f00;font-style:italic">//不再往虚拟网卡写入
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>			} <span style="color:#00f">else</span> <span style="color:#00f">if</span> (m-&gt;enable_c2c) {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		  		...<span style="color:#f00;font-style:italic">//多播情况，tun模式下，通过判断ip地址类型设置多播标志，tun没有arp
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>		  		<span style="color:#00f">else</span> {  <span style="color:#f00;font-style:italic">//以目的ip地址作为键值查找以目的地址为虚拟地址的自己的客户端，如果没有做目的地址转换的话，此处将找不到任何客户端，最终数据将发往虚拟网卡，等待内核标准路由系统的路由，很可能就发往默认网关了
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>		      			mi = <span style="color:#c34e00">multi_get_instance_by_virtual_addr</span> (m, &amp;dest, true);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		      			<span style="color:#00f">if</span> (mi) {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			      			<span style="color:#c34e00">multi_unicast</span> (m, &amp;c-&gt;c2.to_tun, mi); <span style="color:#f00;font-style:italic">//向目的地址单播
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>			      			<span style="color:#c34e00">register_activity</span> (c, <span style="color:#c34e00">BLEN</span>(&amp;c-&gt;c2.to_tun));
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			  			c-&gt;c2.to_tun.len = 0;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>					}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		    		}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		} <span style="color:#00f">else</span> <span style="color:#00f">if</span> (<span style="color:#c34e00">TUNNEL_TYPE</span> (m-&gt;top.c1.tuntap) == DEV_TYPE_TAP) {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			mroute_flags = <span style="color:#c34e00">mroute_extract_addr_from_packet</span> (&amp;src, <span style="color:#f00;font-style:italic">//从以太网数据帧中解析出源/目的mac地址
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>							      &amp;dest,
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							      NULL,
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							      NULL,
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							      &amp;c-&gt;c2.to_tun,
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							      DEV_TYPE_TAP);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			<span style="color:#00f">if</span> (<span style="color:#c34e00">multi_learn_addr</span> (m, m-&gt;pending, &amp;src, 0) == m-&gt;pending) {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>				<span style="color:#00f">if</span> (m-&gt;enable_c2c) { <span style="color:#f00;font-style:italic">//以下是广播/多播情况，比如tap模式下的arp就是广播，可以看出mroute_extract_addr_ether处理了arp，设置了多播标志，OpenVPN中，多播和广播统一处理
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>			  		<span style="color:#00f">if</span> (mroute_flags &amp; (MROUTE_EXTRACT_BCAST|MROUTE_EXTRACT_MCAST)) {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			      			<span style="color:#c34e00">multi_bcast</span> (m, &amp;c-&gt;c2.to_tun, m-&gt;pending, NULL);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			    		} <span style="color:#00f">else</span> { <span style="color:#f00;font-style:italic">//下面根据目的mac来判断目的地是否是同一个虚拟子网的，如果是，则将以太帧发过去
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>						mi = <span style="color:#c34e00">multi_get_instance_by_virtual_addr</span> (m, &amp;dest, false);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			      			<span style="color:#00f">if</span> (mi)	{
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							<span style="color:#c34e00">multi_unicast</span> (m, &amp;c-&gt;c2.to_tun, mi);  <span style="color:#f00;font-style:italic">//单播发送以太帧
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>							<span style="color:#c34e00">register_activity</span> (c, <span style="color:#c34e00">BLEN</span>(&amp;c-&gt;c2.to_tun));
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>							c-&gt;c2.to_tun.len = 0;  <span style="color:#f00;font-style:italic">//不再写入虚拟网卡
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>						}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>					}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>				} 
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>				...
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			} <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>				c-&gt;c2.to_tun.len = 0;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>			}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">//所有其它情况都将受到的数据包写入虚拟网卡中，一旦写入虚拟网卡以后，数据包的流向就不再受OpenVPN的控制了，而是完全受内核路由表的控制
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>	ret = <span style="color:#c34e00">multi_process_post</span> (m, m-&gt;pending, mpp_flags);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	...
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>在multi_process_incoming_tun中有下面一个判断：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#c34e00">multi_set_pending</span> (m, <span style="color:#c34e00">multi_get_instance_by_virtual_addr</span> (m, &amp;dest, dev_type == DEV_TYPE_TUN));
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> (m-&gt;pending) ---&gt;后续处理
-</span></span></code></pre></div><p>这是判断目的地址的有效性，作为OpenVPN服务器来讲，从虚拟网卡中来的数据包就是要发往OpenVPN客户端的数据包，因此需要判断目的地址，和multi_process_incoming_link的判断相反。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">bool</span> <span style="color:#c34e00">multi_process_incoming_link</span> (<span style="color:#00f">struct</span> multi_context *m, <span style="color:#00f">struct</span> multi_instance *instance, <span style="color:#00f">const</span> <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> mpp_flags)
+
+{
+
+	<span style="color:#00f">struct</span> context *c;
+
+	<span style="color:#00f">struct</span> mroute_addr src, dest;
+
+	<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> mroute_flags;
+
+	<span style="color:#00f">struct</span> multi_instance *mi;
+
+	<span style="color:#00f">bool</span> ret = true;
+
+	...
+
+	<span style="color:#00f">if</span> (BLEN (&amp;c-&gt;c2.buf) &gt; 0) {
+
+		process_incoming_link (c);   <span style="color:#f00;font-style:italic">//此操作进行解密，vpn作为客户段来说只调用这一个函数而不进行下面的地址判断
+</span><span style="color:#f00;font-style:italic"></span>
+		<span style="color:#00f">if</span> (TUNNEL_TYPE (m-&gt;top.c1.tuntap) == DEV_TYPE_TUN) {
+
+	      		mroute_flags = mroute_extract_addr_from_packet (&amp;src, <span style="color:#f00;font-style:italic">//从ip数据报中解析出源/目的ip地址
+</span><span style="color:#f00;font-style:italic"></span>
+							      &amp;dest,
+
+							      NULL,
+
+							      NULL,
+
+							      &amp;c-&gt;c2.to_tun,
+
+							      DEV_TYPE_TUN);
+
+			<span style="color:#f00;font-style:italic">//确保源ip地址是自己的一个客户端的，这就是说，要在客户端进行源地址转换
+</span><span style="color:#f00;font-style:italic"></span>
+			<span style="color:#00f">else</span> <span style="color:#00f">if</span> (multi_get_instance_by_virtual_addr (m, &amp;src, true) != m-&gt;pending) {
+
+		  		...<span style="color:#f00;font-style:italic">//打印错误日志
+</span><span style="color:#f00;font-style:italic"></span>
+				c-&gt;c2.to_tun.len = 0;  <span style="color:#f00;font-style:italic">//不再往虚拟网卡写入
+</span><span style="color:#f00;font-style:italic"></span>
+			} <span style="color:#00f">else</span> <span style="color:#00f">if</span> (m-&gt;enable_c2c) {
+
+		  		...<span style="color:#f00;font-style:italic">//多播情况，tun模式下，通过判断ip地址类型设置多播标志，tun没有arp
+</span><span style="color:#f00;font-style:italic"></span>
+		  		<span style="color:#00f">else</span> {  <span style="color:#f00;font-style:italic">//以目的ip地址作为键值查找以目的地址为虚拟地址的自己的客户端，如果没有做目的地址转换的话，此处将找不到任何客户端，最终数据将发往虚拟网卡，等待内核标准路由系统的路由，很可能就发往默认网关了
+</span><span style="color:#f00;font-style:italic"></span>
+		      			mi = multi_get_instance_by_virtual_addr (m, &amp;dest, true);
+
+		      			<span style="color:#00f">if</span> (mi) {
+
+			      			multi_unicast (m, &amp;c-&gt;c2.to_tun, mi); <span style="color:#f00;font-style:italic">//向目的地址单播
+</span><span style="color:#f00;font-style:italic"></span>
+			      			register_activity (c, BLEN(&amp;c-&gt;c2.to_tun));
+
+			  			c-&gt;c2.to_tun.len = 0;
+
+					}
+
+		    		}
+
+			}
+
+		} <span style="color:#00f">else</span> <span style="color:#00f">if</span> (TUNNEL_TYPE (m-&gt;top.c1.tuntap) == DEV_TYPE_TAP) {
+
+			mroute_flags = mroute_extract_addr_from_packet (&amp;src, <span style="color:#f00;font-style:italic">//从以太网数据帧中解析出源/目的mac地址
+</span><span style="color:#f00;font-style:italic"></span>
+							      &amp;dest,
+
+							      NULL,
+
+							      NULL,
+
+							      &amp;c-&gt;c2.to_tun,
+
+							      DEV_TYPE_TAP);
+
+			<span style="color:#00f">if</span> (multi_learn_addr (m, m-&gt;pending, &amp;src, 0) == m-&gt;pending) {
+
+				<span style="color:#00f">if</span> (m-&gt;enable_c2c) { <span style="color:#f00;font-style:italic">//以下是广播/多播情况，比如tap模式下的arp就是广播，可以看出mroute_extract_addr_ether处理了arp，设置了多播标志，OpenVPN中，多播和广播统一处理
+</span><span style="color:#f00;font-style:italic"></span>
+			  		<span style="color:#00f">if</span> (mroute_flags &amp; (MROUTE_EXTRACT_BCAST|MROUTE_EXTRACT_MCAST)) {
+
+			      			multi_bcast (m, &amp;c-&gt;c2.to_tun, m-&gt;pending, NULL);
+
+			    		} <span style="color:#00f">else</span> { <span style="color:#f00;font-style:italic">//下面根据目的mac来判断目的地是否是同一个虚拟子网的，如果是，则将以太帧发过去
+</span><span style="color:#f00;font-style:italic"></span>
+						mi = multi_get_instance_by_virtual_addr (m, &amp;dest, false);
+
+			      			<span style="color:#00f">if</span> (mi)	{
+
+							multi_unicast (m, &amp;c-&gt;c2.to_tun, mi);  <span style="color:#f00;font-style:italic">//单播发送以太帧
+</span><span style="color:#f00;font-style:italic"></span>
+							register_activity (c, BLEN(&amp;c-&gt;c2.to_tun));
+
+							c-&gt;c2.to_tun.len = 0;  <span style="color:#f00;font-style:italic">//不再写入虚拟网卡
+</span><span style="color:#f00;font-style:italic"></span>
+						}
+
+					}
+
+				} 
+
+				...
+
+			} <span style="color:#00f">else</span> {
+
+				c-&gt;c2.to_tun.len = 0;
+
+			}
+
+		}
+
+	}
+
+	<span style="color:#f00;font-style:italic">//所有其它情况都将受到的数据包写入虚拟网卡中，一旦写入虚拟网卡以后，数据包的流向就不再受OpenVPN的控制了，而是完全受内核路由表的控制
+</span><span style="color:#f00;font-style:italic"></span>
+	ret = multi_process_post (m, m-&gt;pending, mpp_flags);
+
+	...
+
+}
+</code></pre></div><p>在multi_process_incoming_tun中有下面一个判断：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">multi_set_pending (m, multi_get_instance_by_virtual_addr (m, &amp;dest, dev_type == DEV_TYPE_TUN));
+
+<span style="color:#00f">if</span> (m-&gt;pending) ---&gt;后续处理
+</code></pre></div><p>这是判断目的地址的有效性，作为OpenVPN服务器来讲，从虚拟网卡中来的数据包就是要发往OpenVPN客户端的数据包，因此需要判断目的地址，和multi_process_incoming_link的判断相反。</p>
 <p>结论是：tun模式按照ip地址路由，tap模式按照mac地址路由。在客户端，没有服务器端这么复杂的判断，只是经过“in-tun&ndash;out-link-加密，in-link&ndash;out-tun-解密”的过程即可</p>
 <p><a href="https://juejin.cn/post/6844903737383714823">以上内容转载自笑叶林的blog</a></p>
 
@@ -436,7 +436,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

@@ -236,32 +236,32 @@
 <p>操作系统的线程创建以及切换是需要开销的，会影响程序的性能。Go致力于尽可能地从内核中获取优势，所以从最开始的时候设计就考虑到了并发性。</p>
 <p><strong>M，P，G 编排</strong>
 为了解决这个问题，Go有他自己的调度者，负责在线程上分配goroutines。这个协调者由3个概念组成，如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>The main concepts are:
-</span></span><span style="display:flex;"><span>G - goroutine.
-</span></span><span style="display:flex;"><span>M - worker thread, or machine. 工作线程或机器
-</span></span><span style="display:flex;"><span>P - processor, a resource that is required to execute Go code.
-</span></span><span style="display:flex;"><span>    M must have an associated P to execute Go code[...].
-</span></span><span style="display:flex;"><span>    处理者，负责执行Go代码， 每个M必须有一个关联的P去执行Go代码
-</span></span></code></pre></div><p>三者关系图如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">The main concepts are:
+G - goroutine.
+M - worker thread, or machine. 工作线程或机器
+P - processor, a resource that is required to execute Go code.
+    M must have an associated P to execute Go code[...].
+    处理者，负责执行Go代码， 每个M必须有一个关联的P去执行Go代码
+</code></pre></div><p>三者关系图如下：</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/f60a086aadff20195f4dc0963b296b82.png" alt=""></p>
 <p>每一个goruntine（G）运行在操作系统线程（M）上并分配一个逻辑CPU（P）。我们用一个简单的例子来看看Go是如何管理他们的：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-</span></span><span style="display:flex;"><span>   <span style="color:#00f">var</span> wg sync.WaitGroup
-</span></span><span style="display:flex;"><span>   wg.<span style="color:#c34e00">Add</span>(2)
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>   <span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
-</span></span><span style="display:flex;"><span>      println(<span style="color:#009c00">`hello`</span>)
-</span></span><span style="display:flex;"><span>      wg.<span style="color:#c34e00">Done</span>()
-</span></span><span style="display:flex;"><span>   }()
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>   <span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
-</span></span><span style="display:flex;"><span>      println(<span style="color:#009c00">`world`</span>)
-</span></span><span style="display:flex;"><span>      wg.<span style="color:#c34e00">Done</span>()
-</span></span><span style="display:flex;"><span>   }()
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>   wg.<span style="color:#c34e00">Wait</span>()
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>Go首先会基于机器逻辑CPUs的数量来创建不同的P，并将他们储存成一个空闲的P的列表</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+   <span style="color:#00f">var</span> wg sync.WaitGroup
+   wg.<span style="color:#c34e00">Add</span>(2)
+ 
+   <span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
+      println(<span style="color:#009c00">`hello`</span>)
+      wg.<span style="color:#c34e00">Done</span>()
+   }()
+ 
+   <span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
+      println(<span style="color:#009c00">`world`</span>)
+      wg.<span style="color:#c34e00">Done</span>()
+   }()
+ 
+   wg.<span style="color:#c34e00">Wait</span>()
+}
+</code></pre></div><p>Go首先会基于机器逻辑CPUs的数量来创建不同的P，并将他们储存成一个空闲的P的列表</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/397ec9016645c87900916271790df9b0.png" alt=""></p>
 <p>然后，当新的goroutine或者goroutine准备运行的时候会唤醒一个空闲的P，这个P会创建一个关联到操作系统线程的M</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/ec8f20a1715165fd84a44efda5dc63c2.png" alt=""></p>
@@ -272,16 +272,16 @@
 <p>现在我们已经对goroutines以及线程管理有一个大概了解了，让我们看看在什么时候Go会出现M数量比P多的情况以及goroutines是如何管理这种系统调用的。</p>
 <h1 id="系统调用-system-calls">系统调用 System calls</h1>
 <p>Go通过在运行时封装系统调用来进行优化，无论阻塞与否。这个封装会自动将P与M的关联切断，然后允许第二个线程M来运行P。我们来看看下面一个读取文件例子：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-</span></span><span style="display:flex;"><span>   buf := make([]<span style="color:#00f">byte</span>, 0, 2)
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>   fd, _ := os.<span style="color:#c34e00">Open</span>(<span style="color:#009c00">&#34;number.txt&#34;</span>)
-</span></span><span style="display:flex;"><span>   fd.<span style="color:#c34e00">Read</span>(buf)
-</span></span><span style="display:flex;"><span>   fd.<span style="color:#c34e00">Close</span>()
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>   println(string(buf)) <span style="color:#f00;font-style:italic">// 42
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
-</span></span></code></pre></div><p>下面是图片演示整个执行过程</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+   buf := make([]<span style="color:#00f">byte</span>, 0, 2)
+ 
+   fd, _ := os.<span style="color:#c34e00">Open</span>(<span style="color:#009c00">&#34;number.txt&#34;</span>)
+   fd.<span style="color:#c34e00">Read</span>(buf)
+   fd.<span style="color:#c34e00">Close</span>()
+ 
+   println(string(buf)) <span style="color:#f00;font-style:italic">// 42
+</span><span style="color:#f00;font-style:italic"></span>}
+</code></pre></div><p>下面是图片演示整个执行过程</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/3518552dc3e60e17d5addc31bd2781c8.png" alt=""></p>
 <p>P0现在在空闲列表中处于可被使用状态。一旦系统调用退出时，Go遵循下面的规制直到其中一个条件满足</p>
 <ul>
@@ -290,10 +290,10 @@
 <li>将goroutine到全局队列中，然后将其关联的M放回到空闲列表中
 然而，Go同样需要处理当资源还没准备好的情况，例如HTTP请求这种非阻塞I/O。在这种情况下，第一个系统调用，同样会遵循上述规制但是不会成功，因为资源还没有准备好，这时会强迫Go使用network poller以及暂停goroutine。如下例子：</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-</span></span><span style="display:flex;"><span>   http.<span style="color:#c34e00">Get</span>(<span style="color:#009c00">`https://httpstat.us/200`</span>)
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>当第一个系统调用执行完成并明确地说资源还没准备好的时候，goroutine会暂停直到network poller通知其说资源已经准备好了。在这种情况下，线程M是不会被阻塞的。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+   http.<span style="color:#c34e00">Get</span>(<span style="color:#009c00">`https://httpstat.us/200`</span>)
+}
+</code></pre></div><p>当第一个系统调用执行完成并明确地说资源还没准备好的时候，goroutine会暂停直到network poller通知其说资源已经准备好了。在这种情况下，线程M是不会被阻塞的。</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/e28c7a43694ac6e05f35c769b226c534.png" alt=""></p>
 <p>当Go协调程序重新查找待完成工作时，goroutine会被重新执行一次。这个协调者在成功获取一个他所等待的消息以后，会问network poller是否有goroutine在等待运行。</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/3e294b47f9c6c95263c5a3a5858d319c.png%5D" alt=""></p>
@@ -302,22 +302,22 @@
 <p>当系统调用时，Go不会限制可以阻塞的OS线程的数量，官方解释：</p>
 <p>GOMAXPROCS变量限制了可以同时执行用户级Go代码的操作系统线程的数量。 对于代表Go代码的系统调用中可以阻止的线程数量没有限制； GOMAXPROCS函数可查询并更改限制。</p>
 <p>这段代码解释这个情况</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-</span></span><span style="display:flex;"><span>   <span style="color:#00f">var</span> wg sync.WaitGroup
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>   <span style="color:#00f">for</span> i := 0;i &lt; 100 ;i++  {
-</span></span><span style="display:flex;"><span>      wg.<span style="color:#c34e00">Add</span>(1)
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
-</span></span><span style="display:flex;"><span>         http.<span style="color:#c34e00">Get</span>(<span style="color:#009c00">`https://httpstat.us/200?sleep=10000`</span>)
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>         wg.<span style="color:#c34e00">Done</span>()
-</span></span><span style="display:flex;"><span>      }()
-</span></span><span style="display:flex;"><span>   }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>   wg.<span style="color:#c34e00">Wait</span>()
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>下面是跟踪工具里面展示的线程数量</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+   <span style="color:#00f">var</span> wg sync.WaitGroup
+ 
+   <span style="color:#00f">for</span> i := 0;i &lt; 100 ;i++  {
+      wg.<span style="color:#c34e00">Add</span>(1)
+ 
+      <span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
+         http.<span style="color:#c34e00">Get</span>(<span style="color:#009c00">`https://httpstat.us/200?sleep=10000`</span>)
+ 
+         wg.<span style="color:#c34e00">Done</span>()
+      }()
+   }
+ 
+   wg.<span style="color:#c34e00">Wait</span>()
+}
+</code></pre></div><p>下面是跟踪工具里面展示的线程数量</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/8ad356871177ea1e5cd1e81efe7d21c3.png" alt=""></p>
 <p>由于Go将线程的使用进行了优化，当goroutines被阻塞时候可以被重新利用，也就解释了为什么这个数与循环数并不匹配。</p>
 
@@ -395,7 +395,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

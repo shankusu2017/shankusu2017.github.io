@@ -243,77 +243,77 @@
 <p>在此之前开源工具 <strong>trace-noschedule</strong> (<a href="https://github.com/bytedance/trace-noschedule">https://github.com/bytedance/trace-noschedule</a>) 中，我们已经可以借助这个工具排查内核态不抢占导致的延迟问题。而 trace-runqlat 更多的是关注 runqueue 上每个进程是谁，并且 runqueue 有多长。首先，是否有现成的工具已经实现功能了呢？据我所知，bcc 存在 2 款工具 runqlen 和 runqlat。runqlen 显示的是每个 CPU 的就绪队列的长度分布柱状图。runqlat 可以针对某个特定 pid 绘制调度延迟柱状图。他们似乎很符合我们的需求。虽然我们知道了某个进程调度延迟很高。但是我们不知道是受到哪些进程的影响。你可能会有疑问，知道是谁有意义吗？当然有意义。对于混合部署来说，我们肯定希望优先保证在线业务，如果发现影响调度延迟的进程是离线业务进程，这对于我们进一步混部有一定指导意义。例如，我们是否应该考虑绑核？或者调整优先级？</p>
 <h1 id="3-如何实现">3. 如何实现</h1>
 <p>我们先定义一下调度延迟。调度延迟是指从进程被加入 runqueue 到开始执行的时间差。进程挂在 runqueue 中，我们称进程处于 runnable 状态，开始执行时为 running 状态。所以调度延迟是进程从 runnable 态切换 running 状态的时间。为了计算调度延迟，我们需要知道 2 个时间点，进程进入 runnable 状态时间点以及切换到 running 状态时间戳。进程开始执行的时间戳很容易获取。我们可以利用 tracepoint。这个 tracepoint 插在 schedule 里面。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>static void __sched notrace <span style="color:#c34e00">__schedule</span>(<span style="color:#00f">bool</span> preempt)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">/* ... */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">trace_sched_switch</span>(preempt, prev, next);
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">/* ... */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>schedule 的时候判断 next 进程是否是我们跟踪的进程，如果是的话，这个时间戳就是截止时间。那么开始时间怎么获取呢？一个进程在什么情况下会变成 runnable 状态呢？有以下可能。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">static void __sched notrace <span style="color:#c34e00">__schedule</span>(<span style="color:#00f">bool</span> preempt)
+{
+    <span style="color:#f00;font-style:italic">/* ... */</span>
+    <span style="color:#c34e00">trace_sched_switch</span>(preempt, prev, next);
+    <span style="color:#f00;font-style:italic">/* ... */</span>
+}
+</code></pre></div><p>schedule 的时候判断 next 进程是否是我们跟踪的进程，如果是的话，这个时间戳就是截止时间。那么开始时间怎么获取呢？一个进程在什么情况下会变成 runnable 状态呢？有以下可能。</p>
 <ul>
 <li>进程被唤醒，会被加入 runqueue</li>
 <li>进程被抢占，会被重新加入 runqueue</li>
 <li>进程 yield，主动让出 CPU 使用权，但是依然挂在 runqueue 上 先考虑第一个问题，如何知道进程被唤醒呢？很幸运，我们有另一个 tracepoint 可以知道进程被唤醒。</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>static void <span style="color:#c34e00">ttwu_do_wakeup</span>(<span style="color:#00f">struct</span> rq *rq, <span style="color:#00f">struct</span> task_struct *p, <span style="color:#00f">int</span> wake_flags,
-</span></span><span style="display:flex;"><span>                           <span style="color:#00f">struct</span> rq_flags *rf)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/* ... */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">trace_sched_wakeup</span>(p);
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/* ... */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>借助 sched_wakeup tracepoint 我们可以知道是否是我们跟踪的进程被唤醒了，此时就是第一个时间戳，加入 runqueue 时间。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">static void <span style="color:#c34e00">ttwu_do_wakeup</span>(<span style="color:#00f">struct</span> rq *rq, <span style="color:#00f">struct</span> task_struct *p, <span style="color:#00f">int</span> wake_flags,
+                           <span style="color:#00f">struct</span> rq_flags *rf)
+{
+        <span style="color:#f00;font-style:italic">/* ... */</span>
+        <span style="color:#c34e00">trace_sched_wakeup</span>(p);
+        <span style="color:#f00;font-style:italic">/* ... */</span>
+}
+</code></pre></div><p>借助 sched_wakeup tracepoint 我们可以知道是否是我们跟踪的进程被唤醒了，此时就是第一个时间戳，加入 runqueue 时间。</p>
 <p>这是第一种情况。另外两种情况，可以总结成一种情况处理。因为这两种情况下，进程是都是从 running 下切换 runnable 态。我们借助 sched_switch tracepoint 可以检测。现在我们得到了一个进程加入 runqueue 时间和进程开始运行时间，两个时间差值就是调度延迟时间。此时就可以记录数据，绘制柱状图，这相当于实现了 bcc 中 runqlat 工具的功能。但是，这不是我们的重点。当进程加入某个 CPU 的 runqueue 后，我们就需要对这个 CPU 的进程进行记录，记录每个进程的 comm，pid 以及执行时间。直到跟踪的进程开始执行。这些信息可以给我一定的指导作用。原理已经介绍完了，比较简单，具体的代码实现细节，可以前往源码查看。如果你发现 bug，记得 fix patch。我们很欢迎。</p>
 <h1 id="4-如何安装">4. 如何安装</h1>
 <p>trace_runqlat 工具已经放到 bytedance 私有云。因此可以通过如下命令安装：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>make
-</span></span><span style="display:flex;"><span>make install
-</span></span></code></pre></div><p>Note: 由于工具使用 sched tracepoint，对性能有一定影响。调试完成记得执行<code>rmmod trace_runqlat</code>卸载模块。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">make
+make install
+</code></pre></div><p>Note: 由于工具使用 sched tracepoint，对性能有一定影响。调试完成记得执行<code>rmmod trace_runqlat</code>卸载模块。</p>
 <h1 id="5-如何使用">5. 如何使用</h1>
 <p>安装 trace-runqlat 工具成功后。会创建如下 /proc/trace_runqlat 目录。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_runqlat# ls
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>distribution  pid  runqlat  threshold
-</span></span></code></pre></div><p>/proc/trace_runqlat 目录下存在 4 个文件，分别：distribution, pid, runqlat 和 threshold。工具安装后，默认是打开状态，但是并没有 trace 任何线程，我们需要手动设置需要 trace 的线程 pid。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_runqlat# ls
+
+distribution  pid  runqlat  threshold
+</code></pre></div><p>/proc/trace_runqlat 目录下存在 4 个文件，分别：distribution, pid, runqlat 和 threshold。工具安装后，默认是打开状态，但是并没有 trace 任何线程，我们需要手动设置需要 trace 的线程 pid。</p>
 <h3 id="51-跟踪特定-pid-线程">5.1 跟踪特定 pid 线程</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo $pid &gt; /proc/trace_runqlat/pid
-</span></span></code></pre></div><h3 id="52-关闭跟踪">5.2 关闭跟踪</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo -1 &gt; /proc/trace_runqlat/pid
-</span></span></code></pre></div><h3 id="53-设置阈值">5.3 设置阈值</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo $pid &gt; /proc/trace_runqlat/pid
+</code></pre></div><h3 id="52-关闭跟踪">5.2 关闭跟踪</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo -1 &gt; /proc/trace_runqlat/pid
+</code></pre></div><h3 id="53-设置阈值">5.3 设置阈值</h3>
 <p>trace-runqlat 只会针对延迟超过阈值的情况，记录 runqueue 前面的线程执行的时间情况。为了更高效的运作，我们有必要设定一个合理阈值。例如设置 60ms 的阈值：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 60000000 &gt; /proc/trace_runqlat/threshold # 单位ns
-</span></span></code></pre></div><p>如果需要查看当前设定的阈值，可执行如下命令：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>cat /proc/trace_runqlat/threshold
-</span></span></code></pre></div><p><strong>5.4 查看线程</strong></p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 60000000 &gt; /proc/trace_runqlat/threshold # 单位ns
+</code></pre></div><p>如果需要查看当前设定的阈值，可执行如下命令：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">cat /proc/trace_runqlat/threshold
+</code></pre></div><p><strong>5.4 查看线程</strong></p>
 <p>runqueue latency 分布 我们以直方图的形式展示被跟踪进程 runqueue latency 的分布情况。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>cat /proc/trace_runqlat/distribution
-</span></span></code></pre></div><p>你看到的信息展示如同下面这样：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>         msecs           : count     distribution
-</span></span><span style="display:flex;"><span>         1 -&gt; 1          : 0        |                                        |
-</span></span><span style="display:flex;"><span>         2 -&gt; 3          : 0        |                                        |
-</span></span><span style="display:flex;"><span>         4 -&gt; 7          : 0        |                                        |
-</span></span><span style="display:flex;"><span>         8 -&gt; 15         : 0        |                                        |
-</span></span><span style="display:flex;"><span>        16 -&gt; 31         : 0        |                                        |
-</span></span><span style="display:flex;"><span>        32 -&gt; 63         : 68       |****************************************|
-</span></span></code></pre></div><p>我们可以看到 latency 集中在[32, 63]毫秒，次数 68 次。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">cat /proc/trace_runqlat/distribution
+</code></pre></div><p>你看到的信息展示如同下面这样：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">         msecs           : count     distribution
+         1 -&gt; 1          : 0        |                                        |
+         2 -&gt; 3          : 0        |                                        |
+         4 -&gt; 7          : 0        |                                        |
+         8 -&gt; 15         : 0        |                                        |
+        16 -&gt; 31         : 0        |                                        |
+        32 -&gt; 63         : 68       |****************************************|
+</code></pre></div><p>我们可以看到 latency 集中在[32, 63]毫秒，次数 68 次。</p>
 <h3 id="55-是谁在-runqueue-的前面">5.5 是谁在 runqueue 的前面</h3>
 <p>针对 latency 超过阈值的情况，我们会记录 runqueue 前面的线程执行情况。注意，必须关闭 trace 的情况下才能查看/proc/trace_runqlat/runqlat 信息。</p>
 <h1 id="6-案例分析">6. 案例分析</h1>
 <p>为了展示 trace-runqlat 工具的功能，我们构建一个场景，模拟高负载的情况。我在一个 CPU 上起 10 个进程，分别是 loop0-loop9。每个进程都在用户态无限循环执行，消耗 CPU 资源。我们跟踪 loop0 进程。查看 loop0 调度延迟的原因。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>cat /proc/trace_runqlat/runqlat
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">latency</span>(us): 35999 runqlen: 10
-</span></span><span style="display:flex;"><span>      COMM: loop7            PID: 3789453  <span style="color:#c34e00">RUNTIME</span>(us):   4000
-</span></span><span style="display:flex;"><span>      COMM: loop2            PID: 3789448  <span style="color:#c34e00">RUNTIME</span>(us):   4001
-</span></span><span style="display:flex;"><span>      COMM: loop4            PID: 3789450  <span style="color:#c34e00">RUNTIME</span>(us):   3998
-</span></span><span style="display:flex;"><span>      COMM: loop1            PID: 3789447  <span style="color:#c34e00">RUNTIME</span>(us):   3999
-</span></span><span style="display:flex;"><span>      COMM: loop3            PID: 3789449  <span style="color:#c34e00">RUNTIME</span>(us):   4000
-</span></span><span style="display:flex;"><span>      COMM: loop8            PID: 3789454  <span style="color:#c34e00">RUNTIME</span>(us):   3999
-</span></span><span style="display:flex;"><span>      COMM: loop9            PID: 3789455  <span style="color:#c34e00">RUNTIME</span>(us):   4001
-</span></span><span style="display:flex;"><span>      COMM: kworker/0:2      PID: 3621088  <span style="color:#c34e00">RUNTIME</span>(us):      3
-</span></span><span style="display:flex;"><span>      COMM: loop5            PID: 3789451  <span style="color:#c34e00">RUNTIME</span>(us):   3994
-</span></span><span style="display:flex;"><span>      COMM: loop6            PID: 3789452  <span style="color:#c34e00">RUNTIME</span>(us):   3999
-</span></span></code></pre></div><p>我们可以看到 runqueue latency 是 35999us。runqueue 前面有 10 个进程。每个进程的执行时间加在一起差不多就是总的 latency。loop1-loop9 都在这里了。还多了个 kworker，不过转瞬即逝。我们看到每个 loop 执行时间基本是 4ms。这其实是 CFS 调度器给进程分配的最大时间片。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">cat /proc/trace_runqlat/runqlat
+ 
+  <span style="color:#c34e00">latency</span>(us): 35999 runqlen: 10
+      COMM: loop7            PID: 3789453  <span style="color:#c34e00">RUNTIME</span>(us):   4000
+      COMM: loop2            PID: 3789448  <span style="color:#c34e00">RUNTIME</span>(us):   4001
+      COMM: loop4            PID: 3789450  <span style="color:#c34e00">RUNTIME</span>(us):   3998
+      COMM: loop1            PID: 3789447  <span style="color:#c34e00">RUNTIME</span>(us):   3999
+      COMM: loop3            PID: 3789449  <span style="color:#c34e00">RUNTIME</span>(us):   4000
+      COMM: loop8            PID: 3789454  <span style="color:#c34e00">RUNTIME</span>(us):   3999
+      COMM: loop9            PID: 3789455  <span style="color:#c34e00">RUNTIME</span>(us):   4001
+      COMM: kworker/0:2      PID: 3621088  <span style="color:#c34e00">RUNTIME</span>(us):      3
+      COMM: loop5            PID: 3789451  <span style="color:#c34e00">RUNTIME</span>(us):   3994
+      COMM: loop6            PID: 3789452  <span style="color:#c34e00">RUNTIME</span>(us):   3999
+</code></pre></div><p>我们可以看到 runqueue latency 是 35999us。runqueue 前面有 10 个进程。每个进程的执行时间加在一起差不多就是总的 latency。loop1-loop9 都在这里了。还多了个 kworker，不过转瞬即逝。我们看到每个 loop 执行时间基本是 4ms。这其实是 CFS 调度器给进程分配的最大时间片。</p>
 <h1 id="7-总结">7. 总结</h1>
 <p>根据字节内部实践来看，trace-runqlat 安装便捷且使用灵活度高，能将问题定位耗时缩短至分钟级别，使用收益可观，并且已经通过该工具定位问题，提高了工作效率。</p>
 <h1 id="更多分享">更多分享</h1>
@@ -399,7 +399,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

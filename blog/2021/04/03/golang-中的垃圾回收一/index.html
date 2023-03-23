@@ -256,14 +256,14 @@
 <img src="https://user-gold-cdn.xitu.io/2019/7/12/16be4d3fa74cf3af?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt=""></p>
 <p>图1.2给出了一个问题的实际案例。如果P4的goroutine不停下来的话，垃圾回收就无法启动。但是P4正在执行一个<a href="https://github.com/golang/go/issues/10958">tight loop</a>去做一些math处理，这导致回收根本无法开始。
 L1：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>01 <span style="color:#00f">func</span> <span style="color:#c34e00">add</span>(numbers []<span style="color:#00f">int</span>) <span style="color:#00f">int</span> {
-</span></span><span style="display:flex;"><span>02     <span style="color:#00f">var</span> v <span style="color:#00f">int</span>
-</span></span><span style="display:flex;"><span>03     <span style="color:#00f">for</span> _, n := <span style="color:#00f">range</span> numbers {
-</span></span><span style="display:flex;"><span>04         v += n
-</span></span><span style="display:flex;"><span>05     }
-</span></span><span style="display:flex;"><span>06     <span style="color:#00f">return</span> v
-</span></span><span style="display:flex;"><span>07 }
-</span></span></code></pre></div><p>L1给出了P4 goroutine正在执行的代码。取决于slice的大小，goroutine可能会执行很长很长的时间，导致了根本没有机会停下来。这种代码会阻止垃圾回收开始。更糟糕的是，其他的P无法为其他goroutine服务，因为collector处于等待状态。所以goroutine在合理的实际范围内进行方法调用是至关重要的。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">01 <span style="color:#00f">func</span> <span style="color:#c34e00">add</span>(numbers []<span style="color:#00f">int</span>) <span style="color:#00f">int</span> {
+02     <span style="color:#00f">var</span> v <span style="color:#00f">int</span>
+03     <span style="color:#00f">for</span> _, n := <span style="color:#00f">range</span> numbers {
+04         v += n
+05     }
+06     <span style="color:#00f">return</span> v
+07 }
+</code></pre></div><p>L1给出了P4 goroutine正在执行的代码。取决于slice的大小，goroutine可能会执行很长很长的时间，导致了根本没有机会停下来。这种代码会阻止垃圾回收开始。更糟糕的是，其他的P无法为其他goroutine服务，因为collector处于等待状态。所以goroutine在合理的实际范围内进行方法调用是至关重要的。
 <strong>注意：这部分是golang团队将在1.14版本中要改进的内容，通过加入调度器的<a href="https://github.com/golang/go/issues/24543">抢占式调度技术</a></strong>
 <strong>Marking -Concurrent</strong>
 一旦写屏障开启，回收器就会开始进入都标记阶段。回收器第一件做的事情就是拿走25%的可用CPU给自己使用。collector使用Goroutines去进行回收工作，也就是它会从应用程序抢过来对应数量的P和M。这意味着，4个线程的go程序里，会有一个P被拿去处理回收工作。
@@ -309,79 +309,79 @@ runtime中有一个配置选项叫做 GC Percentage，默认值是100。这个�
 <img src="https://user-gold-cdn.xitu.io/2019/7/12/16be4d4e88deedc1?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 图1.11展示了2MB或者更多内存处于in-use。这会触发回收。一种方式去看到这些行为的方法，就是为每次GC生成一个GC trace。
 L2</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>GODEBUG=gctrace=1 ./app
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>gc 1405 @6.068s 11%: 0.058+1.2+0.083 ms clock, 0.70+2.5/1.5/0+0.99 ms cpu, 7-&gt;11-&gt;6 MB, 10 MB goal, 12 P
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>gc 1406 @6.070s 11%: 0.051+1.8+0.076 ms clock, 0.61+2.0/2.5/0+0.91 ms cpu, 8-&gt;11-&gt;6 MB, 13 MB goal, 12 P
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>gc 1407 @6.073s 11%: 0.052+1.8+0.20 ms clock, 0.62+1.5/2.2/0+2.4 ms cpu, 8-&gt;14-&gt;8 MB, 13 MB goal, 12 P
-</span></span></code></pre></div><p>L2展示了如何使用GODEBUG变量去生成GC trace。下面的L3展示了程序生成的gc traces。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">GODEBUG=gctrace=1 ./app
+
+gc 1405 @6.068s 11%: 0.058+1.2+0.083 ms clock, 0.70+2.5/1.5/0+0.99 ms cpu, 7-&gt;11-&gt;6 MB, 10 MB goal, 12 P
+
+gc 1406 @6.070s 11%: 0.051+1.8+0.076 ms clock, 0.61+2.0/2.5/0+0.91 ms cpu, 8-&gt;11-&gt;6 MB, 13 MB goal, 12 P
+
+gc 1407 @6.073s 11%: 0.052+1.8+0.20 ms clock, 0.62+1.5/2.2/0+2.4 ms cpu, 8-&gt;14-&gt;8 MB, 13 MB goal, 12 P
+</code></pre></div><p>L2展示了如何使用GODEBUG变量去生成GC trace。下面的L3展示了程序生成的gc traces。
 L3</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>gc 1405 @6.068s 11%: 0.058+1.2+0.083 ms clock, 0.70+2.5/1.5/0+0.99 ms cpu, 7-&gt;11-&gt;6 MB, 10 MB goal, 12 P
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// General
-</span></span><span style="display:flex;"><span>gc 1404     : The 1404 GC run since the program started
-</span></span><span style="display:flex;"><span>@6.068s     : Six seconds since the program started
-</span></span><span style="display:flex;"><span>11%         : Eleven percent of the available CPU so far has been spent in GC
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// Wall-Clock
-</span></span><span style="display:flex;"><span>0.058ms     : STW        : Mark Start       - Write Barrier on
-</span></span><span style="display:flex;"><span>1.2ms       : Concurrent : Marking
-</span></span><span style="display:flex;"><span>0.083ms     : STW        : Mark Termination - Write Barrier off and clean up
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// CPU Time
-</span></span><span style="display:flex;"><span>0.70ms      : STW        : Mark Start
-</span></span><span style="display:flex;"><span>2.5ms       : Concurrent : Mark - Assist Time (GC performed in line with allocation)
-</span></span><span style="display:flex;"><span>1.5ms       : Concurrent : Mark - Background GC time
-</span></span><span style="display:flex;"><span>0ms         : Concurrent : Mark - Idle GC time
-</span></span><span style="display:flex;"><span>0.99ms      : STW        : Mark Term
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// Memory
-</span></span><span style="display:flex;"><span>7MB         : Heap memory in-use before the Marking started
-</span></span><span style="display:flex;"><span>11MB        : Heap memory in-use after the Marking finished
-</span></span><span style="display:flex;"><span>6MB         : Heap memory marked as live after the Marking finished
-</span></span><span style="display:flex;"><span>10MB        : Collection goal <span style="color:#00f">for</span> heap memory in-use after Marking finished
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// Threads
-</span></span><span style="display:flex;"><span>12P         : Number of logical processors or threads used to run Goroutines
-</span></span></code></pre></div><p>L3展示了GC中的实际数值和它的含义。我最后会讲到这些值，但是现在注意1405 GC trace的内存片段。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">gc 1405 @6.068s 11%: 0.058+1.2+0.083 ms clock, 0.70+2.5/1.5/0+0.99 ms cpu, 7-&gt;11-&gt;6 MB, 10 MB goal, 12 P
+
+// General
+gc 1404     : The 1404 GC run since the program started
+@6.068s     : Six seconds since the program started
+11%         : Eleven percent of the available CPU so far has been spent in GC
+
+// Wall-Clock
+0.058ms     : STW        : Mark Start       - Write Barrier on
+1.2ms       : Concurrent : Marking
+0.083ms     : STW        : Mark Termination - Write Barrier off and clean up
+
+// CPU Time
+0.70ms      : STW        : Mark Start
+2.5ms       : Concurrent : Mark - Assist Time (GC performed in line with allocation)
+1.5ms       : Concurrent : Mark - Background GC time
+0ms         : Concurrent : Mark - Idle GC time
+0.99ms      : STW        : Mark Term
+
+// Memory
+7MB         : Heap memory in-use before the Marking started
+11MB        : Heap memory in-use after the Marking finished
+6MB         : Heap memory marked as live after the Marking finished
+10MB        : Collection goal <span style="color:#00f">for</span> heap memory in-use after Marking finished
+
+// Threads
+12P         : Number of logical processors or threads used to run Goroutines
+</code></pre></div><p>L3展示了GC中的实际数值和它的含义。我最后会讲到这些值，但是现在注意1405 GC trace的内存片段。
 图1.12
 <img src="https://user-gold-cdn.xitu.io/2019/7/12/16be4d5188f65a4c?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 L4</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>// Memory
-</span></span><span style="display:flex;"><span>7MB         : Heap memory in-use before the Marking started
-</span></span><span style="display:flex;"><span>11MB        : Heap memory in-use after the Marking finished
-</span></span><span style="display:flex;"><span>6MB         : Heap memory marked as live after the Marking finished
-</span></span><span style="display:flex;"><span>10MB        : Collection goal <span style="color:#00f">for</span> heap memory in-use after Marking finished
-</span></span></code></pre></div><p>复制代码GC trace行给出了如下的信息：Marking Work开始之前堆内存中in-use大小是7MB。当Marking Work完成后，堆内存中in-use的大小是11MB。这意味着回收中额外增加了4MB的内存分配。Marking Work完成之后堆内存中存活空间的大小是6MB。这意味着下次回收开始之前，in-use堆内存可以增加到12MB（100%*生存堆内存大小=6MB）
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">// Memory
+7MB         : Heap memory in-use before the Marking started
+11MB        : Heap memory in-use after the Marking finished
+6MB         : Heap memory marked as live after the Marking finished
+10MB        : Collection goal <span style="color:#00f">for</span> heap memory in-use after Marking finished
+</code></pre></div><p>复制代码GC trace行给出了如下的信息：Marking Work开始之前堆内存中in-use大小是7MB。当Marking Work完成后，堆内存中in-use的大小是11MB。这意味着回收中额外增加了4MB的内存分配。Marking Work完成之后堆内存中存活空间的大小是6MB。这意味着下次回收开始之前，in-use堆内存可以增加到12MB（100%*生存堆内存大小=6MB）
 你可以看到回收器超过了它设定的目标1MB，Marking Work完成之后的in-use堆内存是11MB而不是10MB。但是没关系，因为目标是根据当前in-use的堆内存计算得到的，也就是堆内存中标记为生存的空间，当回收进行的时候会有额外随时间计算增加的内存分配。在这个案例里，应用程序做了一些事情，导致在Marking之后，需要比预期更多去使用的堆内存。
 如果你看下一个GC Trace 行（1406），你开会看到在2ms内事情是如何改变的。
 图1.13
 <img src="https://user-gold-cdn.xitu.io/2019/7/12/16be4d531474711f?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 L5</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>gc 1406 @6.070s 11%: 0.051+1.8+0.076 ms clock, 0.61+2.0/2.5/0+0.91 ms cpu, 8-&gt;11-&gt;6 MB, 13 MB goal, 12 P
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>// Memory
-</span></span><span style="display:flex;"><span>8MB         : Heap memory in-use before the Marking started
-</span></span><span style="display:flex;"><span>11MB        : Heap memory in-use after the Marking finished
-</span></span><span style="display:flex;"><span>6MB         : Heap memory marked as live after the Marking finished
-</span></span><span style="display:flex;"><span>13MB        : Collection goal <span style="color:#00f">for</span> heap memory in-use after Marking finished
-</span></span></code></pre></div><p>复制代码L5展示了在之前的回收工作开始之后（6.068s vs 6.070s）这个回收工作开始了2ms的状态，尽管in-use的堆内存在允许的12MB中仅仅达到8MB。需要注意到，如果回收器决定最好要早一点开始进行回收的话，它就会那么做。这个案例下，它可能提前开始回收了，因为应用程序的分配压力很大并且collector想要降低在这次回收工作中Mark Assist的延迟。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">gc 1406 @6.070s 11%: 0.051+1.8+0.076 ms clock, 0.61+2.0/2.5/0+0.91 ms cpu, 8-&gt;11-&gt;6 MB, 13 MB goal, 12 P
+
+// Memory
+8MB         : Heap memory in-use before the Marking started
+11MB        : Heap memory in-use after the Marking finished
+6MB         : Heap memory marked as live after the Marking finished
+13MB        : Collection goal <span style="color:#00f">for</span> heap memory in-use after Marking finished
+</code></pre></div><p>复制代码L5展示了在之前的回收工作开始之后（6.068s vs 6.070s）这个回收工作开始了2ms的状态，尽管in-use的堆内存在允许的12MB中仅仅达到8MB。需要注意到，如果回收器决定最好要早一点开始进行回收的话，它就会那么做。这个案例下，它可能提前开始回收了，因为应用程序的分配压力很大并且collector想要降低在这次回收工作中Mark Assist的延迟。
 还有两个事情要注意，回收器在它设定的目标内完成了。在Marking 完成之后in-use的堆内存空间是11MB而不是13MB，少了2MB。在Marking完成之后堆内存中标记为存活的空间同样是6MB。
 另外，你可以获得更多GC的细节通过增加gcpacertrace=1的标记。这会让回收器打印concurrent pacer的内部状态。
 L6</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ export GODEBUG=gctrace=1,gcpacertrace=1 ./app
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>Sample output:
-</span></span><span style="display:flex;"><span>gc 5 @0.071s 0%: 0.018+0.46+0.071 ms clock, 0.14+0/0.38/0.14+0.56 ms cpu, 29-&gt;29-&gt;29 MB, 30 MB goal, 8 P
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>pacer: sweep <span style="color:#00f">done</span> at heap size 29MB; allocated 0MB of spans; swept 3752 pages at +6.183550e-004 pages/byte
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>pacer: assist ratio=+1.232155e+000 (scan 1 MB in 70-&gt;71 MB) workers=2+0
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>pacer: H_m_prev=30488736 h_t=+2.334071e-001 H_T=37605024 h_a=+1.409842e+000 H_a=73473040 h_g=+1.000000e+000 H_g=60977472 u_a=+2.500000e-001 u_g=+2.500000e-001 W_a=308200 goalΔ=+7.665929e-001 actualΔ=+1.176435e+000 u_a/u_g=+1.000000e+000
-</span></span></code></pre></div><p>复制代码运行GC trace可以告诉你很多应用程序的健康状态以及回收器的速度。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ export GODEBUG=gctrace=1,gcpacertrace=1 ./app
+
+Sample output:
+gc 5 @0.071s 0%: 0.018+0.46+0.071 ms clock, 0.14+0/0.38/0.14+0.56 ms cpu, 29-&gt;29-&gt;29 MB, 30 MB goal, 8 P
+
+pacer: sweep <span style="color:#00f">done</span> at heap size 29MB; allocated 0MB of spans; swept 3752 pages at +6.183550e-004 pages/byte
+
+pacer: assist ratio=+1.232155e+000 (scan 1 MB in 70-&gt;71 MB) workers=2+0
+
+pacer: H_m_prev=30488736 h_t=+2.334071e-001 H_T=37605024 h_a=+1.409842e+000 H_a=73473040 h_g=+1.000000e+000 H_g=60977472 u_a=+2.500000e-001 u_g=+2.500000e-001 W_a=308200 goalΔ=+7.665929e-001 actualΔ=+1.176435e+000 u_a/u_g=+1.000000e+000
+</code></pre></div><p>复制代码运行GC trace可以告诉你很多应用程序的健康状态以及回收器的速度。
 <strong>Pacing</strong>
 回收器有一个pacing算法，它会去确定什么时候回收去开始。算法依靠一个反馈循环，回收器会使用这种算法收集应用程序运行时候的信息，以及应用程序给堆造成的压力。压力可以定义为在给定的时间内应用程序在堆上的分配有多快。压力确定了回收器运行的速度。
 在回收器开始回收之前，它会计算它认为完成回收所需的时间。 一旦回收运行，会造成正在运行的应用程序上的延迟，这将减慢应用程序的工作。 每次回收都会增加应用程序的整体延迟。
@@ -505,7 +505,7 @@ L6</p>
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

@@ -239,213 +239,213 @@
 <p>要使用OpenVPN的包过滤，其实还真的不是那么简单，首先你要了解包过滤配置文件的格式。</p>
 <h2 id="包过滤配置文件格式">包过滤配置文件格式</h2>
 <p>OpenVPN的包过滤策略由配置文件或者buffer来指定，本文只介绍配置文件的基于IP子网的过滤方式(不考虑基于证书CN项的过滤)。格式如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>[SUBNETS DROP|ACCEPT]
-</span></span><span style="display:flex;"><span>+|-IP地址/掩码位
-</span></span><span style="display:flex;"><span>…
-</span></span><span style="display:flex;"><span>[END]
-</span></span></code></pre></div><p>其中[SUBNETS …]指示了段的开始，而[END]指示了其结束。SUBNETS后面跟上默认的策略，ACCEPT或者DROP，以下就是正文，正文的开头必须由+号或者-号标示，后面跟上标准的IP地址/掩码的格式，+号表示可以通过，-号表示不可以通过，就这么简单。具体可以看一下OpenVPN源码目录下的management/management-notes.txt文件中的相关介绍，令我不解的是，为何将统一的包过滤功能置于management这个管理接口相关的目录下。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">[SUBNETS DROP|ACCEPT]
++|-IP地址/掩码位
+…
+[END]
+</code></pre></div><p>其中[SUBNETS …]指示了段的开始，而[END]指示了其结束。SUBNETS后面跟上默认的策略，ACCEPT或者DROP，以下就是正文，正文的开头必须由+号或者-号标示，后面跟上标准的IP地址/掩码的格式，+号表示可以通过，-号表示不可以通过，就这么简单。具体可以看一下OpenVPN源码目录下的management/management-notes.txt文件中的相关介绍，令我不解的是，为何将统一的包过滤功能置于management这个管理接口相关的目录下。</p>
 <h2 id="配置tmp目录定义plugin">配置tmp目录/定义plugin</h2>
 <p>以上2.1节说的配置文件需要放置在一个特定的临时目录下，说它临时是因为里面的文件是OpenVPN自己动态创建的，等OpenVPN退出之后，里面的文件会被删除。这么说来上述2.1节中的文件也是OpenVPN动态创建的了？是的，正是这样。OpenVPN动态创建了这个文件，然后你可以编辑这个文件，添加进去一些策略规则，OpenVPN定时监控这个文件是否被修改，若被修改则重新根据文件内容加载包过滤策略规则。至于说这些在OpenVPN中是怎么实现的，看代码就好了，很简单的</p>
 <p>因此，你只需要配置&ndash;tmp-dir dir即可，其中dir是你的临时目录路径。另外一件需要做的事就是编写一个plugin，有了它就可以在plugin中建立包过滤配置文件和外部程序的关联从而动态为包过滤配置文件添加策略规则了，否则的话，你手工修改这个包过滤配置文件也可以，当然这只能达到实验的目的，现实中使用时都是基于plugin来做的。我们可以看看下面的代码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">pf_init_context</span> (<span style="color:#00f">struct</span> context *c) {
-</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> gc_arena gc = <span style="color:#c34e00">gc_new</span> ();
-</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> (<span style="color:#c34e00">plugin_defined</span> (c-&gt;plugins, OPENVPN_PLUGIN_ENABLE_PF)) {
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//创建临时文件
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>              <span style="color:#00f">const</span> <span style="color:#00f">char</span> *pf_file = <span style="color:#c34e00">create_temp_file</span> (c-&gt;options.tmp_dir, <span style="color:#009c00">&#34;pf&#34;</span>, &amp;gc);
-</span></span><span style="display:flex;"><span>              <span style="color:#00f">if</span>( pf_file ) {
-</span></span><span style="display:flex;"><span>                    <span style="color:#c34e00">setenv_str</span> (c-&gt;c2.es, <span style="color:#009c00">&#34;pf_file&#34;</span>, pf_file);
-</span></span><span style="display:flex;"><span>                <span style="color:#00f">if</span> (<span style="color:#c34e00">plugin_call</span> (c-&gt;plugins, OPENVPN_PLUGIN_ENABLE_PF,
-</span></span><span style="display:flex;"><span>NULL, NULL, c-&gt;c2.es) == OPENVPN_PLUGIN_FUNC_SUCCESS) {
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">//初始化定时器，此后定时监控文件变化
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                        <span style="color:#c34e00">event_timeout_init</span> (&amp;c-&gt;c2.pf.reload, 1, now);
-</span></span><span style="display:flex;"><span>                        c-&gt;c2.pf.filename = <span style="color:#c34e00">string_alloc</span> (pf_file, NULL);
-</span></span><span style="display:flex;"><span>                        c-&gt;c2.pf.enabled = true;
-</span></span><span style="display:flex;"><span>                  }
-</span></span><span style="display:flex;"><span>    …
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>因此，我们需要写一个plugin，侦听OPENVPN_PLUGIN_ENABLE_PF事件，然后在其func函数中创建包过滤配置文件和外部程序的关联，本文只是实验，因此什么都没有做，全部手工修改添加策略规则。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">void</span> <span style="color:#c34e00">pf_init_context</span> (<span style="color:#00f">struct</span> context *c) {
+<span style="color:#00f">struct</span> gc_arena gc = gc_new ();
+<span style="color:#00f">if</span> (plugin_defined (c-&gt;plugins, OPENVPN_PLUGIN_ENABLE_PF)) {
+    <span style="color:#f00;font-style:italic">//创建临时文件
+</span><span style="color:#f00;font-style:italic"></span>              <span style="color:#00f">const</span> <span style="color:#00f">char</span> *pf_file = create_temp_file (c-&gt;options.tmp_dir, <span style="color:#009c00">&#34;pf&#34;</span>, &amp;gc);
+              <span style="color:#00f">if</span>( pf_file ) {
+                    setenv_str (c-&gt;c2.es, <span style="color:#009c00">&#34;pf_file&#34;</span>, pf_file);
+                <span style="color:#00f">if</span> (plugin_call (c-&gt;plugins, OPENVPN_PLUGIN_ENABLE_PF,
+NULL, NULL, c-&gt;c2.es) == OPENVPN_PLUGIN_FUNC_SUCCESS) {
+            <span style="color:#f00;font-style:italic">//初始化定时器，此后定时监控文件变化
+</span><span style="color:#f00;font-style:italic"></span>                        event_timeout_init (&amp;c-&gt;c2.pf.reload, 1, now);
+                        c-&gt;c2.pf.filename = string_alloc (pf_file, NULL);
+                        c-&gt;c2.pf.enabled = true;
+                  }
+    …
+}
+</code></pre></div><p>因此，我们需要写一个plugin，侦听OPENVPN_PLUGIN_ENABLE_PF事件，然后在其func函数中创建包过滤配置文件和外部程序的关联，本文只是实验，因此什么都没有做，全部手工修改添加策略规则。</p>
 <h2 id="理解在哪里执行包过滤">理解在哪里执行包过滤</h2>
 <p>一般而言，我们使用server模式，因此肯定是multi.c里面执行了，而且是在multi.c中的 multi_process_incoming_link函数中执行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">if</span> (c-&gt;c2.to_tun.len &amp;&amp; !<span style="color:#c34e00">pf_addr_test</span> (c, &amp;edest, <span style="color:#009c00">&#34;tap_dest_addr&#34;</span>)) {
-</span></span><span style="display:flex;"><span>                          <span style="color:#c34e00">msg</span> (D_PF_DROPPED, <span style="color:#009c00">&#34;PF: client -&gt; addr[%s] packet dropped by TAP packet filter&#34;</span>,
-</span></span><span style="display:flex;"><span>                               <span style="color:#c34e00">mroute_addr_print_ex</span> (&amp;edest, MAPF_SHOW_ARP, &amp;gc));
-</span></span><span style="display:flex;"><span>                          c-&gt;c2.to_tun.len = 0;
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>主要由pf_addr_test来执行基于IP子网的包过滤。其实现在pf.c文件中。注意，哪怕是TAP模式的VPN，在开启包过滤宏的情况下，也要解析出载荷的目标IP地址用于包过滤。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">if</span> (c-&gt;c2.to_tun.len &amp;&amp; !pf_addr_test (c, &amp;edest, <span style="color:#009c00">&#34;tap_dest_addr&#34;</span>)) {
+                          msg (D_PF_DROPPED, <span style="color:#009c00">&#34;PF: client -&gt; addr[%s] packet dropped by TAP packet filter&#34;</span>,
+                               mroute_addr_print_ex (&amp;edest, MAPF_SHOW_ARP, &amp;gc));
+                          c-&gt;c2.to_tun.len = 0;
+}
+</code></pre></div><p>主要由pf_addr_test来执行基于IP子网的包过滤。其实现在pf.c文件中。注意，哪怕是TAP模式的VPN，在开启包过滤宏的情况下，也要解析出载荷的目标IP地址用于包过滤。</p>
 <p>pf_addr_test的实现非常之简单，就是一下的循环：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">while</span> (se) {             
-</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> ((addr &amp; se-&gt;rule.netmask) == se-&gt;rule.network) {
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// exclude由+号或者-号决定
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">return</span> !se-&gt;rule.exclude;
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>          se = se-&gt;next;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>…
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//由[…]里面的ACCEPT或者DROP决定
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">return</span> pfs-&gt;sns.default_allow;
-</span></span></code></pre></div><p>一切就是这么简单！</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">while</span> (se) {             
+<span style="color:#00f">if</span> ((addr &amp; se-&gt;rule.netmask) == se-&gt;rule.network) {
+    <span style="color:#f00;font-style:italic">// exclude由+号或者-号决定
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">return</span> !se-&gt;rule.exclude;
+            }
+          se = se-&gt;next;
+}
+…
+<span style="color:#f00;font-style:italic">//由[…]里面的ACCEPT或者DROP决定
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">return</span> pfs-&gt;sns.default_allow;
+</code></pre></div><p>一切就是这么简单！</p>
 <h2 id="具体效果">具体效果</h2>
 <p>理解了原理，看效果就简单了，配置了tmp-dir为/var/vpn/tmp，然后以172.16.0.0/16为虚拟子网启动OpenVPN服务器，在/var/vpn/tmp下面有个文件: openvpn_pf_3758e76a5d04078a35c900e32aa25d08.tmp 注意，乱七八糟的名字是故意这么生成的，使用了随机数的原理。我手工编辑了这个文件加入：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>[SUBNETS DROP]
-</span></span><span style="display:flex;"><span>+172.16.0.0/16
-</span></span><span style="display:flex;"><span>[END]
-</span></span></code></pre></div><p>之后只有访问这个虚拟子网内的主机才可以，其它的全部丢弃。…</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">[SUBNETS DROP]
++172.16.0.0/16
+[END]
+</code></pre></div><p>之后只有访问这个虚拟子网内的主机才可以，其它的全部丢弃。…</p>
 <h2 id="定制细粒度的包过滤">定制细粒度的包过滤</h2>
 <p>OpenVPN原生实现的包过滤只是粗粒度的基于IP子网的过滤，但是我们知道，任何操作系统的哪怕最原始的防火墙都是根据起码第四层的协议数据进行过滤，比如TCP或者UDP的端口，比如禁止ICMP等等，要怎样才能实现这样呢？事实上当我们理解了OpenVPN的包过滤原理之后，实现这个一点难度都没有。关键是在实现之前要先定义好接口，这个也不难，只是在+a.b.c.d/e之后再加上协议和端口信息即可，我的垃圾实现是：+a.b.c.d/e:协议号|目的端口号，紧接着在解析包过滤配置文件的时候增加对协议和端口的解析，并且在ipv4_subnet结构体中增加协议和端口的字段。最后在pf_addr_test中这么实现：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> <span style="color:#00f">if</span> (pfs &amp;&amp; !pfs-&gt;kill) {
-</span></span><span style="display:flex;"><span><span style="color:#00f">const</span> <span style="color:#00f">in_addr_t</span> addr = <span style="color:#c34e00">in_addr_t_from_mroute_addr</span> (dest);
-</span></span><span style="display:flex;"><span><span style="color:#00f">const</span> <span style="color:#00f">struct</span> pf_subnet *se = pfs-&gt;sns.list;
-</span></span><span style="display:flex;"><span><span style="color:#00f">const</span> <span style="color:#00f">struct</span> openvpn_iphdr *pip;
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">int</span> ipoff = (tunnel_type == DEV_TYPE_TAP)?<span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> openvpn_ethhdr):0;
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//不考虑变长的IP协议头
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">int</span> tloff = ipoff + <span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> openvpn_iphdr);
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">verify_align_4</span> (buf);
-</span></span><span style="display:flex;"><span>            pip = (<span style="color:#00f">struct</span> openvpn_iphdr *)(<span style="color:#c34e00">BPTR</span> (buf)+ipoff);
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">const</span> <span style="color:#00f">uint8_t</span> proto = pip-&gt;protocol;
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">uint16_t</span> dport;
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> (proto == OPENVPN_IPPROTO_TCP) {
-</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> openvpn_tcphdr *ptcp = (<span style="color:#00f">struct</span> openvpn_tcphdr*)(<span style="color:#c34e00">BPTR</span>(buf)+tloff);
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//对于TCP的后续数据，直接通过，因为没有syn的通过，就不会有后续的数据
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">if</span> (!(ptcp-&gt;flags &amp; OPENVPN_TCPH_SYN_MASK))
-</span></span><span style="display:flex;"><span>                                <span style="color:#00f">return</span> true;
-</span></span><span style="display:flex;"><span>                    dport = <span style="color:#c34e00">ntohs</span>(ptcp-&gt;dest);
-</span></span><span style="display:flex;"><span>} <span style="color:#00f">else</span> <span style="color:#00f">if</span> (proto == OPENVPN_IPPROTO_UDP) {
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>…
-</span></span><span style="display:flex;"><span><span style="color:#00f">while</span> (se) {
-</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> (((addr &amp; se-&gt;rule.netmask) == se-&gt;rule.network) &amp;&amp;
-</span></span><span style="display:flex;"><span>se-&gt;rule.proto == proto &amp;&amp; se-&gt;rule.dport == dport) {
-</span></span><span style="display:flex;"><span>…
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>…
-</span></span><span style="display:flex;"><span><span style="color:#00f">return</span> pfs-&gt;sns.default_allow;
-</span></span></code></pre></div><p>这样就可以实现和iptables一样的策略规则了，虽然还不支持其它的match，而且配置文件显得很是奇怪，然而这已经足够了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"> <span style="color:#00f">if</span> (pfs &amp;&amp; !pfs-&gt;kill) {
+<span style="color:#00f">const</span> in_addr_t addr = in_addr_t_from_mroute_addr (dest);
+<span style="color:#00f">const</span> <span style="color:#00f">struct</span> pf_subnet *se = pfs-&gt;sns.list;
+<span style="color:#00f">const</span> <span style="color:#00f">struct</span> openvpn_iphdr *pip;
+            <span style="color:#00f">int</span> ipoff = (tunnel_type == DEV_TYPE_TAP)?<span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> openvpn_ethhdr):0;
+    <span style="color:#f00;font-style:italic">//不考虑变长的IP协议头
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">int</span> tloff = ipoff + <span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> openvpn_iphdr);
+            verify_align_4 (buf);
+            pip = (<span style="color:#00f">struct</span> openvpn_iphdr *)(BPTR (buf)+ipoff);
+            <span style="color:#00f">const</span> <span style="color:#00f">uint8_t</span> proto = pip-&gt;protocol;
+            <span style="color:#00f">uint16_t</span> dport;
+            <span style="color:#00f">if</span> (proto == OPENVPN_IPPROTO_TCP) {
+<span style="color:#00f">struct</span> openvpn_tcphdr *ptcp = (<span style="color:#00f">struct</span> openvpn_tcphdr*)(BPTR(buf)+tloff);
+<span style="color:#f00;font-style:italic">//对于TCP的后续数据，直接通过，因为没有syn的通过，就不会有后续的数据
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">if</span> (!(ptcp-&gt;flags &amp; OPENVPN_TCPH_SYN_MASK))
+                                <span style="color:#00f">return</span> true;
+                    dport = ntohs(ptcp-&gt;dest);
+} <span style="color:#00f">else</span> <span style="color:#00f">if</span> (proto == OPENVPN_IPPROTO_UDP) {
+}
+…
+<span style="color:#00f">while</span> (se) {
+<span style="color:#00f">if</span> (((addr &amp; se-&gt;rule.netmask) == se-&gt;rule.network) &amp;&amp;
+se-&gt;rule.proto == proto &amp;&amp; se-&gt;rule.dport == dport) {
+…
+    }
+}
+…
+<span style="color:#00f">return</span> pfs-&gt;sns.default_allow;
+</code></pre></div><p>这样就可以实现和iptables一样的策略规则了，虽然还不支持其它的match，而且配置文件显得很是奇怪，然而这已经足够了。</p>
 <p>OpenVPN的包过滤机制对性能是有些影响，使本来性能就不是很好的OpenVPN更是雪上加霜，然而功能的实现总是要付出些性能代价的，就连Cisco如此凶猛的家伙都是这样。</p>
 <h2 id="基于用户的包过滤">基于用户的包过滤</h2>
 <p>所谓的internal packet filter和internal route是一样的，就是工作在OpenVPN内部的一个过滤机制，它的主要作用在于限制client-to-client之间的通信，因为client-to-client之间的通信完全是在内部被路由的，外部的系统路由在这里起不到作用的。client-to-client之间的通信过滤完全是OpenVPN内部进行的。</p>
 <p>关于OpenVPN内部包过滤机制的文档真的特别少，少之又少，好不容易才在网上找了一篇，加上我自己的这篇，基本够操作了。因此我把那篇文章（《OpenVPN’s built-in packet filter》）大致意思总结了一下： OpenVPN提供了一种内部的包过滤机制来限制client-to-client之间的通信。总的来讲，每一个client都会有一个过滤规则集，限制该client允许或者不允许访问的其它用户以及IP网段。那篇文章给出一个场景，一共四个人，分别是john，nick，bob，max，这四个人接入在同一个使能client-to-client的OpenVPN服务器上，然而需求是他们之间的互相访问是被严格控制的。下面的表格显示了他们之间相互访问的规则，yes代表可以访问，no代表不可以访问：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/14/167abf7420c1e25b~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <p>根据前面个小节的分析，看懂下面的配置文件应该不成问题，只是将IP网段换成了client证书的CN项，注意为了避免混乱，请在启动OpenVPN服务器时不要使用duplicate-cn选项。下面是各个用户的配置文件，看完配置文件后，我们再看看这些配置文件中的规则是怎么样配置到各个用户的：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>$ cat /etc/openvpn/john.pf 
-</span></span><span style="display:flex;"><span>[CLIENTS DROP] 
-</span></span><span style="display:flex;"><span>+nick 
-</span></span><span style="display:flex;"><span>+bob 
-</span></span><span style="display:flex;"><span>[SUBNETS ACCEPT] 
-</span></span><span style="display:flex;"><span>[END] 
-</span></span><span style="display:flex;"><span>$ cat /etc/openvpn/nick.pf 
-</span></span><span style="display:flex;"><span>[CLIENTS DROP] 
-</span></span><span style="display:flex;"><span>+john 
-</span></span><span style="display:flex;"><span>+max 
-</span></span><span style="display:flex;"><span>[SUBNETS ACCEPT] 
-</span></span><span style="display:flex;"><span>[END] 
-</span></span><span style="display:flex;"><span>$ cat /etc/openvpn/bob.pf 
-</span></span><span style="display:flex;"><span>[CLIENTS DROP] 
-</span></span><span style="display:flex;"><span>+john 
-</span></span><span style="display:flex;"><span>[SUBNETS ACCEPT] 
-</span></span><span style="display:flex;"><span>[END] 
-</span></span><span style="display:flex;"><span>$ cat /etc/openvpn/max.pf 
-</span></span><span style="display:flex;"><span>[CLIENTS DROP] 
-</span></span><span style="display:flex;"><span>+nick 
-</span></span><span style="display:flex;"><span>[SUBNETS ACCEPT] 
-</span></span><span style="display:flex;"><span>[END]
-</span></span></code></pre></div><p>那么这些配置文件如何和具体用户关联呢？实际上在每个用户接入到VPN服务器的时候都会调用pf_init_context函数，该函数和pf相关的大体如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">void</span>
-</span></span><span style="display:flex;"><span><span style="color:#c34e00">pf_init_context</span> (<span style="color:#00f">struct</span> context *c)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> gc_arena gc = <span style="color:#c34e00">gc_new</span> ();
-</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> (<span style="color:#c34e00">plugin_defined</span> (c-&gt;plugins, OPENVPN_PLUGIN_ENABLE_PF)) {
-</span></span><span style="display:flex;"><span>              <span style="color:#00f">const</span> <span style="color:#00f">char</span> *pf_file = create_temp_file …
-</span></span><span style="display:flex;"><span>              <span style="color:#00f">if</span>( pf_file ) {
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">//将临时文件名称设置成环境变量很关键
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                    <span style="color:#c34e00">setenv_str</span> (c-&gt;c2.es, <span style="color:#009c00">&#34;pf_file&#34;</span>, pf_file);
-</span></span><span style="display:flex;"><span>                    <span style="color:#00f">if</span> (<span style="color:#c34e00">plugin_call</span> (c-&gt;plugins, …) {
-</span></span><span style="display:flex;"><span>                            …            
-</span></span><span style="display:flex;"><span>} <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>                            <span style="color:#f00;font-style:italic">//disable packet filter
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>           }
-</span></span><span style="display:flex;"><span>         }
-</span></span><span style="display:flex;"><span>    …
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>这样，每一个用户就都有了一个值为pf临时文件名的环境变量，当调用client-connect脚本或者plugin的时候，这个环境变量就大大的有用了，请看下面的client-connect脚本：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#!/bin/sh  
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># /etc/openvpn/client-connect.sh: sample client-connect script using pf rule files  
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># rules template file
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>template=<span style="color:#009c00">&#34;/etc/openvpn/${common_name}.pf&#34;</span>  
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># create the file OpenVPN wants with the rules for this client
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">if</span> [ -f <span style="color:#009c00">&#34;$template&#34;</span> ] &amp;&amp; [ ! -z <span style="color:#009c00">&#34;$pf_file&#34;</span> ]; then   
-</span></span><span style="display:flex;"><span>    cp -- <span style="color:#009c00">&#34;$template&#34;</span> <span style="color:#009c00">&#34;$pf_file&#34;</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">else</span>   
-</span></span><span style="display:flex;"><span>    # <span style="color:#00f">if</span> anything is not as expected, fail   
-</span></span><span style="display:flex;"><span>    exit 1
-</span></span><span style="display:flex;"><span>fi
-</span></span></code></pre></div><p>这个脚本就是为这些环境变量指示的pf策略规则集文件填值的，填什么值呢？填上述的配置文件啊。到此为止，功能就实现了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">$ cat /etc/openvpn/john.pf 
+[CLIENTS DROP] 
++nick 
++bob 
+[SUBNETS ACCEPT] 
+[END] 
+$ cat /etc/openvpn/nick.pf 
+[CLIENTS DROP] 
++john 
++max 
+[SUBNETS ACCEPT] 
+[END] 
+$ cat /etc/openvpn/bob.pf 
+[CLIENTS DROP] 
++john 
+[SUBNETS ACCEPT] 
+[END] 
+$ cat /etc/openvpn/max.pf 
+[CLIENTS DROP] 
++nick 
+[SUBNETS ACCEPT] 
+[END]
+</code></pre></div><p>那么这些配置文件如何和具体用户关联呢？实际上在每个用户接入到VPN服务器的时候都会调用pf_init_context函数，该函数和pf相关的大体如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">void</span>
+<span style="color:#c34e00">pf_init_context</span> (<span style="color:#00f">struct</span> context *c)
+{
+<span style="color:#00f">struct</span> gc_arena gc = gc_new ();
+<span style="color:#00f">if</span> (plugin_defined (c-&gt;plugins, OPENVPN_PLUGIN_ENABLE_PF)) {
+              <span style="color:#00f">const</span> <span style="color:#00f">char</span> *pf_file = create_temp_file …
+              <span style="color:#00f">if</span>( pf_file ) {
+            <span style="color:#f00;font-style:italic">//将临时文件名称设置成环境变量很关键
+</span><span style="color:#f00;font-style:italic"></span>                    setenv_str (c-&gt;c2.es, <span style="color:#009c00">&#34;pf_file&#34;</span>, pf_file);
+                    <span style="color:#00f">if</span> (plugin_call (c-&gt;plugins, …) {
+                            …            
+} <span style="color:#00f">else</span> {
+                            <span style="color:#f00;font-style:italic">//disable packet filter
+</span><span style="color:#f00;font-style:italic"></span>           }
+         }
+    …
+}
+</code></pre></div><p>这样，每一个用户就都有了一个值为pf临时文件名的环境变量，当调用client-connect脚本或者plugin的时候，这个环境变量就大大的有用了，请看下面的client-connect脚本：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#!/bin/sh  
+</span><span style="color:#f00;font-style:italic"># /etc/openvpn/client-connect.sh: sample client-connect script using pf rule files  
+</span><span style="color:#f00;font-style:italic"># rules template file
+</span><span style="color:#f00;font-style:italic"></span>template=<span style="color:#009c00">&#34;/etc/openvpn/${common_name}.pf&#34;</span>  
+<span style="color:#f00;font-style:italic"># create the file OpenVPN wants with the rules for this client
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">if</span> [ -f <span style="color:#009c00">&#34;$template&#34;</span> ] &amp;&amp; [ ! -z <span style="color:#009c00">&#34;$pf_file&#34;</span> ]; then   
+    cp -- <span style="color:#009c00">&#34;$template&#34;</span> <span style="color:#009c00">&#34;$pf_file&#34;</span>
+<span style="color:#00f">else</span>   
+    # <span style="color:#00f">if</span> anything is not as expected, fail   
+    exit 1
+fi
+</code></pre></div><p>这个脚本就是为这些环境变量指示的pf策略规则集文件填值的，填什么值呢？填上述的配置文件啊。到此为止，功能就实现了。</p>
 <p>那么那个plugin仅仅是为了传输那个配置文件么？其实不应该是那样的啊，以下是我昨晚写的一个plugin，那时我还没有看到这篇<a href="https://link.juejin.cn/?target=http%3A%2F%2Fbackreference.org%2F2010%2F06%2F18%2Fopenvpns-built-in-packet-filter%2F">《OpenVPN’s built-in packet filter》</a>：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> plugin_context {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">char</span> name[1];
-</span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>OPENVPN_EXPORT <span style="color:#00f">openvpn_plugin_handle_t</span>
-</span></span><span style="display:flex;"><span><span style="color:#c34e00">openvpn_plugin_open_v1</span> (<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> *type_mask, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[], <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[])
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> plugin_context *context;
-</span></span><span style="display:flex;"><span>            context = (<span style="color:#00f">struct</span> plugin_context *) <span style="color:#c34e00">calloc</span> (1, <span style="color:#00f">sizeof</span> (<span style="color:#00f">struct</span> plugin_context));
-</span></span><span style="display:flex;"><span>            *type_mask =<span style="color:#c34e00">OPENVPN_PLUGIN_MASK</span>(OPENVPN_PLUGIN_ENABLE_PF);
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> (<span style="color:#00f">openvpn_plugin_handle_t</span>) context;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>OPENVPN_EXPORT <span style="color:#00f">int</span>
-</span></span><span style="display:flex;"><span><span style="color:#c34e00">openvpn_plugin_func_v1</span> (<span style="color:#00f">openvpn_plugin_handle_t</span> handle, <span style="color:#00f">const</span> <span style="color:#00f">int</span> type, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[], <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[])
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> plugin_context *context = (<span style="color:#00f">struct</span> plugin_context *) handle;
-</span></span><span style="display:flex;"><span><span style="color:#00f">return</span> OPENVPN_PLUGIN_FUNC_SUCCESS;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>OPENVPN_EXPORT <span style="color:#00f">void</span>
-</span></span><span style="display:flex;"><span><span style="color:#c34e00">openvpn_plugin_close_v1</span> (<span style="color:#00f">openvpn_plugin_handle_t</span> handle)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">struct</span> plugin_context *context = (<span style="color:#00f">struct</span> plugin_context *) handle;
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">free</span> (context);
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>虽然什么也没有做，然而这是必须的。实际上应该在这个plugin里面做更多事的，比如通知外部程序，比如设置和外部程序的联动等等。而且我也知道，如果不返回FUNC_SUCCESS，那么将禁用该用户的packet filter，很显然在plugin中应该判断是否针对这个用户进行filter，然而调用plugin的时候，此用户的instance刚刚建立，证书还没有提交呢，什么信息都没有，这就导致没什么事情可做。今天看了这篇文章后，那哥们也写了一个plugin，如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* dummy context, as we need no state */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> plugin_context {   
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> dummy;
-</span></span><span style="display:flex;"><span>};  
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* Initialization function */</span>
-</span></span><span style="display:flex;"><span>OPENVPN_EXPORT <span style="color:#00f">openvpn_plugin_handle_t</span> <span style="color:#c34e00">openvpn_plugin_open_v1</span> (    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> *type_mask,
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[],
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[])
-</span></span><span style="display:flex;"><span>{   
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> plugin_context *context;   
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">/* Allocate our context */</span>   
-</span></span><span style="display:flex;"><span>    context = (<span style="color:#00f">struct</span> plugin_context *)
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">calloc</span> (1, <span style="color:#00f">sizeof</span> (<span style="color:#00f">struct</span> plugin_context));    <span style="color:#f00;font-style:italic">/* Which callbacks to intercept. */</span>   
-</span></span><span style="display:flex;"><span>*type_mask = <span style="color:#c34e00">OPENVPN_PLUGIN_MASK</span> (OPENVPN_PLUGIN_ENABLE_PF);    <span style="color:#00f">return</span> (<span style="color:#00f">openvpn_plugin_handle_t</span>) context;
-</span></span><span style="display:flex;"><span>}  
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* Worker function */</span>
-</span></span><span style="display:flex;"><span>OPENVPN_EXPORT <span style="color:#00f">int</span> <span style="color:#c34e00">openvpn_plugin_func_v2</span> (
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">openvpn_plugin_handle_t</span> handle,             
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">const</span> <span style="color:#00f">int</span> type,             
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[],             
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[],             
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">void</span> *per_client_context,             
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">struct</span> openvpn_plugin_string_list **return_list) {    
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (type == OPENVPN_PLUGIN_ENABLE_PF) {     
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> OPENVPN_PLUGIN_FUNC_SUCCESS;   
-</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {     <span style="color:#f00;font-style:italic">/* should not happen! */</span>     
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> OPENVPN_PLUGIN_FUNC_ERROR;   
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>}  
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* Cleanup function */</span>
-</span></span><span style="display:flex;"><span>OPENVPN_EXPORT <span style="color:#00f">void</span> <span style="color:#c34e00">openvpn_plugin_close_v1</span> (
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">openvpn_plugin_handle_t</span> handle)
-</span></span><span style="display:flex;"><span>{   
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> plugin_context *context = (<span style="color:#00f">struct</span> plugin_context *) handle;   
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">free</span> (context);
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>除了代码比我的更规范，多了注释之外，没有什么不同的。而且作者说：The fact that the worker function is invoked at client connection and then is re-invoked periodically makes it possible to dynamically change or disable the filtering policy for a client (OpenVPN will re-read the rule file if it changes); in our example we just return success always.</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">struct</span> plugin_context {
+        <span style="color:#00f">char</span> name[1];
+};
+ 
+OPENVPN_EXPORT openvpn_plugin_handle_t
+<span style="color:#c34e00">openvpn_plugin_open_v1</span> (<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> *type_mask, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[], <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[])
+{
+            <span style="color:#00f">struct</span> plugin_context *context;
+            context = (<span style="color:#00f">struct</span> plugin_context *) calloc (1, <span style="color:#00f">sizeof</span> (<span style="color:#00f">struct</span> plugin_context));
+            *type_mask =OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_ENABLE_PF);
+            <span style="color:#00f">return</span> (openvpn_plugin_handle_t) context;
+}
+ 
+OPENVPN_EXPORT <span style="color:#00f">int</span>
+<span style="color:#c34e00">openvpn_plugin_func_v1</span> (openvpn_plugin_handle_t handle, <span style="color:#00f">const</span> <span style="color:#00f">int</span> type, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[], <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[])
+{
+<span style="color:#00f">struct</span> plugin_context *context = (<span style="color:#00f">struct</span> plugin_context *) handle;
+<span style="color:#00f">return</span> OPENVPN_PLUGIN_FUNC_SUCCESS;
+}
+ 
+OPENVPN_EXPORT <span style="color:#00f">void</span>
+<span style="color:#c34e00">openvpn_plugin_close_v1</span> (openvpn_plugin_handle_t handle)
+{
+      <span style="color:#00f">struct</span> plugin_context *context = (<span style="color:#00f">struct</span> plugin_context *) handle;
+      free (context);
+}
+</code></pre></div><p>虽然什么也没有做，然而这是必须的。实际上应该在这个plugin里面做更多事的，比如通知外部程序，比如设置和外部程序的联动等等。而且我也知道，如果不返回FUNC_SUCCESS，那么将禁用该用户的packet filter，很显然在plugin中应该判断是否针对这个用户进行filter，然而调用plugin的时候，此用户的instance刚刚建立，证书还没有提交呢，什么信息都没有，这就导致没什么事情可做。今天看了这篇文章后，那哥们也写了一个plugin，如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">/* dummy context, as we need no state */</span>
+<span style="color:#00f">struct</span> plugin_context {   
+    <span style="color:#00f">int</span> dummy;
+};  
+<span style="color:#f00;font-style:italic">/* Initialization function */</span>
+OPENVPN_EXPORT openvpn_plugin_handle_t <span style="color:#c34e00">openvpn_plugin_open_v1</span> (    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> *type_mask,
+    <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[],
+    <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[])
+{   
+    <span style="color:#00f">struct</span> plugin_context *context;   
+    <span style="color:#f00;font-style:italic">/* Allocate our context */</span>   
+    context = (<span style="color:#00f">struct</span> plugin_context *)
+            calloc (1, <span style="color:#00f">sizeof</span> (<span style="color:#00f">struct</span> plugin_context));    <span style="color:#f00;font-style:italic">/* Which callbacks to intercept. */</span>   
+*type_mask = OPENVPN_PLUGIN_MASK (OPENVPN_PLUGIN_ENABLE_PF);    <span style="color:#00f">return</span> (openvpn_plugin_handle_t) context;
+}  
+ 
+<span style="color:#f00;font-style:italic">/* Worker function */</span>
+OPENVPN_EXPORT <span style="color:#00f">int</span> <span style="color:#c34e00">openvpn_plugin_func_v2</span> (
+        openvpn_plugin_handle_t handle,             
+        <span style="color:#00f">const</span> <span style="color:#00f">int</span> type,             
+        <span style="color:#00f">const</span> <span style="color:#00f">char</span> *argv[],             
+        <span style="color:#00f">const</span> <span style="color:#00f">char</span> *envp[],             
+        <span style="color:#00f">void</span> *per_client_context,             
+        <span style="color:#00f">struct</span> openvpn_plugin_string_list **return_list) {    
+    <span style="color:#00f">if</span> (type == OPENVPN_PLUGIN_ENABLE_PF) {     
+        <span style="color:#00f">return</span> OPENVPN_PLUGIN_FUNC_SUCCESS;   
+    } <span style="color:#00f">else</span> {     <span style="color:#f00;font-style:italic">/* should not happen! */</span>     
+        <span style="color:#00f">return</span> OPENVPN_PLUGIN_FUNC_ERROR;   
+    }
+}  
+<span style="color:#f00;font-style:italic">/* Cleanup function */</span>
+OPENVPN_EXPORT <span style="color:#00f">void</span> <span style="color:#c34e00">openvpn_plugin_close_v1</span> (
+        openvpn_plugin_handle_t handle)
+{   
+    <span style="color:#00f">struct</span> plugin_context *context = (<span style="color:#00f">struct</span> plugin_context *) handle;   
+    free (context);
+}
+</code></pre></div><p>除了代码比我的更规范，多了注释之外，没有什么不同的。而且作者说：The fact that the worker function is invoked at client connection and then is re-invoked periodically makes it possible to dynamically change or disable the filtering policy for a client (OpenVPN will re-read the rule file if it changes); in our example we just return success always.</p>
 <p>我没有看出OpenVPN在对这个plugin re-invoked periodically了。实际上真的应该周期调用它的，正如作者所说。</p>
 <p>看了这篇《OpenVPN’s built-in packet filter》我发现自己遇到了知音，行文的风格我们太像了，我也自恋一把，跟人家套套近乎…不管怎么说，OpenVPN的packet filter机制是基于每用户，这种灵活性真的太有用了，只是是不是在client-connect这个HOOK点创建这个pf临时文件更好些呢？此时可以得到用户的所有信息，可以在plugin中决定是否对这个用户开启pf，而且还可直接将针对用户的规则集填入到那个pf临时文件中。我实在想不通OpenVPN的开发者为何用现有的方式来实现这么有用的机制…</p>
 <h1 id="总结">总结</h1>
@@ -526,7 +526,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

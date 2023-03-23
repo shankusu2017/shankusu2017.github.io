@@ -244,32 +244,32 @@
 <p>当我们用 <code>dataMap := make(map[int]string)</code>
 创建一个 map 对象的时候，得到的是一个 hmap 指针结构。通过对 <code>src/runtime/map.go</code>
 文件分析，我们看到了对应的结构体如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> hmap <span style="color:#00f">struct</span> {
-</span></span><span style="display:flex;"><span>        count     <span style="color:#00f">int</span> <span style="color:#f00;font-style:italic">// 当前的元素个数
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        flags     <span style="color:#00f">uint8</span>
-</span></span><span style="display:flex;"><span>        B         <span style="color:#00f">uint8</span>  <span style="color:#f00;font-style:italic">// 字段 buckets 数组的长度关联参数，即 buckets 长度为 2^B
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        noverflow <span style="color:#00f">uint16</span> <span style="color:#f00;font-style:italic">// overflow buckets 的近似数
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        hash0     <span style="color:#00f">uint32</span> <span style="color:#f00;font-style:italic">// 哈希种子，作 hash 运算用的
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        buckets    unsafe.Pointer <span style="color:#f00;font-style:italic">// 数组对象，存 key-value的
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        oldbuckets unsafe.Pointer <span style="color:#f00;font-style:italic">// 扩容时用到的 buckets，大小是之前 buckets 的一半。
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        nevacuate  <span style="color:#00f">uintptr</span>        <span style="color:#f00;font-style:italic">// 扩容进度
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>        extra *mapextra <span style="color:#f00;font-style:italic">// optional fields
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
-</span></span></code></pre></div><p>在这里面，有一个非常关键的字段：<strong>buckets</strong>，它就是用来存储 key-value 的。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">type</span> hmap <span style="color:#00f">struct</span> {
+        count     <span style="color:#00f">int</span> <span style="color:#f00;font-style:italic">// 当前的元素个数
+</span><span style="color:#f00;font-style:italic"></span>        flags     <span style="color:#00f">uint8</span>
+        B         <span style="color:#00f">uint8</span>  <span style="color:#f00;font-style:italic">// 字段 buckets 数组的长度关联参数，即 buckets 长度为 2^B
+</span><span style="color:#f00;font-style:italic"></span>        noverflow <span style="color:#00f">uint16</span> <span style="color:#f00;font-style:italic">// overflow buckets 的近似数
+</span><span style="color:#f00;font-style:italic"></span>        hash0     <span style="color:#00f">uint32</span> <span style="color:#f00;font-style:italic">// 哈希种子，作 hash 运算用的
+</span><span style="color:#f00;font-style:italic"></span>        buckets    unsafe.Pointer <span style="color:#f00;font-style:italic">// 数组对象，存 key-value的
+</span><span style="color:#f00;font-style:italic"></span>        oldbuckets unsafe.Pointer <span style="color:#f00;font-style:italic">// 扩容时用到的 buckets，大小是之前 buckets 的一半。
+</span><span style="color:#f00;font-style:italic"></span>        nevacuate  <span style="color:#00f">uintptr</span>        <span style="color:#f00;font-style:italic">// 扩容进度
+</span><span style="color:#f00;font-style:italic"></span>
+        extra *mapextra <span style="color:#f00;font-style:italic">// optional fields
+</span><span style="color:#f00;font-style:italic"></span>}
+</code></pre></div><p>在这里面，有一个非常关键的字段：<strong>buckets</strong>，它就是用来存储 key-value 的。</p>
 <p>当 Go 对 key 进行 hash 运算后，会通过一定的规则映射到 <strong>buckets</strong> 的某个位置，然后就会将 key、value 一起存在这个对应位置的桶里。</p>
 <p>而这个桶实际上会指向下面这个结构体：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> bmap <span style="color:#00f">struct</span> {
-</span></span><span style="display:flex;"><span>        tophash [bucketCnt]<span style="color:#00f">uint8</span>
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>之所以会这么简洁，是因为 map 是在<strong>编译</strong>时才知道对应的 key-value 类型的，所以对于 map[string]int 这样的 map 在编译过后，<strong>bmap</strong> 最终会变成这样的结构体：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> bmap <span style="color:#00f">struct</span> {
-</span></span><span style="display:flex;"><span> tophash  [bucketCnt]<span style="color:#00f">uint8</span>
-</span></span><span style="display:flex;"><span> keys     [bucketCnt]<span style="color:#00f">string</span>
-</span></span><span style="display:flex;"><span> values   [bucketCnt]<span style="color:#00f">int</span>
-</span></span><span style="display:flex;"><span> overflow *bmap
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>在这里，就有一个 keys，values 数组来存储 key-value 了，其中还有个 tophash 数组，可以先认为它是用来定位 key-value 在对应数组里的存储位置，后面会详细说明它的定位过程。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">type</span> bmap <span style="color:#00f">struct</span> {
+        tophash [bucketCnt]<span style="color:#00f">uint8</span>
+}
+</code></pre></div><p>之所以会这么简洁，是因为 map 是在<strong>编译</strong>时才知道对应的 key-value 类型的，所以对于 map[string]int 这样的 map 在编译过后，<strong>bmap</strong> 最终会变成这样的结构体：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">type</span> bmap <span style="color:#00f">struct</span> {
+ tophash  [bucketCnt]<span style="color:#00f">uint8</span>
+ keys     [bucketCnt]<span style="color:#00f">string</span>
+ values   [bucketCnt]<span style="color:#00f">int</span>
+ overflow *bmap
+}
+</code></pre></div><p>在这里，就有一个 keys，values 数组来存储 key-value 了，其中还有个 tophash 数组，可以先认为它是用来定位 key-value 在对应数组里的存储位置，后面会详细说明它的定位过程。</p>
 <p>现在我们大概知道了 key-value 在 map 里的存储走向了：</p>
 <p><img src="https://oss-emcsprod-public.modb.pro/wechatSpider/modb_20220209_02145c30-899a-11ec-974d-fa163eb4f6be.png" alt="img">深入认识 map</p>
 <h3 id="map-的存储">map 的存储</h3>
@@ -279,9 +279,9 @@
 <p>当我们往 map 添加一个 key 时，Go 会对 key 进行 hash 计算，得到一个 <strong>hash 值</strong>。</p>
 <p>在得到这个 hash 值后，会取它的<strong>低 5 位</strong>，作为定位到 buckets 数组里某个 bucket 的<strong>索引位置</strong>。</p>
 <p>这里解释下为何取低 5 位，这里的 5 即是 hmap 的 B 值。假设低 5 位都是 11111，那么最大值也只会是 31，不超过桶的数量，有点类似取余的操作，这样就不会有越界行为了。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>hashCode := <span style="color:#c34e00">hash</span>(key, h.hash0) <span style="color:#f00;font-style:italic">// 获取 key 的 hash 值
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>bucketIndex := hashCode &amp; 0x1F <span style="color:#f00;font-style:italic">// 利用位运算取低 B 位，定位到桶的位置
-</span></span></span></code></pre></div><p>当我们定位到桶的位置后，后面就是存放 key-value 了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">hashCode := <span style="color:#c34e00">hash</span>(key, h.hash0) <span style="color:#f00;font-style:italic">// 获取 key 的 hash 值
+</span><span style="color:#f00;font-style:italic"></span>bucketIndex := hashCode &amp; 0x1F <span style="color:#f00;font-style:italic">// 利用位运算取低 B 位，定位到桶的位置
+</span></code></pre></div><p>当我们定位到桶的位置后，后面就是存放 key-value 了。</p>
 <p>Go 会继续对 <strong>hash 值</strong> 取高 8 位，得到一个 <strong>top hash</strong> 值。然后遍历 bmap 里的 <strong>tophash 数组</strong>，找到一个空的位置存放。</p>
 <p>这里之所以要存储 top hash 值，除了下次找 key 时会先对比下 top hash，还添加了一些扩容进度的状态位，辅助 map 的扩容。</p>
 <p>需要注意的是，bmap 的 tophash 数组也是有固定大小的，即 <strong>bucketCnt = 8</strong>，最多存放 8 个元素。</p>
@@ -303,8 +303,8 @@
 <p>因此当 map 的元素过多，超过一定的阈值后，就应该对 map 的数据元素进行重整，平衡数据的读取速度。</p>
 <p>Go 通过扩容来实现了数据的读取平衡，在添加或删除数据时，会先判断装载因子的值是否达到扩容要求，达到了则进行扩容动作。</p>
 <p>装载因子的计算方式如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>loadFactor := count / (2^B)
-</span></span></code></pre></div><p>count 指的是当前 map 里的元素个数，2^B 是指当前 map 里 buckets 数组长度，从这可以看出元素越来越多，即 count 越来越大，则越可能触发扩容。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">loadFactor := count / (2^B)
+</code></pre></div><p>count 指的是当前 map 里的元素个数，2^B 是指当前 map 里 buckets 数组长度，从这可以看出元素越来越多，即 count 越来越大，则越可能触发扩容。</p>
 <p>map 除了判断装载因子来进行扩容外，还有另外一种情况也会进行数据重整：overflow 数量过多，但元素很少。这种情况的产生，是因为出现了大量数据的插入和删除，导致 overflow 不能回收，所以也要进行数据重整。</p>
 <p>我们重点来看看第一种情况的扩容过程。首先，hmap 会先增加 B 的值，也就是 buckets 数组的数量。然后，重新计算 key 所需要迁移的桶的位置，以便让数据能均衡的分布在新老 buckets 桶里。</p>
 <p>当然，Go 并不会一下子就把所有的数据都迁移完毕，而是等到用到某个 key 时，检查此时 key 的迁移状态，再作出迁移动作。</p>
@@ -396,7 +396,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

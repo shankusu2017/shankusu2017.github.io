@@ -239,165 +239,165 @@
 <p>因运行时间过长而发生的抢占调度有什么特点。</p>
 <p>retake函数</p>
 <p>在分析调度器初始化的时候我们说过，sysmon系统监控线程会定期（10毫秒）通过retake函数对goroutine发起抢占，下面我们直接从retake函数开始。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 4376
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// forcePreemptNS is the time slice given to a G before it is
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// preempted.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">const</span> forcePreemptNS = 10 * 1000 * 1000 <span style="color:#f00;font-style:italic">// 10ms
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
-</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">retake</span>(now <span style="color:#00f">int64</span>) <span style="color:#00f">uint32</span> {
-</span></span><span style="display:flex;"><span>    n := 0
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Prevent allp slice changes. This lock will be completely
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// uncontended unless we&#39;re already stopping the world.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">lock</span>(&amp;allpLock)
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// We can&#39;t use a range loop over allp because we may
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// temporarily drop the allpLock. Hence, we need to re-fetch
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// allp each time around the loop.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> i := 0; i &lt; len(allp); i++ { <span style="color:#f00;font-style:italic">//遍历所有的P
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        _p_ := allp[i]
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> _p_ == <span style="color:#00f">nil</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// This can happen if procresize has grown
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// allp but not yet created new Ps.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">continue</span>
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>       
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//_p_.sysmontick用于sysmon线程记录被监控p的系统调用时间和运行时间
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        pd := &amp;_p_.sysmontick
-</span></span><span style="display:flex;"><span>        s := _p_.status
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> s == _Psyscall { <span style="color:#f00;font-style:italic">//P处于系统调用之中，需要检查是否需要抢占
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// Retake P from syscall if it&#39;s there for more than 1 sysmon tick (at least 20us).
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            t := int64(_p_.syscalltick)
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> int64(pd.syscalltick) != t {
-</span></span><span style="display:flex;"><span>                pd.syscalltick = uint32(t)
-</span></span><span style="display:flex;"><span>                pd.syscallwhen = now
-</span></span><span style="display:flex;"><span>                <span style="color:#00f">continue</span>
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// On the one hand we don&#39;t want to retake Ps if there is no other work to do,
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// but on the other hand we want to retake them eventually
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// because they can prevent the sysmon thread from deep sleep.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> <span style="color:#c34e00">runqempty</span>(_p_) &amp;&amp;  atomic.<span style="color:#c34e00">Load</span>(&amp;sched.nmspinning)+atomic.<span style="color:#c34e00">Load</span>(&amp;sched.npidle)&gt; 0 &amp;&amp; pd.syscallwhen+10*1000*1000 &gt; now {
-</span></span><span style="display:flex;"><span>                <span style="color:#00f">continue</span>
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// Drop allpLock so we can take sched.lock.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">unlock</span>(&amp;allpLock)
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// Need to decrement number of idle locked M&#39;s
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// (pretending that one more is running) before the CAS.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// Otherwise the M from which we retake can exit the syscall,
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// increment nmidle and report deadlock.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">incidlelocked</span>(-1)
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> atomic.<span style="color:#c34e00">Cas</span>(&amp;_p_.status, s, _Pidle) {
-</span></span><span style="display:flex;"><span>                <span style="color:#00f">if</span> trace.enabled {
-</span></span><span style="display:flex;"><span>                    <span style="color:#c34e00">traceGoSysBlock</span>(_p_)
-</span></span><span style="display:flex;"><span>                    <span style="color:#c34e00">traceProcStop</span>(_p_)
-</span></span><span style="display:flex;"><span>                }
-</span></span><span style="display:flex;"><span>                n++
-</span></span><span style="display:flex;"><span>                _p_.syscalltick++
-</span></span><span style="display:flex;"><span>                <span style="color:#c34e00">handoffp</span>(_p_)
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">incidlelocked</span>(1)
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">lock</span>(&amp;allpLock)
-</span></span><span style="display:flex;"><span>        } <span style="color:#00f">else</span> <span style="color:#00f">if</span> s == _Prunning { <span style="color:#f00;font-style:italic">//P处于运行状态，需要检查其是否运行得太久了
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// Preempt G if it&#39;s running for too long.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">//_p_.schedtick：每发生一次调度，调度器++该值
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            t := int64(_p_.schedtick)
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> int64(pd.schedtick) != t {
-</span></span><span style="display:flex;"><span>                <span style="color:#f00;font-style:italic">//监控线程监控到一次新的调度，所以重置跟sysmon相关的schedtick和schedwhen变量
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                pd.schedtick = uint32(t)
-</span></span><span style="display:flex;"><span>                pd.schedwhen = now
-</span></span><span style="display:flex;"><span>                <span style="color:#00f">continue</span>
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>           
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">//pd.schedtick == t说明(pd.schedwhen ～ now)这段时间未发生过调度，
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">//所以这段时间是同一个goroutine一直在运行，下面检查一直运行是否超过了10毫秒
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> pd.schedwhen+forcePreemptNS &gt; now {
-</span></span><span style="display:flex;"><span>                <span style="color:#f00;font-style:italic">//从某goroutine第一次被sysmon线程监控到正在运行一直运行到现在还未超过10毫秒
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                <span style="color:#00f">continue</span>
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">//连续运行超过10毫秒了，设置抢占请求
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">preemptone</span>(_p_)
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">unlock</span>(&amp;allpLock)
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> uint32(n)
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>从代码可以看出，retake函数会根据p的两种不同状态检查是否需要抢占：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 4376
+
+<span style="color:#f00;font-style:italic">// forcePreemptNS is the time slice given to a G before it is
+</span><span style="color:#f00;font-style:italic">// preempted.
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">const</span> forcePreemptNS = 10 * 1000 * 1000 <span style="color:#f00;font-style:italic">// 10ms
+</span><span style="color:#f00;font-style:italic"></span> 
+<span style="color:#00f">func</span> <span style="color:#c34e00">retake</span>(now <span style="color:#00f">int64</span>) <span style="color:#00f">uint32</span> {
+    n := 0
+    <span style="color:#f00;font-style:italic">// Prevent allp slice changes. This lock will be completely
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// uncontended unless we&#39;re already stopping the world.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">lock</span>(&amp;allpLock)
+    <span style="color:#f00;font-style:italic">// We can&#39;t use a range loop over allp because we may
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// temporarily drop the allpLock. Hence, we need to re-fetch
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// allp each time around the loop.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> i := 0; i &lt; len(allp); i++ { <span style="color:#f00;font-style:italic">//遍历所有的P
+</span><span style="color:#f00;font-style:italic"></span>        _p_ := allp[i]
+        <span style="color:#00f">if</span> _p_ == <span style="color:#00f">nil</span> {
+            <span style="color:#f00;font-style:italic">// This can happen if procresize has grown
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// allp but not yet created new Ps.
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">continue</span>
+        }
+       
+        <span style="color:#f00;font-style:italic">//_p_.sysmontick用于sysmon线程记录被监控p的系统调用时间和运行时间
+</span><span style="color:#f00;font-style:italic"></span>        pd := &amp;_p_.sysmontick
+        s := _p_.status
+        <span style="color:#00f">if</span> s == _Psyscall { <span style="color:#f00;font-style:italic">//P处于系统调用之中，需要检查是否需要抢占
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// Retake P from syscall if it&#39;s there for more than 1 sysmon tick (at least 20us).
+</span><span style="color:#f00;font-style:italic"></span>            t := int64(_p_.syscalltick)
+            <span style="color:#00f">if</span> int64(pd.syscalltick) != t {
+                pd.syscalltick = uint32(t)
+                pd.syscallwhen = now
+                <span style="color:#00f">continue</span>
+            }
+            <span style="color:#f00;font-style:italic">// On the one hand we don&#39;t want to retake Ps if there is no other work to do,
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// but on the other hand we want to retake them eventually
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// because they can prevent the sysmon thread from deep sleep.
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> <span style="color:#c34e00">runqempty</span>(_p_) &amp;&amp;  atomic.<span style="color:#c34e00">Load</span>(&amp;sched.nmspinning)+atomic.<span style="color:#c34e00">Load</span>(&amp;sched.npidle)&gt; 0 &amp;&amp; pd.syscallwhen+10*1000*1000 &gt; now {
+                <span style="color:#00f">continue</span>
+            }
+            <span style="color:#f00;font-style:italic">// Drop allpLock so we can take sched.lock.
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">unlock</span>(&amp;allpLock)
+            <span style="color:#f00;font-style:italic">// Need to decrement number of idle locked M&#39;s
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// (pretending that one more is running) before the CAS.
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// Otherwise the M from which we retake can exit the syscall,
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// increment nmidle and report deadlock.
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">incidlelocked</span>(-1)
+            <span style="color:#00f">if</span> atomic.<span style="color:#c34e00">Cas</span>(&amp;_p_.status, s, _Pidle) {
+                <span style="color:#00f">if</span> trace.enabled {
+                    <span style="color:#c34e00">traceGoSysBlock</span>(_p_)
+                    <span style="color:#c34e00">traceProcStop</span>(_p_)
+                }
+                n++
+                _p_.syscalltick++
+                <span style="color:#c34e00">handoffp</span>(_p_)
+            }
+            <span style="color:#c34e00">incidlelocked</span>(1)
+            <span style="color:#c34e00">lock</span>(&amp;allpLock)
+        } <span style="color:#00f">else</span> <span style="color:#00f">if</span> s == _Prunning { <span style="color:#f00;font-style:italic">//P处于运行状态，需要检查其是否运行得太久了
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// Preempt G if it&#39;s running for too long.
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">//_p_.schedtick：每发生一次调度，调度器++该值
+</span><span style="color:#f00;font-style:italic"></span>            t := int64(_p_.schedtick)
+            <span style="color:#00f">if</span> int64(pd.schedtick) != t {
+                <span style="color:#f00;font-style:italic">//监控线程监控到一次新的调度，所以重置跟sysmon相关的schedtick和schedwhen变量
+</span><span style="color:#f00;font-style:italic"></span>                pd.schedtick = uint32(t)
+                pd.schedwhen = now
+                <span style="color:#00f">continue</span>
+            }
+           
+            <span style="color:#f00;font-style:italic">//pd.schedtick == t说明(pd.schedwhen ～ now)这段时间未发生过调度，
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">//所以这段时间是同一个goroutine一直在运行，下面检查一直运行是否超过了10毫秒
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> pd.schedwhen+forcePreemptNS &gt; now {
+                <span style="color:#f00;font-style:italic">//从某goroutine第一次被sysmon线程监控到正在运行一直运行到现在还未超过10毫秒
+</span><span style="color:#f00;font-style:italic"></span>                <span style="color:#00f">continue</span>
+            }
+            <span style="color:#f00;font-style:italic">//连续运行超过10毫秒了，设置抢占请求
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">preemptone</span>(_p_)
+        }
+    }
+    <span style="color:#c34e00">unlock</span>(&amp;allpLock)
+    <span style="color:#00f">return</span> uint32(n)
+}
+</code></pre></div><p>从代码可以看出，retake函数会根据p的两种不同状态检查是否需要抢占：</p>
 <p>_Prunning，表示对应的goroutine正在运行，如果其运行时间超过了10毫秒则对需要抢占；</p>
 <p>_Psyscall，表示对应的goroutine正在内核执行系统调用，此时需要根据多个条件来判断是否需要抢占。这些判断我们会在后面进行详细描述。</p>
 <p>我们首先来分析由于goroutine运行时间过长而导致的抢占，然后分析goroutine进入系统调用之后发生的抢占。</p>
 <p>监控线程提出抢占请求</p>
 <p>sysmon线程如果监控到某个goroutine连续运行超过了10毫秒（具体是如何监控到的可以看上面代码中笔者的注释），则会调用preemptone函数向该goroutine发出抢占请求。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 4465
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Tell the goroutine running on processor P to stop.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// This function is purely best-effort. It can incorrectly fail to inform the
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// goroutine. It can send inform the wrong goroutine. Even if it informs the
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// correct goroutine, that goroutine might ignore the request if it is
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// simultaneously executing newstack.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// No lock needs to be held.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Returns true if preemption request was issued.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// The actual preemption will happen at some point in the future
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// and will be indicated by the gp-&gt;status no longer being
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Grunning
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">preemptone</span>(_p_ *p) <span style="color:#00f">bool</span> {
-</span></span><span style="display:flex;"><span>    mp := _p_.m.<span style="color:#c34e00">ptr</span>()
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> mp == <span style="color:#00f">nil</span> || mp == <span style="color:#c34e00">getg</span>().m {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> <span style="color:#00f">false</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//gp是被抢占的goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    gp := mp.curg
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> gp == <span style="color:#00f">nil</span> || gp == mp.g0 {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> <span style="color:#00f">false</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    gp.preempt = <span style="color:#00f">true</span>  <span style="color:#f00;font-style:italic">//设置抢占标志
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Every call in a go routine checks for stack overflow by
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// comparing the current stack pointer to gp-&gt;stackguard0.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// Setting gp-&gt;stackguard0 to StackPreempt folds
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// preemption into the normal stack overflow check.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//stackPreempt是一个常量0xfffffffffffffade，是非常大的一个数
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    gp.stackguard0 = stackPreempt  <span style="color:#f00;font-style:italic">//设置stackguard0使被抢占的goroutine去处理抢占请求
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">return</span> <span style="color:#00f">true</span>
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>可以看出，preemptone函数只是简单的设置了被抢占goroutine对应的g结构体中的 preempt成员为true和stackguard0成员为stackPreempt（stackPreempt是一个常量0xfffffffffffffade，是非常大的一个数）就返回了，并未真正强制被抢占的goroutine暂停下来。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 4465
+
+<span style="color:#f00;font-style:italic">// Tell the goroutine running on processor P to stop.
+</span><span style="color:#f00;font-style:italic">// This function is purely best-effort. It can incorrectly fail to inform the
+</span><span style="color:#f00;font-style:italic">// goroutine. It can send inform the wrong goroutine. Even if it informs the
+</span><span style="color:#f00;font-style:italic">// correct goroutine, that goroutine might ignore the request if it is
+</span><span style="color:#f00;font-style:italic">// simultaneously executing newstack.
+</span><span style="color:#f00;font-style:italic">// No lock needs to be held.
+</span><span style="color:#f00;font-style:italic">// Returns true if preemption request was issued.
+</span><span style="color:#f00;font-style:italic">// The actual preemption will happen at some point in the future
+</span><span style="color:#f00;font-style:italic">// and will be indicated by the gp-&gt;status no longer being
+</span><span style="color:#f00;font-style:italic">// Grunning
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">preemptone</span>(_p_ *p) <span style="color:#00f">bool</span> {
+    mp := _p_.m.<span style="color:#c34e00">ptr</span>()
+    <span style="color:#00f">if</span> mp == <span style="color:#00f">nil</span> || mp == <span style="color:#c34e00">getg</span>().m {
+        <span style="color:#00f">return</span> <span style="color:#00f">false</span>
+    }
+    <span style="color:#f00;font-style:italic">//gp是被抢占的goroutine
+</span><span style="color:#f00;font-style:italic"></span>    gp := mp.curg
+    <span style="color:#00f">if</span> gp == <span style="color:#00f">nil</span> || gp == mp.g0 {
+        <span style="color:#00f">return</span> <span style="color:#00f">false</span>
+    }
+ 
+    gp.preempt = <span style="color:#00f">true</span>  <span style="color:#f00;font-style:italic">//设置抢占标志
+</span><span style="color:#f00;font-style:italic"></span> 
+    <span style="color:#f00;font-style:italic">// Every call in a go routine checks for stack overflow by
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// comparing the current stack pointer to gp-&gt;stackguard0.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// Setting gp-&gt;stackguard0 to StackPreempt folds
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// preemption into the normal stack overflow check.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//stackPreempt是一个常量0xfffffffffffffade，是非常大的一个数
+</span><span style="color:#f00;font-style:italic"></span>    gp.stackguard0 = stackPreempt  <span style="color:#f00;font-style:italic">//设置stackguard0使被抢占的goroutine去处理抢占请求
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">return</span> <span style="color:#00f">true</span>
+}
+</code></pre></div><p>可以看出，preemptone函数只是简单的设置了被抢占goroutine对应的g结构体中的 preempt成员为true和stackguard0成员为stackPreempt（stackPreempt是一个常量0xfffffffffffffade，是非常大的一个数）就返回了，并未真正强制被抢占的goroutine暂停下来。</p>
 <p>既然设置了一些抢占标志，那么就一定需要对这些标志进行处理，下面我们就来分析被抢占的goroutine如何处理这些标志去响应监控线程提出的抢占请求。</p>
 <p>响应抢占请求</p>
 <p>因为我们并不知道什么地方会对抢占标志进行处理，所以我们首先使用文本搜索工具在源代码中查找&quot;stackPreempt&quot;、&ldquo;stackguard0&quot;以及&quot;preempt&quot;这3个字符串，可以找到处理抢占请求的函数为newstack()，在该函数中如果发现自己被抢占，则会暂停当前goroutine的执行。然后再查找哪些函数会调用newstack函数，顺藤摸瓜便可以找到相关的函数调用链为</p>
 <p>morestack_noctxt()-&gt;morestack()-&gt;newstack()
 从源代码中morestack函数的注释可以知道，该函数会被编译器自动插入到函数序言(prologue)中。我们以下面这个程序为例来做进一步的说明。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">package</span> main
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#00f">import</span> <span style="color:#009c00">&#34;fmt&#34;</span>
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">sum</span>(a, b <span style="color:#00f">int</span>) <span style="color:#00f">int</span> {
-</span></span><span style="display:flex;"><span>    a2 := a * a
-</span></span><span style="display:flex;"><span>    b2 := b * b
-</span></span><span style="display:flex;"><span>    c := a2 + b2
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Println</span>(c)
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> c
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">sum</span>(1, 2)
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>为了看清楚编译器会把对morestack函数的调用插入到什么地方，我们用gdb来反汇编一下main函数：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>=&gt; 0x0000000000486a80 &lt;+0&gt;:   mov   %fs:0xfffffffffffffff8,%rcx
-</span></span><span style="display:flex;"><span>     0x0000000000486a89 &lt;+9&gt;:   cmp   0x10(%rcx),%rsp
-</span></span><span style="display:flex;"><span>     0x0000000000486a8d &lt;+13&gt;:  jbe   0x486abd &lt;main.main+61&gt;
-</span></span><span style="display:flex;"><span>     0x0000000000486a8f &lt;+15&gt;:  sub   $0x20,%rsp
-</span></span><span style="display:flex;"><span>     0x0000000000486a93 &lt;+19&gt;: mov   %rbp,0x18(%rsp)
-</span></span><span style="display:flex;"><span>     0x0000000000486a98 &lt;+24&gt;: lea   0x18(%rsp),%rbp
-</span></span><span style="display:flex;"><span>     0x0000000000486a9d &lt;+29&gt;: movq   $0x1,(%rsp)
-</span></span><span style="display:flex;"><span>     0x0000000000486aa5 &lt;+37&gt;: movq   $0x2,0x8(%rsp)
-</span></span><span style="display:flex;"><span>     0x0000000000486aae &lt;+46&gt;: callq   0x4869c0 &lt;main.sum&gt;
-</span></span><span style="display:flex;"><span>     0x0000000000486ab3 &lt;+51&gt;: mov   0x18(%rsp),%rbp
-</span></span><span style="display:flex;"><span>     0x0000000000486ab8 &lt;+56&gt;: add   $0x20,%rsp
-</span></span><span style="display:flex;"><span>     0x0000000000486abc &lt;+60&gt;: retq   
-</span></span><span style="display:flex;"><span>     0x0000000000486abd &lt;+61&gt;: callq  0x44ece0 &lt;runtime.morestack_noctxt&gt;
-</span></span><span style="display:flex;"><span>     0x0000000000486ac2 &lt;+66&gt;: jmp   0x486a80 &lt;main.main&gt;
-</span></span></code></pre></div><p>在main函数的尾部我们看到了对runtime.morestack_noctxt函数的调用，往前我们可以看到，对runtime.morestack_noctxt的调用是通过main函数的第三条jbe指令跳转过来的。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">package</span> main
+ 
+<span style="color:#00f">import</span> <span style="color:#009c00">&#34;fmt&#34;</span>
+ 
+<span style="color:#00f">func</span> <span style="color:#c34e00">sum</span>(a, b <span style="color:#00f">int</span>) <span style="color:#00f">int</span> {
+    a2 := a * a
+    b2 := b * b
+    c := a2 + b2
+ 
+    fmt.<span style="color:#c34e00">Println</span>(c)
+ 
+    <span style="color:#00f">return</span> c
+}
+ 
+<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+    <span style="color:#c34e00">sum</span>(1, 2)
+}
+</code></pre></div><p>为了看清楚编译器会把对morestack函数的调用插入到什么地方，我们用gdb来反汇编一下main函数：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">=&gt; 0x0000000000486a80 &lt;+0&gt;:   mov   %fs:0xfffffffffffffff8,%rcx
+     0x0000000000486a89 &lt;+9&gt;:   cmp   0x10(%rcx),%rsp
+     0x0000000000486a8d &lt;+13&gt;:  jbe   0x486abd &lt;main.main+61&gt;
+     0x0000000000486a8f &lt;+15&gt;:  sub   $0x20,%rsp
+     0x0000000000486a93 &lt;+19&gt;: mov   %rbp,0x18(%rsp)
+     0x0000000000486a98 &lt;+24&gt;: lea   0x18(%rsp),%rbp
+     0x0000000000486a9d &lt;+29&gt;: movq   $0x1,(%rsp)
+     0x0000000000486aa5 &lt;+37&gt;: movq   $0x2,0x8(%rsp)
+     0x0000000000486aae &lt;+46&gt;: callq   0x4869c0 &lt;main.sum&gt;
+     0x0000000000486ab3 &lt;+51&gt;: mov   0x18(%rsp),%rbp
+     0x0000000000486ab8 &lt;+56&gt;: add   $0x20,%rsp
+     0x0000000000486abc &lt;+60&gt;: retq   
+     0x0000000000486abd &lt;+61&gt;: callq  0x44ece0 &lt;runtime.morestack_noctxt&gt;
+     0x0000000000486ac2 &lt;+66&gt;: jmp   0x486a80 &lt;main.main&gt;
+</code></pre></div><p>在main函数的尾部我们看到了对runtime.morestack_noctxt函数的调用，往前我们可以看到，对runtime.morestack_noctxt的调用是通过main函数的第三条jbe指令跳转过来的。</p>
 <p>0x0000000000486a8d &lt;+13&gt;: jbe    0x486abd &lt;main.main+61&gt;
 &hellip;&hellip;
 0x0000000000486abd &lt;+61&gt;: callq  0x44ece0 &lt;runtime.morestack_noctxt&gt;
@@ -406,154 +406,154 @@ jbe是条件跳转指令，它依靠上一条指令的执行结果来判断是�
 0x0000000000486a89 &lt;+9&gt;: cmp   0x10(%rcx),%rsp
 0x0000000000486a8d &lt;+13&gt;: jbe   0x486abd &lt;main.main+61&gt;
 第二章我们已经介绍过，go语言使用fs寄存器实现系统线程的本地存储（TLS），main函数的第一条指令就是从TLS中读取当前正在运行的g的指针并放入rcx寄存器，第二条指令的源操作数是间接寻址，从内存中读取相对于g偏移16这个地址中的内容到rsp寄存器，我们来看看g偏移16的地址是放的什么东西，首先再来回顾一下g结构体的定义：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> g <span style="color:#00f">struct</span> {
-</span></span><span style="display:flex;"><span>    stack               stack   
-</span></span><span style="display:flex;"><span>    stackguard0    <span style="color:#00f">uintptr</span> 
-</span></span><span style="display:flex;"><span>    stackguard1    <span style="color:#00f">uintptr</span> 
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#00f">type</span> stack <span style="color:#00f">struct</span> {
-</span></span><span style="display:flex;"><span>    lo <span style="color:#00f">uintptr</span>  <span style="color:#f00;font-style:italic">//8 bytes
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    hi <span style="color:#00f">uintptr</span>  <span style="color:#f00;font-style:italic">//8 bytes
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
-</span></span></code></pre></div><p>可以看到结构体g的第一个成员stack占16个字节（lo和hi各占8字节），所以g结构体变量的起始位置加偏移16就应该对应到stackguard0字段。因此main函数的第二条指令相当于在比较栈顶寄存器rsp的值是否比stackguard0的值小，如果rsp的值更小，说明当前g的栈要用完了，有溢出风险，需要扩栈，假设main goroutine被设置了抢占标志，那么rsp的值就会远远小于stackguard0，因为从上一节的分析我们知道sysmon监控线程在设置抢占标志时把需要被抢占的goroutine的stackguard0成员设置成了0xfffffffffffffade，而对于goroutine来说其rsp栈顶不可能这么大。因此stackguard0一旦被设置为抢占标记，代码将会跳转到 0x0000000000486abd 处执行call指令调用morestack_noctxt函数，该call指令会把紧跟call后面的一条指令的地址 0x0000000000486ac2 先压入堆栈，然后再跳转到morestack_noctxt函数去执行。下图展示了这一条call指令执行后g，rsp寄存器与main函数栈之间的关系：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">type</span> g <span style="color:#00f">struct</span> {
+    stack               stack   
+    stackguard0    <span style="color:#00f">uintptr</span> 
+    stackguard1    <span style="color:#00f">uintptr</span> 
+    ......
+}
+ 
+<span style="color:#00f">type</span> stack <span style="color:#00f">struct</span> {
+    lo <span style="color:#00f">uintptr</span>  <span style="color:#f00;font-style:italic">//8 bytes
+</span><span style="color:#f00;font-style:italic"></span>    hi <span style="color:#00f">uintptr</span>  <span style="color:#f00;font-style:italic">//8 bytes
+</span><span style="color:#f00;font-style:italic"></span>}
+</code></pre></div><p>可以看到结构体g的第一个成员stack占16个字节（lo和hi各占8字节），所以g结构体变量的起始位置加偏移16就应该对应到stackguard0字段。因此main函数的第二条指令相当于在比较栈顶寄存器rsp的值是否比stackguard0的值小，如果rsp的值更小，说明当前g的栈要用完了，有溢出风险，需要扩栈，假设main goroutine被设置了抢占标志，那么rsp的值就会远远小于stackguard0，因为从上一节的分析我们知道sysmon监控线程在设置抢占标志时把需要被抢占的goroutine的stackguard0成员设置成了0xfffffffffffffade，而对于goroutine来说其rsp栈顶不可能这么大。因此stackguard0一旦被设置为抢占标记，代码将会跳转到 0x0000000000486abd 处执行call指令调用morestack_noctxt函数，该call指令会把紧跟call后面的一条指令的地址 0x0000000000486ac2 先压入堆栈，然后再跳转到morestack_noctxt函数去执行。下图展示了这一条call指令执行后g，rsp寄存器与main函数栈之间的关系：</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/826970f964717116366dce0709b35f75.png" alt=""></p>
 <p>morestack_noctxt函数使用JMP指令直接跳转到morestack继续执行，注意这里没有使用CALL指令调用morestack函数，所以rsp栈顶寄存器并没有发生发生变化，与上图一样还是指向存放返回地址的内存处。</p>
 <p>morestack函数执行的流程类似于前面我们分析过的mcall函数，首先保存调用morestack函数的goroutine（我们这个场景是main goroutine）的调度信息到对应的g结构的sched成员之中，然后切换到当前工作线程的g0栈继续执行newstack函数。morestack代码如下，跟mcall一样都是使用go汇编语言编写的，这些代码跟mcall和gogo的代码非常类似，所以这里就不再对其进行详细分析了，读者可以自行参考下面的注释理解morestack函数的实现机制。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 433
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// morestack but not preserving ctxt.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">morestack_noctxt</span>(SB),NOSPLIT,$0
-</span></span><span style="display:flex;"><span>    MOVL  $0, DX
-</span></span><span style="display:flex;"><span>    JMP  runtime·<span style="color:#c34e00">morestack</span>(SB)
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Called during function prolog when more stack is needed.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// The traceback routines see morestack on a g0 as being
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// the top of a stack (for example, morestack calling newstack
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// calling the scheduler calling newm calling gc), so we must
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// record an argument size. For that purpose, it has no arguments.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">morestack</span>(SB),NOSPLIT,$0-0
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">get_tls</span>(CX)
-</span></span><span style="display:flex;"><span>    MOVQ  <span style="color:#c34e00">g</span>(CX), SI  # SI = <span style="color:#c34e00">g</span>(main goroutine对应的g结构体变量)
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    #SP栈顶寄存器现在指向的是morestack_noctxt函数的返回地址，
-</span></span><span style="display:flex;"><span>    #所以下面这一条指令执行完成后AX = 0x0000000000486ac2
-</span></span><span style="display:flex;"><span>    MOVQ  0(SP), AX 
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    #下面两条指令给g.sched.PC和g.sched.g赋值，我们这个例子g.sched.PC被赋值为0x0000000000486ac2，
-</span></span><span style="display:flex;"><span>    #也就是执行完morestack_noctxt函数之后应该返回去继续执行指令的地址。
-</span></span><span style="display:flex;"><span>    MOVQ  AX, (g_sched+gobuf_pc)(SI) #g.sched.pc = 0x0000000000486ac2
-</span></span><span style="display:flex;"><span>    MOVQ  SI, (g_sched+gobuf_g)(SI) #g.sched.g = g
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    LEAQ  8(SP), AX  #main函数在调用morestack_noctxt之前的rsp寄存器
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    #下面三条指令给g.sched.sp，g.sched.bp和g.sched.ctxt赋值
-</span></span><span style="display:flex;"><span>    MOVQ  AX, (g_sched+gobuf_sp)(SI)
-</span></span><span style="display:flex;"><span>    MOVQ  BP, (g_sched+gobuf_bp)(SI)
-</span></span><span style="display:flex;"><span>    MOVQ  DX, (g_sched+gobuf_ctxt)(SI)
-</span></span><span style="display:flex;"><span>    #上面几条指令把g的现场保存了起来，下面开始切换到g0运行
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    #切换到g0栈，并设置tls的g为g0
-</span></span><span style="display:flex;"><span>    #Call newstack on m-&gt;g0&#39;s stack.
-</span></span><span style="display:flex;"><span>    MOVQ  <span style="color:#c34e00">m_g0</span>(BX), BX
-</span></span><span style="display:flex;"><span>    MOVQ  BX, <span style="color:#c34e00">g</span>(CX)  #设置TLS中的g为g0
-</span></span><span style="display:flex;"><span>    #把g0栈的栈顶寄存器的值恢复到CPU的寄存器，达到切换栈的目的，下面这一条指令执行之前，
-</span></span><span style="display:flex;"><span>    #CPU还是使用的调用此函数的g的栈，执行之后CPU就开始使用g0的栈了
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">MOVQ</span>  (g_sched+gobuf_sp)(BX), SP
-</span></span><span style="display:flex;"><span>    CALL  runtime·<span style="color:#c34e00">newstack</span>(SB)
-</span></span><span style="display:flex;"><span>    CALL  runtime·<span style="color:#c34e00">abort</span>(SB)<span style="color:#f00;font-style:italic">// crash if newstack returns
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    RET
-</span></span></code></pre></div><p>在切换到g0运行之前，当前goroutine的现场信息被保存到了对应的g结构体变量的sched成员之中（见下图）。这样我们这个场景中的main goroutine下次被调度起来运行时，调度器就可以把g.sched.sp恢复到CPU的rsp寄存器完成栈的切换，然后把g.sched.PC恢复到rip寄存器，于是CPU继续执行callq后面的</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 433
+
+<span style="color:#f00;font-style:italic">// morestack but not preserving ctxt.
+</span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">morestack_noctxt</span>(SB),NOSPLIT,$0
+    MOVL  $0, DX
+    JMP  runtime·<span style="color:#c34e00">morestack</span>(SB)
+ 
+ 
+<span style="color:#f00;font-style:italic">// Called during function prolog when more stack is needed.
+</span><span style="color:#f00;font-style:italic">//
+</span><span style="color:#f00;font-style:italic">// The traceback routines see morestack on a g0 as being
+</span><span style="color:#f00;font-style:italic">// the top of a stack (for example, morestack calling newstack
+</span><span style="color:#f00;font-style:italic">// calling the scheduler calling newm calling gc), so we must
+</span><span style="color:#f00;font-style:italic">// record an argument size. For that purpose, it has no arguments.
+</span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">morestack</span>(SB),NOSPLIT,$0-0
+    ......
+    <span style="color:#c34e00">get_tls</span>(CX)
+    MOVQ  <span style="color:#c34e00">g</span>(CX), SI  # SI = <span style="color:#c34e00">g</span>(main goroutine对应的g结构体变量)
+    ......
+    #SP栈顶寄存器现在指向的是morestack_noctxt函数的返回地址，
+    #所以下面这一条指令执行完成后AX = 0x0000000000486ac2
+    MOVQ  0(SP), AX 
+ 
+    #下面两条指令给g.sched.PC和g.sched.g赋值，我们这个例子g.sched.PC被赋值为0x0000000000486ac2，
+    #也就是执行完morestack_noctxt函数之后应该返回去继续执行指令的地址。
+    MOVQ  AX, (g_sched+gobuf_pc)(SI) #g.sched.pc = 0x0000000000486ac2
+    MOVQ  SI, (g_sched+gobuf_g)(SI) #g.sched.g = g
+ 
+    LEAQ  8(SP), AX  #main函数在调用morestack_noctxt之前的rsp寄存器
+ 
+    #下面三条指令给g.sched.sp，g.sched.bp和g.sched.ctxt赋值
+    MOVQ  AX, (g_sched+gobuf_sp)(SI)
+    MOVQ  BP, (g_sched+gobuf_bp)(SI)
+    MOVQ  DX, (g_sched+gobuf_ctxt)(SI)
+    #上面几条指令把g的现场保存了起来，下面开始切换到g0运行
+ 
+    #切换到g0栈，并设置tls的g为g0
+    #Call newstack on m-&gt;g0&#39;s stack.
+    MOVQ  <span style="color:#c34e00">m_g0</span>(BX), BX
+    MOVQ  BX, <span style="color:#c34e00">g</span>(CX)  #设置TLS中的g为g0
+    #把g0栈的栈顶寄存器的值恢复到CPU的寄存器，达到切换栈的目的，下面这一条指令执行之前，
+    #CPU还是使用的调用此函数的g的栈，执行之后CPU就开始使用g0的栈了
+    <span style="color:#c34e00">MOVQ</span>  (g_sched+gobuf_sp)(BX), SP
+    CALL  runtime·<span style="color:#c34e00">newstack</span>(SB)
+    CALL  runtime·<span style="color:#c34e00">abort</span>(SB)<span style="color:#f00;font-style:italic">// crash if newstack returns
+</span><span style="color:#f00;font-style:italic"></span>    RET
+</code></pre></div><p>在切换到g0运行之前，当前goroutine的现场信息被保存到了对应的g结构体变量的sched成员之中（见下图）。这样我们这个场景中的main goroutine下次被调度起来运行时，调度器就可以把g.sched.sp恢复到CPU的rsp寄存器完成栈的切换，然后把g.sched.PC恢复到rip寄存器，于是CPU继续执行callq后面的</p>
 <p>0x0000000000486ac2 &lt;+66&gt;: jmp   0x486a80 &lt;main.main&gt;
 这条指令，就好像是从morestack_noctxt函数返回的一样，虽然实际上并不是从morestack_noctxt函数返回的，但效果一样。</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/f4e8c677b0329f74e9ec421757c3b1f4.png" alt=""></p>
 <p>接下来我们继续看newstack函数，该函数主要有两个职责，一个是扩栈，另一个是响应sysmon提出的抢占请求，扩栈部分我们不关注，所以这里只看抢占相关的代码。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/stack.<span style="color:#00f">go</span> : 899
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Called from runtime·morestack when more stack is needed.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Allocate larger stack and relocate to new stack.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Stack growth is multiplicative, for constant amortized cost.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// g-&gt;atomicstatus will be Grunning or Gscanrunning upon entry.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// If the GC is trying to stop this g then it will set preemptscan to true.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// This must be nowritebarrierrec because it can be called as part of
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// stack growth from other nowritebarrierrec functions, but the
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// compiler doesn&#39;t check this.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//go:nowritebarrierrec
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">newstack</span>() {
-</span></span><span style="display:flex;"><span>    thisg := <span style="color:#c34e00">getg</span>() <span style="color:#f00;font-style:italic">// thisg = g0
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 这行代码获取g0.m.curg，也就是需要扩栈或响应抢占的goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// 对于我们这个例子gp = main goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    gp := thisg.m.curg
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// NOTE: stackguard0 may change underfoot, if another thread
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// is about to try to preempt gp. Read it just once and use that same
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// value now and below.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//检查g.stackguard0是否被设置为stackPreempt
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    preempt := atomic.<span style="color:#c34e00">Loaduintptr</span>(&amp;gp.stackguard0) == stackPreempt
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Be conservative about where we preempt.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// We are interested in preempting user Go code, not runtime code.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// If we&#39;re holding locks, mallocing, or preemption is disabled, don&#39;t
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// preempt.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// This check is very early in newstack so that even the status change
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// from Grunning to Gwaiting and back doesn&#39;t happen in this case.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// That status change by itself can be viewed as a small preemption,
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// because the GC might change Gwaiting to Gscanwaiting, and then
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// this goroutine has to wait for the GC to finish before continuing.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// If the GC is in some way dependent on this goroutine (for example,
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// it needs a lock held by the goroutine), that small preemption turns
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// into a real deadlock.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> preempt {
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//检查被抢占goroutine的状态
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> thisg.m.locks != 0 || thisg.m.mallocing != 0 || thisg.m.preemptoff != <span style="color:#009c00">&#34;&#34;</span> || thisg.m.p.<span style="color:#c34e00">ptr</span>().status != _Prunning {
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// Let the goroutine keep running for now.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// gp-&gt;preempt is set, so it will be preempted next time.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">//还原stackguard0为正常值，表示我们已经处理过抢占请求了
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            gp.stackguard0 = gp.stack.lo + _StackGuard
-</span></span><span style="display:flex;"><span>           
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">//不抢占，调用gogo继续运行当前这个g，不需要调用schedule函数去挑选另一个goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">gogo</span>(&amp;gp.sched) <span style="color:#f00;font-style:italic">// never return
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//省略的代码做了些其它检查所以这里才有两个同样的判断
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> preempt {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> gp == thisg.m.g0 {
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;runtime: preempt g0&#34;</span>)
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> thisg.m.p == 0 &amp;&amp; thisg.m.locks == 0 {
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;runtime: g is running but p is not&#34;</span>)
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        ......
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//下面开始响应抢占请求
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// Act like goroutine called runtime.Gosched.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//设置gp的状态，省略的代码在处理gc时把gp的状态修改成了_Gwaiting
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">casgstatus</span>(gp, _Gwaiting, _Grunning)
-</span></span><span style="display:flex;"><span>       
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//调用gopreempt_m把gp切换出去
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">gopreempt_m</span>(gp) <span style="color:#f00;font-style:italic">// never return
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>newstack函数首先检查g.stackguard0是否被设置为stackPreempt，如果是则表示sysmon已经发现我们运行得太久了并对我们发起了抢占请求。在做了一些基本的检查后如果当前goroutine可以被抢占则调用gopreempt_m函数完成调度。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 2644
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">gopreempt_m</span>(gp *g) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> trace.enabled {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">traceGoPreempt</span>()
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">goschedImpl</span>(gp)
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>gopreempt_m通过调用goschedImpl函数完成实际的调度切换工作，我们在前面主动调度一节已经详细分析过goschedImpl函数，该函数首先把gp的状态从_Grunning设置成_Grunnable，并通过dropg函数解除当前工作线程m和gp之间的关系，然后把gp放入全局队列等待被调度器调度，最后调用schedule()函数进入新一轮调度。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/stack.<span style="color:#00f">go</span> : 899
+
+<span style="color:#f00;font-style:italic">// Called from runtime·morestack when more stack is needed.
+</span><span style="color:#f00;font-style:italic">// Allocate larger stack and relocate to new stack.
+</span><span style="color:#f00;font-style:italic">// Stack growth is multiplicative, for constant amortized cost.
+</span><span style="color:#f00;font-style:italic">//
+</span><span style="color:#f00;font-style:italic">// g-&gt;atomicstatus will be Grunning or Gscanrunning upon entry.
+</span><span style="color:#f00;font-style:italic">// If the GC is trying to stop this g then it will set preemptscan to true.
+</span><span style="color:#f00;font-style:italic">//
+</span><span style="color:#f00;font-style:italic">// This must be nowritebarrierrec because it can be called as part of
+</span><span style="color:#f00;font-style:italic">// stack growth from other nowritebarrierrec functions, but the
+</span><span style="color:#f00;font-style:italic">// compiler doesn&#39;t check this.
+</span><span style="color:#f00;font-style:italic">//
+</span><span style="color:#f00;font-style:italic">//go:nowritebarrierrec
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">newstack</span>() {
+    thisg := <span style="color:#c34e00">getg</span>() <span style="color:#f00;font-style:italic">// thisg = g0
+</span><span style="color:#f00;font-style:italic"></span>    ......
+    <span style="color:#f00;font-style:italic">// 这行代码获取g0.m.curg，也就是需要扩栈或响应抢占的goroutine
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// 对于我们这个例子gp = main goroutine
+</span><span style="color:#f00;font-style:italic"></span>    gp := thisg.m.curg
+    ......
+    <span style="color:#f00;font-style:italic">// NOTE: stackguard0 may change underfoot, if another thread
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// is about to try to preempt gp. Read it just once and use that same
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// value now and below.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//检查g.stackguard0是否被设置为stackPreempt
+</span><span style="color:#f00;font-style:italic"></span>    preempt := atomic.<span style="color:#c34e00">Loaduintptr</span>(&amp;gp.stackguard0) == stackPreempt
+ 
+    <span style="color:#f00;font-style:italic">// Be conservative about where we preempt.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// We are interested in preempting user Go code, not runtime code.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// If we&#39;re holding locks, mallocing, or preemption is disabled, don&#39;t
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// preempt.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// This check is very early in newstack so that even the status change
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// from Grunning to Gwaiting and back doesn&#39;t happen in this case.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// That status change by itself can be viewed as a small preemption,
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// because the GC might change Gwaiting to Gscanwaiting, and then
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// this goroutine has to wait for the GC to finish before continuing.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// If the GC is in some way dependent on this goroutine (for example,
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// it needs a lock held by the goroutine), that small preemption turns
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// into a real deadlock.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> preempt {
+        <span style="color:#f00;font-style:italic">//检查被抢占goroutine的状态
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> thisg.m.locks != 0 || thisg.m.mallocing != 0 || thisg.m.preemptoff != <span style="color:#009c00">&#34;&#34;</span> || thisg.m.p.<span style="color:#c34e00">ptr</span>().status != _Prunning {
+            <span style="color:#f00;font-style:italic">// Let the goroutine keep running for now.
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// gp-&gt;preempt is set, so it will be preempted next time.
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">//还原stackguard0为正常值，表示我们已经处理过抢占请求了
+</span><span style="color:#f00;font-style:italic"></span>            gp.stackguard0 = gp.stack.lo + _StackGuard
+           
+            <span style="color:#f00;font-style:italic">//不抢占，调用gogo继续运行当前这个g，不需要调用schedule函数去挑选另一个goroutine
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">gogo</span>(&amp;gp.sched) <span style="color:#f00;font-style:italic">// never return
+</span><span style="color:#f00;font-style:italic"></span>        }
+    }
+ 
+    <span style="color:#f00;font-style:italic">//省略的代码做了些其它检查所以这里才有两个同样的判断
+</span><span style="color:#f00;font-style:italic"></span> 
+    <span style="color:#00f">if</span> preempt {
+        <span style="color:#00f">if</span> gp == thisg.m.g0 {
+            <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;runtime: preempt g0&#34;</span>)
+        }
+        <span style="color:#00f">if</span> thisg.m.p == 0 &amp;&amp; thisg.m.locks == 0 {
+            <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;runtime: g is running but p is not&#34;</span>)
+        }
+        ......
+        <span style="color:#f00;font-style:italic">//下面开始响应抢占请求
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// Act like goroutine called runtime.Gosched.
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//设置gp的状态，省略的代码在处理gc时把gp的状态修改成了_Gwaiting
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">casgstatus</span>(gp, _Gwaiting, _Grunning)
+       
+        <span style="color:#f00;font-style:italic">//调用gopreempt_m把gp切换出去
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">gopreempt_m</span>(gp) <span style="color:#f00;font-style:italic">// never return
+</span><span style="color:#f00;font-style:italic"></span>    }
+    ......
+}
+</code></pre></div><p>newstack函数首先检查g.stackguard0是否被设置为stackPreempt，如果是则表示sysmon已经发现我们运行得太久了并对我们发起了抢占请求。在做了一些基本的检查后如果当前goroutine可以被抢占则调用gopreempt_m函数完成调度。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 2644
+
+<span style="color:#00f">func</span> <span style="color:#c34e00">gopreempt_m</span>(gp *g) {
+    <span style="color:#00f">if</span> trace.enabled {
+        <span style="color:#c34e00">traceGoPreempt</span>()
+    }
+    <span style="color:#c34e00">goschedImpl</span>(gp)
+}
+</code></pre></div><p>gopreempt_m通过调用goschedImpl函数完成实际的调度切换工作，我们在前面主动调度一节已经详细分析过goschedImpl函数，该函数首先把gp的状态从_Grunning设置成_Grunnable，并通过dropg函数解除当前工作线程m和gp之间的关系，然后把gp放入全局队列等待被调度器调度，最后调用schedule()函数进入新一轮调度。</p>
 <p>小结</p>
 <p>上面我们分析了由于运行时间过长导致的抢占调度，可以看到go的抢占调度机制并非无条件的抢占。需要抢占时，监控线程负责给被抢占的goroutine设置抢占标记，被抢占的goroutine再在函数的的入口处检查g的stackguard0成员决定是否需要调用morestack_noctxt函数，从而最终调用到newstack函数处理抢占请求。</p>
 <p>下一节我们再来看因系统调用而发生的抢占调度。</p>
@@ -634,7 +634,7 @@ jbe是条件跳转指令，它依靠上一条指令的执行结果来判断是�
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

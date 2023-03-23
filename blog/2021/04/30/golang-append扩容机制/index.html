@@ -233,101 +233,101 @@
     <div class="post-body" itemprop="articleBody">
     <h2 id="append扩容机制">append扩容机制</h2>
 <p>在<a href="http://mp.weixin.qq.com/s?__biz=MzIwNTA4MDAwMQ==&amp;mid=2247484382&amp;idx=1&amp;sn=5140908b6ab1bf176cc4e7fa9b167de9&amp;chksm=97371770a0409e6633202e6bbc1193cdfd8aa57dbdf7bb2aa493a2a6ab55ff464c8eadc0068a&amp;scene=21#wechat_redirect">《切片传递的隐藏危机》</a>一文，小菜刀有简单地提及到切片扩容的问题。在读者讨论群，有人举了以下例子，并想得到一个合理的回答。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>1<span style="color:#00f">package</span> main
-</span></span><span style="display:flex;"><span>2
-</span></span><span style="display:flex;"><span>3<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-</span></span><span style="display:flex;"><span>4    s := []<span style="color:#00f">int</span>{1,2}
-</span></span><span style="display:flex;"><span>5    s = append(s, 3,4,5)
-</span></span><span style="display:flex;"><span>6    println(cap(s))
-</span></span><span style="display:flex;"><span>7}
-</span></span><span style="display:flex;"><span>8
-</span></span><span style="display:flex;"><span>9<span style="color:#f00;font-style:italic">// output: 6
-</span></span></span></code></pre></div><p>为什么结果不是5，不是8，而是6呢？由于小菜刀在该文中关于扩容的描述不够准确，让读者产生了疑惑。因此本文想借此机会细致分析一下<code>append</code>函数及其背后的扩容机制。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">1<span style="color:#00f">package</span> main
+2
+3<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+4    s := []<span style="color:#00f">int</span>{1,2}
+5    s = append(s, 3,4,5)
+6    println(cap(s))
+7}
+8
+9<span style="color:#f00;font-style:italic">// output: 6
+</span></code></pre></div><p>为什么结果不是5，不是8，而是6呢？由于小菜刀在该文中关于扩容的描述不够准确，让读者产生了疑惑。因此本文想借此机会细致分析一下<code>append</code>函数及其背后的扩容机制。</p>
 <p>我们知道，<code>append</code>是一种用户在使用时，并不需要引入相关包而可直接调用的函数。它是内置函数，其定义位于源码包 <code>builtin</code> 的<code>builtin.go</code>。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1// The append built-in function appends elements to the end of a slice. If
-</span></span><span style="display:flex;"><span> 2// it has sufficient capacity, the destination is resliced to accommodate the
-</span></span><span style="display:flex;"><span> 3// new elements. If it does not, a new underlying array will be allocated.
-</span></span><span style="display:flex;"><span> 4// Append returns the updated slice. It is therefore necessary to store the
-</span></span><span style="display:flex;"><span> 5// result of append, often in the variable holding the slice itself:
-</span></span><span style="display:flex;"><span> 6//    slice = append(slice, elem1, elem2)
-</span></span><span style="display:flex;"><span> 7//    slice = append(slice, anotherSlice...)
-</span></span><span style="display:flex;"><span> 8// As a special case, it is legal to append a string to a byte slice, like this:
-</span></span><span style="display:flex;"><span> 9//    slice = append([]byte(&#34;hello &#34;), &#34;world&#34;...)
-</span></span><span style="display:flex;"><span>10func append(slice []Type, elems ...Type) []Type
-</span></span><span style="display:flex;"><span>11
-</span></span></code></pre></div><p>append 会追加一个或多个数据至 slice 中，这些数据会存储至 slice 的底层数组。其中，底层数组长度是固定的，如果数组的剩余空间足以容纳追加的数据，则可以正常地将数据存入该数组。一旦追加数据后总长度超过原数组长度，原数组就无法满足存储追加数据的要求。此时会怎么处理呢？</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1// The append built-in function appends elements to the end of a slice. If
+ 2// it has sufficient capacity, the destination is resliced to accommodate the
+ 3// new elements. If it does not, a new underlying array will be allocated.
+ 4// Append returns the updated slice. It is therefore necessary to store the
+ 5// result of append, often in the variable holding the slice itself:
+ 6//    slice = append(slice, elem1, elem2)
+ 7//    slice = append(slice, anotherSlice...)
+ 8// As a special case, it is legal to append a string to a byte slice, like this:
+ 9//    slice = append([]byte(&#34;hello &#34;), &#34;world&#34;...)
+10func append(slice []Type, elems ...Type) []Type
+11
+</code></pre></div><p>append 会追加一个或多个数据至 slice 中，这些数据会存储至 slice 的底层数组。其中，底层数组长度是固定的，如果数组的剩余空间足以容纳追加的数据，则可以正常地将数据存入该数组。一旦追加数据后总长度超过原数组长度，原数组就无法满足存储追加数据的要求。此时会怎么处理呢？</p>
 <p>同时我们发现，该文件中仅仅定义了函数签名，并没有包含函数实现的任何代码。这里我们不免好奇，append究竟是如何实现的呢？</p>
 <p><strong>编译过程</strong></p>
 <p>为了回答上述问题，我们不妨从编译入手。Go编译可分为四个阶段：词法与语法分析、类型检查与抽象语法树（AST）转换、中间代码生成和生成最后的机器码。</p>
 <p>我们主要需要关注的是第二和第三阶段的代码，分别是位于<code>src/cmd/compile/internal/gc/typecheck.go</code>下的类型检查逻辑</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1func typecheck1(n *Node, top int) (res *Node) {
-</span></span><span style="display:flex;"><span>2    ...
-</span></span><span style="display:flex;"><span>3    switch n.Op {
-</span></span><span style="display:flex;"><span>4    case OAPPEND:
-</span></span><span style="display:flex;"><span>5    ...
-</span></span><span style="display:flex;"><span>6}
-</span></span></code></pre></div><p>位于<code>src/cmd/compile/internal/gc/walk.go</code>下的抽象语法树转换逻辑</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func walkexpr(n *Node, init *Nodes) *Node {
-</span></span><span style="display:flex;"><span> 2    ...
-</span></span><span style="display:flex;"><span> 3    case OAPPEND:
-</span></span><span style="display:flex;"><span> 4            // x = append(...)
-</span></span><span style="display:flex;"><span> 5            r := n.Right
-</span></span><span style="display:flex;"><span> 6            if r.Type.Elem().NotInHeap() {
-</span></span><span style="display:flex;"><span> 7                yyerror(&#34;%v can&#39;t be allocated in Go; it is incomplete (or unallocatable)&#34;, r.Type.Elem())
-</span></span><span style="display:flex;"><span> 8            }
-</span></span><span style="display:flex;"><span> 9            switch {
-</span></span><span style="display:flex;"><span>10            case isAppendOfMake(r):
-</span></span><span style="display:flex;"><span>11                // x = append(y, make([]T, y)...)
-</span></span><span style="display:flex;"><span>12                r = extendslice(r, init)
-</span></span><span style="display:flex;"><span>13            case r.IsDDD():
-</span></span><span style="display:flex;"><span>14                r = appendslice(r, init) // also works for append(slice, string).
-</span></span><span style="display:flex;"><span>15            default:
-</span></span><span style="display:flex;"><span>16                r = walkappend(r, init, n)
-</span></span><span style="display:flex;"><span>17            }
-</span></span><span style="display:flex;"><span>18    ...
-</span></span><span style="display:flex;"><span>19}  
-</span></span></code></pre></div><p>和位于<code>src/cmd/compile/internal/gc/ssa.go</code>下的中间代码生成逻辑</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1// append converts an OAPPEND node to SSA.
-</span></span><span style="display:flex;"><span>2// If inplace is false, it converts the OAPPEND expression n to an ssa.Value,
-</span></span><span style="display:flex;"><span>3// adds it to s, and returns the Value.
-</span></span><span style="display:flex;"><span>4// If inplace is true, it writes the result of the OAPPEND expression n
-</span></span><span style="display:flex;"><span>5// back to the slice being appended to, and returns nil.
-</span></span><span style="display:flex;"><span>6// inplace MUST be set to false if the slice can be SSA&#39;d.
-</span></span><span style="display:flex;"><span>7func (s *state) append(n *Node, inplace bool) *ssa.Value {
-</span></span><span style="display:flex;"><span>8    ...
-</span></span><span style="display:flex;"><span>9}
-</span></span></code></pre></div><p>其中，中间代码生成阶段的<code>state.append</code>方法，是我们重点关注的地方。入参 <code>inplace</code> 代表返回值是否覆盖原变量。如果为false，展开逻辑如下（注意：以下代码只是为了方便理解的伪代码，并不是 <code>state.append</code> 中实际的代码）。同时，小菜刀注意到如果写成 <code>append(s, e1, e2, e3)</code> 不带接收者的形式，并不能通过编译，所以暂未明白它的场景在哪。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    // If inplace is false, process as expression &#34;append(s, e1, e2, e3)&#34;: 
-</span></span><span style="display:flex;"><span> 2   ptr, len, cap := s
-</span></span><span style="display:flex;"><span> 3     newlen := len + 3
-</span></span><span style="display:flex;"><span> 4     if newlen &gt; cap {
-</span></span><span style="display:flex;"><span> 5         ptr, len, cap = growslice(s, newlen)
-</span></span><span style="display:flex;"><span> 6         newlen = len + 3 // recalculate to avoid a spill
-</span></span><span style="display:flex;"><span> 7     }
-</span></span><span style="display:flex;"><span> 8     // with write barriers, if needed:
-</span></span><span style="display:flex;"><span> 9     *(ptr+len) = e1
-</span></span><span style="display:flex;"><span>10     *(ptr+len+1) = e2
-</span></span><span style="display:flex;"><span>11     *(ptr+len+2) = e3
-</span></span><span style="display:flex;"><span>12     return makeslice(ptr, newlen, cap)
-</span></span></code></pre></div><p>如果是true，例如 <code>slice = append(slice, 1, 2, 3)</code> 语句，那么返回值会覆盖原变量。展开方式逻辑如下</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    // If inplace is true, process as statement &#34;s = append(s, e1, e2, e3)&#34;:
-</span></span><span style="display:flex;"><span> 2
-</span></span><span style="display:flex;"><span> 3     a := &amp;s
-</span></span><span style="display:flex;"><span> 4     ptr, len, cap := s
-</span></span><span style="display:flex;"><span> 5     newlen := len + 3
-</span></span><span style="display:flex;"><span> 6     if uint(newlen) &gt; uint(cap) {
-</span></span><span style="display:flex;"><span> 7        newptr, len, newcap = growslice(ptr, len, cap, newlen)
-</span></span><span style="display:flex;"><span> 8        vardef(a)       // if necessary, advise liveness we are writing a new a
-</span></span><span style="display:flex;"><span> 9        *a.cap = newcap // write before ptr to avoid a spill
-</span></span><span style="display:flex;"><span>10        *a.ptr = newptr // with write barrier
-</span></span><span style="display:flex;"><span>11     }
-</span></span><span style="display:flex;"><span>12     newlen = len + 3 // recalculate to avoid a spill
-</span></span><span style="display:flex;"><span>13     *a.len = newlen
-</span></span><span style="display:flex;"><span>14     // with write barriers, if needed:
-</span></span><span style="display:flex;"><span>15     *(ptr+len) = e1
-</span></span><span style="display:flex;"><span>16     *(ptr+len+1) = e2
-</span></span><span style="display:flex;"><span>17     *(ptr+len+2) = e3
-</span></span></code></pre></div><p>不管 <code>inpalce</code> 是否为true，我们均会获取切片的数组指针、大小和容量，如果在追加元素后，切片新的大小大于原始容量，就会调用 <code>runtime.growslice</code> 对切片进行扩容，并将新的元素依次加入切片。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1func typecheck1(n *Node, top int) (res *Node) {
+2    ...
+3    switch n.Op {
+4    case OAPPEND:
+5    ...
+6}
+</code></pre></div><p>位于<code>src/cmd/compile/internal/gc/walk.go</code>下的抽象语法树转换逻辑</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func walkexpr(n *Node, init *Nodes) *Node {
+ 2    ...
+ 3    case OAPPEND:
+ 4            // x = append(...)
+ 5            r := n.Right
+ 6            if r.Type.Elem().NotInHeap() {
+ 7                yyerror(&#34;%v can&#39;t be allocated in Go; it is incomplete (or unallocatable)&#34;, r.Type.Elem())
+ 8            }
+ 9            switch {
+10            case isAppendOfMake(r):
+11                // x = append(y, make([]T, y)...)
+12                r = extendslice(r, init)
+13            case r.IsDDD():
+14                r = appendslice(r, init) // also works for append(slice, string).
+15            default:
+16                r = walkappend(r, init, n)
+17            }
+18    ...
+19}  
+</code></pre></div><p>和位于<code>src/cmd/compile/internal/gc/ssa.go</code>下的中间代码生成逻辑</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1// append converts an OAPPEND node to SSA.
+2// If inplace is false, it converts the OAPPEND expression n to an ssa.Value,
+3// adds it to s, and returns the Value.
+4// If inplace is true, it writes the result of the OAPPEND expression n
+5// back to the slice being appended to, and returns nil.
+6// inplace MUST be set to false if the slice can be SSA&#39;d.
+7func (s *state) append(n *Node, inplace bool) *ssa.Value {
+8    ...
+9}
+</code></pre></div><p>其中，中间代码生成阶段的<code>state.append</code>方法，是我们重点关注的地方。入参 <code>inplace</code> 代表返回值是否覆盖原变量。如果为false，展开逻辑如下（注意：以下代码只是为了方便理解的伪代码，并不是 <code>state.append</code> 中实际的代码）。同时，小菜刀注意到如果写成 <code>append(s, e1, e2, e3)</code> 不带接收者的形式，并不能通过编译，所以暂未明白它的场景在哪。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1    // If inplace is false, process as expression &#34;append(s, e1, e2, e3)&#34;: 
+ 2   ptr, len, cap := s
+ 3     newlen := len + 3
+ 4     if newlen &gt; cap {
+ 5         ptr, len, cap = growslice(s, newlen)
+ 6         newlen = len + 3 // recalculate to avoid a spill
+ 7     }
+ 8     // with write barriers, if needed:
+ 9     *(ptr+len) = e1
+10     *(ptr+len+1) = e2
+11     *(ptr+len+2) = e3
+12     return makeslice(ptr, newlen, cap)
+</code></pre></div><p>如果是true，例如 <code>slice = append(slice, 1, 2, 3)</code> 语句，那么返回值会覆盖原变量。展开方式逻辑如下</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1    // If inplace is true, process as statement &#34;s = append(s, e1, e2, e3)&#34;:
+ 2
+ 3     a := &amp;s
+ 4     ptr, len, cap := s
+ 5     newlen := len + 3
+ 6     if uint(newlen) &gt; uint(cap) {
+ 7        newptr, len, newcap = growslice(ptr, len, cap, newlen)
+ 8        vardef(a)       // if necessary, advise liveness we are writing a new a
+ 9        *a.cap = newcap // write before ptr to avoid a spill
+10        *a.ptr = newptr // with write barrier
+11     }
+12     newlen = len + 3 // recalculate to avoid a spill
+13     *a.len = newlen
+14     // with write barriers, if needed:
+15     *(ptr+len) = e1
+16     *(ptr+len+1) = e2
+17     *(ptr+len+2) = e3
+</code></pre></div><p>不管 <code>inpalce</code> 是否为true，我们均会获取切片的数组指针、大小和容量，如果在追加元素后，切片新的大小大于原始容量，就会调用 <code>runtime.growslice</code> 对切片进行扩容，并将新的元素依次加入切片。</p>
 <p>因此，通过append向元素类型为 int 的切片（已包含元素 1，2，3）追加元素 1， <code>slice=append(slice,1)</code>可分为两种情况。</p>
 <p><img src="http://shanks.link/img/GoAppend%E6%89%A9%E5%AE%B9%E6%9C%BA%E5%88%B6/1.png" alt="img"></p>
 <p>情况1，切片的底层数组还有可容纳追加元素的空间。</p>
@@ -339,113 +339,113 @@
 <ol>
 <li><strong>初步确定切片容量</strong></li>
 </ol>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func growslice(et *_type, old slice, cap int) slice {
-</span></span><span style="display:flex;"><span> 2  ...
-</span></span><span style="display:flex;"><span> 3  newcap := old.cap
-</span></span><span style="display:flex;"><span> 4    doublecap := newcap + newcap
-</span></span><span style="display:flex;"><span> 5    if cap &gt; doublecap {
-</span></span><span style="display:flex;"><span> 6        newcap = cap
-</span></span><span style="display:flex;"><span> 7    } else {
-</span></span><span style="display:flex;"><span> 8        if old.len &lt; 1024 {
-</span></span><span style="display:flex;"><span> 9            newcap = doublecap
-</span></span><span style="display:flex;"><span>10        } else {
-</span></span><span style="display:flex;"><span>11            // Check 0 &lt; newcap to detect overflow
-</span></span><span style="display:flex;"><span>12            // and prevent an infinite loop.
-</span></span><span style="display:flex;"><span>13            for 0 &lt; newcap &amp;&amp; newcap &lt; cap {
-</span></span><span style="display:flex;"><span>14                newcap += newcap / 4
-</span></span><span style="display:flex;"><span>15            }
-</span></span><span style="display:flex;"><span>16            // Set newcap to the requested cap when
-</span></span><span style="display:flex;"><span>17            // the newcap calculation overflowed.
-</span></span><span style="display:flex;"><span>18            if newcap &lt;= 0 {
-</span></span><span style="display:flex;"><span>19                newcap = cap
-</span></span><span style="display:flex;"><span>20            }
-</span></span><span style="display:flex;"><span>21        }
-</span></span><span style="display:flex;"><span>22    }
-</span></span><span style="display:flex;"><span>23  ...
-</span></span><span style="display:flex;"><span>24}  
-</span></span></code></pre></div><p>在该环节中，如果需要的容量 <code>cap</code> 超过原切片容量的两倍 <code>doublecap</code>，会直接使用需要的容量作为新容量<code>newcap</code>。否则，当原切片长度小于1024时，新切片的容量会直接翻倍。而当原切片的容量大于等于1024时，会反复地增加25%，直到新容量超过所需要的容量。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func growslice(et *_type, old slice, cap int) slice {
+ 2  ...
+ 3  newcap := old.cap
+ 4    doublecap := newcap + newcap
+ 5    if cap &gt; doublecap {
+ 6        newcap = cap
+ 7    } else {
+ 8        if old.len &lt; 1024 {
+ 9            newcap = doublecap
+10        } else {
+11            // Check 0 &lt; newcap to detect overflow
+12            // and prevent an infinite loop.
+13            for 0 &lt; newcap &amp;&amp; newcap &lt; cap {
+14                newcap += newcap / 4
+15            }
+16            // Set newcap to the requested cap when
+17            // the newcap calculation overflowed.
+18            if newcap &lt;= 0 {
+19                newcap = cap
+20            }
+21        }
+22    }
+23  ...
+24}  
+</code></pre></div><p>在该环节中，如果需要的容量 <code>cap</code> 超过原切片容量的两倍 <code>doublecap</code>，会直接使用需要的容量作为新容量<code>newcap</code>。否则，当原切片长度小于1024时，新切片的容量会直接翻倍。而当原切片的容量大于等于1024时，会反复地增加25%，直到新容量超过所需要的容量。</p>
 <ol>
 <li><strong>计算容量所需内存大小</strong></li>
 </ol>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    var overflow bool
-</span></span><span style="display:flex;"><span> 2    var lenmem, newlenmem, capmem uintptr
-</span></span><span style="display:flex;"><span> 3
-</span></span><span style="display:flex;"><span> 4    switch {
-</span></span><span style="display:flex;"><span> 5    case et.size == 1:
-</span></span><span style="display:flex;"><span> 6        lenmem = uintptr(old.len)
-</span></span><span style="display:flex;"><span> 7        newlenmem = uintptr(cap)
-</span></span><span style="display:flex;"><span> 8        capmem = roundupsize(uintptr(newcap))
-</span></span><span style="display:flex;"><span> 9        overflow = uintptr(newcap) &gt; maxAlloc
-</span></span><span style="display:flex;"><span>10        newcap = int(capmem)
-</span></span><span style="display:flex;"><span>11    case et.size == sys.PtrSize:
-</span></span><span style="display:flex;"><span>12        lenmem = uintptr(old.len) * sys.PtrSize
-</span></span><span style="display:flex;"><span>13        newlenmem = uintptr(cap) * sys.PtrSize
-</span></span><span style="display:flex;"><span>14        capmem = roundupsize(uintptr(newcap) * sys.PtrSize)
-</span></span><span style="display:flex;"><span>15        overflow = uintptr(newcap) &gt; maxAlloc/sys.PtrSize
-</span></span><span style="display:flex;"><span>16        newcap = int(capmem / sys.PtrSize)
-</span></span><span style="display:flex;"><span>17    case isPowerOfTwo(et.size):
-</span></span><span style="display:flex;"><span>18        var shift uintptr
-</span></span><span style="display:flex;"><span>19        if sys.PtrSize == 8 {
-</span></span><span style="display:flex;"><span>20            // Mask shift for better code generation.
-</span></span><span style="display:flex;"><span>21            shift = uintptr(sys.Ctz64(uint64(et.size))) &amp; 63
-</span></span><span style="display:flex;"><span>22        } else {
-</span></span><span style="display:flex;"><span>23            shift = uintptr(sys.Ctz32(uint32(et.size))) &amp; 31
-</span></span><span style="display:flex;"><span>24        }
-</span></span><span style="display:flex;"><span>25        lenmem = uintptr(old.len) &lt;&lt; shift
-</span></span><span style="display:flex;"><span>26        newlenmem = uintptr(cap) &lt;&lt; shift
-</span></span><span style="display:flex;"><span>27        capmem = roundupsize(uintptr(newcap) &lt;&lt; shift)
-</span></span><span style="display:flex;"><span>28        overflow = uintptr(newcap) &gt; (maxAlloc &gt;&gt; shift)
-</span></span><span style="display:flex;"><span>29        newcap = int(capmem &gt;&gt; shift)
-</span></span><span style="display:flex;"><span>30    default:
-</span></span><span style="display:flex;"><span>31        lenmem = uintptr(old.len) * et.size
-</span></span><span style="display:flex;"><span>32        newlenmem = uintptr(cap) * et.size
-</span></span><span style="display:flex;"><span>33        capmem, overflow = math.MulUintptr(et.size, uintptr(newcap))
-</span></span><span style="display:flex;"><span>34        capmem = roundupsize(capmem)
-</span></span><span style="display:flex;"><span>35        newcap = int(capmem / et.size)
-</span></span><span style="display:flex;"><span>36    }
-</span></span></code></pre></div><p>在该环节，通过判断切片元素的字节大小是否为1，系统指针大小（32位为4，64位为8）或2的倍数，进入相应所需内存大小的计算逻辑。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1    var overflow bool
+ 2    var lenmem, newlenmem, capmem uintptr
+ 3
+ 4    switch {
+ 5    case et.size == 1:
+ 6        lenmem = uintptr(old.len)
+ 7        newlenmem = uintptr(cap)
+ 8        capmem = roundupsize(uintptr(newcap))
+ 9        overflow = uintptr(newcap) &gt; maxAlloc
+10        newcap = int(capmem)
+11    case et.size == sys.PtrSize:
+12        lenmem = uintptr(old.len) * sys.PtrSize
+13        newlenmem = uintptr(cap) * sys.PtrSize
+14        capmem = roundupsize(uintptr(newcap) * sys.PtrSize)
+15        overflow = uintptr(newcap) &gt; maxAlloc/sys.PtrSize
+16        newcap = int(capmem / sys.PtrSize)
+17    case isPowerOfTwo(et.size):
+18        var shift uintptr
+19        if sys.PtrSize == 8 {
+20            // Mask shift for better code generation.
+21            shift = uintptr(sys.Ctz64(uint64(et.size))) &amp; 63
+22        } else {
+23            shift = uintptr(sys.Ctz32(uint32(et.size))) &amp; 31
+24        }
+25        lenmem = uintptr(old.len) &lt;&lt; shift
+26        newlenmem = uintptr(cap) &lt;&lt; shift
+27        capmem = roundupsize(uintptr(newcap) &lt;&lt; shift)
+28        overflow = uintptr(newcap) &gt; (maxAlloc &gt;&gt; shift)
+29        newcap = int(capmem &gt;&gt; shift)
+30    default:
+31        lenmem = uintptr(old.len) * et.size
+32        newlenmem = uintptr(cap) * et.size
+33        capmem, overflow = math.MulUintptr(et.size, uintptr(newcap))
+34        capmem = roundupsize(capmem)
+35        newcap = int(capmem / et.size)
+36    }
+</code></pre></div><p>在该环节，通过判断切片元素的字节大小是否为1，系统指针大小（32位为4，64位为8）或2的倍数，进入相应所需内存大小的计算逻辑。</p>
 <p>这里需要注意的是 <code>roundupsize</code> 函数，它根据输入期望大小 <code>size</code> ，返回 <code>mallocgc</code> 实际将分配的内存块的大小。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func roundupsize(size uintptr) uintptr {
-</span></span><span style="display:flex;"><span> 2    if size &lt; _MaxSmallSize {
-</span></span><span style="display:flex;"><span> 3        if size &lt;= smallSizeMax-8 {
-</span></span><span style="display:flex;"><span> 4            return uintptr(class_to_size[size_to_class8[divRoundUp(size, smallSizeDiv)]])
-</span></span><span style="display:flex;"><span> 5        } else {
-</span></span><span style="display:flex;"><span> 6            return uintptr(class_to_size[size_to_class128[divRoundUp(size-smallSizeMax, largeSizeDiv)]])
-</span></span><span style="display:flex;"><span> 7        }
-</span></span><span style="display:flex;"><span> 8    }
-</span></span><span style="display:flex;"><span> 9
-</span></span><span style="display:flex;"><span>10  // Go的内存管理虚拟地址页大小为 8k（_PageSize）
-</span></span><span style="display:flex;"><span>11  // 当size的大小即将溢出时，就不采用向上取整的做法，直接用当前期望size值。
-</span></span><span style="display:flex;"><span>12    if size+_PageSize &lt; size {
-</span></span><span style="display:flex;"><span>13        return size
-</span></span><span style="display:flex;"><span>14    }
-</span></span><span style="display:flex;"><span>15    return alignUp(size, _PageSize)
-</span></span><span style="display:flex;"><span>16}
-</span></span></code></pre></div><p>根据内存分配中的大小对象原则，如果期望分配内存非大对象 ( <code>&lt;_MaxSmallSize</code> )，即小于32k，则需要根据 <code>divRoundUp</code> 函数将待申请的内存向上取整，取整时会使用 <code>class_to_size</code> 以及 <code>size_to_class8</code> 和 <code>size_to_class128</code> 数组。这些数组方便于内存分配器进行分配，以提高分配效率并减少内存碎片。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1// _NumSizeClasses = 67 代表67种特定大小的对象类型
-</span></span><span style="display:flex;"><span>2var class_to_size = [_NumSizeClasses]uint16{0, 8, 16, 32, 48, 64, 80, 96, 112,...}
-</span></span></code></pre></div><p>当期望分配内存为大对象时，会通过 <code>alignUp</code> 将该 <code>size</code> 的大小向上取值为虚拟页大小（<code>_PageSize</code>）的倍数。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func roundupsize(size uintptr) uintptr {
+ 2    if size &lt; _MaxSmallSize {
+ 3        if size &lt;= smallSizeMax-8 {
+ 4            return uintptr(class_to_size[size_to_class8[divRoundUp(size, smallSizeDiv)]])
+ 5        } else {
+ 6            return uintptr(class_to_size[size_to_class128[divRoundUp(size-smallSizeMax, largeSizeDiv)]])
+ 7        }
+ 8    }
+ 9
+10  // Go的内存管理虚拟地址页大小为 8k（_PageSize）
+11  // 当size的大小即将溢出时，就不采用向上取整的做法，直接用当前期望size值。
+12    if size+_PageSize &lt; size {
+13        return size
+14    }
+15    return alignUp(size, _PageSize)
+16}
+</code></pre></div><p>根据内存分配中的大小对象原则，如果期望分配内存非大对象 ( <code>&lt;_MaxSmallSize</code> )，即小于32k，则需要根据 <code>divRoundUp</code> 函数将待申请的内存向上取整，取整时会使用 <code>class_to_size</code> 以及 <code>size_to_class8</code> 和 <code>size_to_class128</code> 数组。这些数组方便于内存分配器进行分配，以提高分配效率并减少内存碎片。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1// _NumSizeClasses = 67 代表67种特定大小的对象类型
+2var class_to_size = [_NumSizeClasses]uint16{0, 8, 16, 32, 48, 64, 80, 96, 112,...}
+</code></pre></div><p>当期望分配内存为大对象时，会通过 <code>alignUp</code> 将该 <code>size</code> 的大小向上取值为虚拟页大小（<code>_PageSize</code>）的倍数。</p>
 <ol>
 <li><strong>内存分配</strong></li>
 </ol>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1    if overflow || capmem &gt; maxAlloc {
-</span></span><span style="display:flex;"><span> 2        panic(errorString(&#34;growslice: cap out of range&#34;))
-</span></span><span style="display:flex;"><span> 3    }
-</span></span><span style="display:flex;"><span> 4
-</span></span><span style="display:flex;"><span> 5    var p unsafe.Pointer
-</span></span><span style="display:flex;"><span> 6    if et.ptrdata == 0 {
-</span></span><span style="display:flex;"><span> 7        p = mallocgc(capmem, nil, false)
-</span></span><span style="display:flex;"><span> 8        memclrNoHeapPointers(add(p, newlenmem), capmem-newlenmem)
-</span></span><span style="display:flex;"><span> 9    } else {
-</span></span><span style="display:flex;"><span>10        p = mallocgc(capmem, et, true)
-</span></span><span style="display:flex;"><span>11        if lenmem &gt; 0 &amp;&amp; writeBarrier.enabled {
-</span></span><span style="display:flex;"><span>12            bulkBarrierPreWriteSrcOnly(uintptr(p), uintptr(old.array), lenmem-et.size+et.ptrdata)
-</span></span><span style="display:flex;"><span>13        }
-</span></span><span style="display:flex;"><span>14    }
-</span></span><span style="display:flex;"><span>15    memmove(p, old.array, lenmem)
-</span></span><span style="display:flex;"><span>16
-</span></span><span style="display:flex;"><span>17    return slice{p, old.len, newcap}
-</span></span></code></pre></div><p>如果在第二个环节中，造成了溢出或者期望分配的内存超过最大分配限制，会引起 <code>panic</code>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1    if overflow || capmem &gt; maxAlloc {
+ 2        panic(errorString(&#34;growslice: cap out of range&#34;))
+ 3    }
+ 4
+ 5    var p unsafe.Pointer
+ 6    if et.ptrdata == 0 {
+ 7        p = mallocgc(capmem, nil, false)
+ 8        memclrNoHeapPointers(add(p, newlenmem), capmem-newlenmem)
+ 9    } else {
+10        p = mallocgc(capmem, et, true)
+11        if lenmem &gt; 0 &amp;&amp; writeBarrier.enabled {
+12            bulkBarrierPreWriteSrcOnly(uintptr(p), uintptr(old.array), lenmem-et.size+et.ptrdata)
+13        }
+14    }
+15    memmove(p, old.array, lenmem)
+16
+17    return slice{p, old.len, newcap}
+</code></pre></div><p>如果在第二个环节中，造成了溢出或者期望分配的内存超过最大分配限制，会引起 <code>panic</code>。</p>
 <p><code>mallocgc</code> 分配一个大小为前面计算得到的 <code>capmem</code> 对象。如果是小对象，则直接从当前G所在P的缓存空闲列表中分配；如果是大对象，则从堆上进行分配。同时，如果切片中的元素不是指针类型，那么会调用 <code>memclrNoHeapPointers</code>将超出切片当前长度的位置清空；如果是元素是指针类型，且原有切片元素个数不为0 并可以打开写屏障时，需要调用 <code>bulkBarrierPreWriteSrcOnly</code> 将旧切片指针标记隐藏，在新切片中保存为nil指针。</p>
 <p>在最后使用<code>memmove</code>将原数组内存中的内容拷贝到新申请的内存中，并将新的内存指向指针<code>p</code> 和旧的长度值，新的容量值赋值给新的 slice 并返回。</p>
 <p>注意，在 <code>growslice</code> 完成后，只是把旧有数据拷贝到了新的内存中去，且计算得到新的 slice 容量大小，并没有完成最终追加数据的操作。如果 slice 当前 <code>len =3</code>，<code>cap=3</code>，<code>slice=append(slice,1)</code>，那它完成的工作如下图所示。</p>
@@ -453,40 +453,40 @@
 <p><code>growslice</code>之后，此时新的slice已经拷贝了旧的slice数据，并且其底层数组有充足的剩余空间追加数据。后续只需拷贝追加数据至剩余空间，并修改 <code>len</code> 值即可，这一部分就不再深究了。</p>
 <p><strong>总结</strong></p>
 <p>这里回到文章开头中的例子</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>1<span style="color:#00f">package</span> main
-</span></span><span style="display:flex;"><span>2
-</span></span><span style="display:flex;"><span>3<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-</span></span><span style="display:flex;"><span>4    s := []<span style="color:#00f">int</span>{1,2}
-</span></span><span style="display:flex;"><span>5    s = append(s, 3,4,5)
-</span></span><span style="display:flex;"><span>6    println(cap(s))
-</span></span><span style="display:flex;"><span>7}
-</span></span></code></pre></div><p>由于初始 <code>s</code> 的容量是2，现需要追加3个元素，所以通过 <code>append</code> 一定会触发扩容，并调用 <code>growslice</code> 函数，此时他的入参 <code>cap</code> 大小为2+3=5。通过翻倍原有容量得到 <code>doublecap</code> = 2+2，<code>doublecap</code> 小于 <code>cap</code> 值，所以在第一阶段计算出的期望容量值 <code>newcap=5</code>。在第二阶段中，元素类型大小 <code>int</code> 和 <code>sys.PtrSize</code> 相等，通过 <code>roundupsize</code> 向上取整内存的大小到 <code>capmem</code> = 48 字节，所以新切片的容量<code>newcap</code> 为 48 / 8 = 6 ，成功解释！</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">1<span style="color:#00f">package</span> main
+2
+3<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+4    s := []<span style="color:#00f">int</span>{1,2}
+5    s = append(s, 3,4,5)
+6    println(cap(s))
+7}
+</code></pre></div><p>由于初始 <code>s</code> 的容量是2，现需要追加3个元素，所以通过 <code>append</code> 一定会触发扩容，并调用 <code>growslice</code> 函数，此时他的入参 <code>cap</code> 大小为2+3=5。通过翻倍原有容量得到 <code>doublecap</code> = 2+2，<code>doublecap</code> 小于 <code>cap</code> 值，所以在第一阶段计算出的期望容量值 <code>newcap=5</code>。在第二阶段中，元素类型大小 <code>int</code> 和 <code>sys.PtrSize</code> 相等，通过 <code>roundupsize</code> 向上取整内存的大小到 <code>capmem</code> = 48 字节，所以新切片的容量<code>newcap</code> 为 48 / 8 = 6 ，成功解释！</p>
 <p>在切片 <code>append</code> 操作时，如果底层数组已无可容纳追加元素的空间，则需扩容。扩容并不是在原有底层数组的基础上增加内存空间，而是新分配一块内存空间作为切片的底层数组，并将原有数据和追加数据拷贝至新的内存空间中。</p>
 <p>在扩容的容量确定上，相对比较复杂，它<strong>与CPU位数、元素大小、是否包含指针、追加个数</strong>等都有关系。当我们看完扩容源码逻辑后，发现去纠结它的扩容确切值并没什么必要。</p>
 <p><strong>在实际使用中，如果能够确定切片的容量范围，比较合适的做法是：切片初始化时就分配足够的容量空间，在append追加操作时，就不用再考虑扩容带来的性能损耗问题。</strong></p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> 1func BenchmarkAppendFixCap(b *testing.B) {
-</span></span><span style="display:flex;"><span> 2    for i := 0; i &lt; b.N; i++ {
-</span></span><span style="display:flex;"><span> 3        a := make([]int, 0, 1000)
-</span></span><span style="display:flex;"><span> 4        for i := 0; i &lt; 1000; i++ {
-</span></span><span style="display:flex;"><span> 5            a = append(a, i)
-</span></span><span style="display:flex;"><span> 6        }
-</span></span><span style="display:flex;"><span> 7    }
-</span></span><span style="display:flex;"><span> 8}
-</span></span><span style="display:flex;"><span> 9
-</span></span><span style="display:flex;"><span>10func BenchmarkAppend(b *testing.B) {
-</span></span><span style="display:flex;"><span>11    for i := 0; i &lt; b.N; i++ {
-</span></span><span style="display:flex;"><span>12        a := make([]int, 0)
-</span></span><span style="display:flex;"><span>13        for i := 0; i &lt; 1000; i++ {
-</span></span><span style="display:flex;"><span>14            a = append(a, i)
-</span></span><span style="display:flex;"><span>15        }
-</span></span><span style="display:flex;"><span>16    }
-</span></span><span style="display:flex;"><span>17}
-</span></span></code></pre></div><p>它们的压测结果如下，孰优孰劣，一目了然。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>1 $ go test -bench=. -benchmem
-</span></span><span style="display:flex;"><span>2
-</span></span><span style="display:flex;"><span>3BenchmarkAppendFixCap-8          1953373               617 ns/op               0 B/op          0 allocs/op
-</span></span><span style="display:flex;"><span>4BenchmarkAppend-8                 426882              2832 ns/op           16376 B/op         11 allocs/op
-</span></span></code></pre></div><p><a href="https://mp.weixin.qq.com/s/73rbXvVzmn3NQOn2mrQEhw">以上内容转载自机器铃砍柴刀</a></p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> 1func BenchmarkAppendFixCap(b *testing.B) {
+ 2    for i := 0; i &lt; b.N; i++ {
+ 3        a := make([]int, 0, 1000)
+ 4        for i := 0; i &lt; 1000; i++ {
+ 5            a = append(a, i)
+ 6        }
+ 7    }
+ 8}
+ 9
+10func BenchmarkAppend(b *testing.B) {
+11    for i := 0; i &lt; b.N; i++ {
+12        a := make([]int, 0)
+13        for i := 0; i &lt; 1000; i++ {
+14            a = append(a, i)
+15        }
+16    }
+17}
+</code></pre></div><p>它们的压测结果如下，孰优孰劣，一目了然。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">1 $ go test -bench=. -benchmem
+2
+3BenchmarkAppendFixCap-8          1953373               617 ns/op               0 B/op          0 allocs/op
+4BenchmarkAppend-8                 426882              2832 ns/op           16376 B/op         11 allocs/op
+</code></pre></div><p><a href="https://mp.weixin.qq.com/s/73rbXvVzmn3NQOn2mrQEhw">以上内容转载自机器铃砍柴刀</a></p>
 
     </div>
     <footer class="post-footer">
@@ -562,7 +562,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

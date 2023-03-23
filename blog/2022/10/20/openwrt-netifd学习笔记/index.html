@@ -243,35 +243,35 @@
 <img src="http://shanks.link/img/openwrt/20170711172621294.png" alt="Netifd设计框架">
 拿我们最常用的路由器来讲，作为路由器的使用者我们只关心要配置interface层的哪个接口（LAN口、WAN口？），以及配置成怎样的上网方式。使用netifd配置网络，也是以interface为中心：创建一个interface并指明其依赖的实际网络设备（device），及其绑定的上网方式（proto handler），就完成了一个网络接口的配置并可使其开始工作。当网络状态发生变化时，这三者之间也能相互通知（事件通知或引用计数)以完成自身状态的转换。
 例如，在/etc/config/network中对WAN口的配置如下 ：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>config interface &#39;wan&#39;
-</span></span><span style="display:flex;"><span>    option ifname &#39;eth0&#39;
-</span></span><span style="display:flex;"><span>    option proto &#39;static&#39;
-</span></span><span style="display:flex;"><span>    option mtu &#39;1500&#39;
-</span></span><span style="display:flex;"><span>    option auto &#39;1&#39;
-</span></span><span style="display:flex;"><span>    option netmask &#39;255.255.255.0&#39;
-</span></span><span style="display:flex;"><span>    option ipaddr &#39;192.168.1.100&#39;   
-</span></span><span style="display:flex;"><span>    option gateway &#39;192.168.1.1&#39;
-</span></span><span style="display:flex;"><span>    option dns &#39;8.8.8.8&#39;123456789
-</span></span></code></pre></div><p>Netifd通过读取上述配置，来创建出一个名为”WAN”的interface实例并将其中与interface相关的配置项应用到这个新创建的实例中。同时，如果其指定依赖的设备（ifname）不存在，就通过配置中与device相关的配置项创建一个新的device，并确定二者的依赖（引用）关系。由于proto handler中每一种proto的工作方式是确定的，不依赖于任何配置，因此在netifd启动时就会初始化好所有的proto handler，因而要求配置中的proto一项必须是在netifd中已存在的proto handler的名字。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">config interface &#39;wan&#39;
+    option ifname &#39;eth0&#39;
+    option proto &#39;static&#39;
+    option mtu &#39;1500&#39;
+    option auto &#39;1&#39;
+    option netmask &#39;255.255.255.0&#39;
+    option ipaddr &#39;192.168.1.100&#39;   
+    option gateway &#39;192.168.1.1&#39;
+    option dns &#39;8.8.8.8&#39;123456789
+</code></pre></div><p>Netifd通过读取上述配置，来创建出一个名为”WAN”的interface实例并将其中与interface相关的配置项应用到这个新创建的实例中。同时，如果其指定依赖的设备（ifname）不存在，就通过配置中与device相关的配置项创建一个新的device，并确定二者的依赖（引用）关系。由于proto handler中每一种proto的工作方式是确定的，不依赖于任何配置，因此在netifd启动时就会初始化好所有的proto handler，因而要求配置中的proto一项必须是在netifd中已存在的proto handler的名字。
 也可以单独用一个uci section来保存device的配置信息，让netifd先把device创建好。</p>
 <h1 id="设备层device">设备层（Device）</h1>
 <p>Device是指链路层的设备，在netifd中就特指链路层的网络设备。Netifd中每个设备都用一个struct device结构的实例来表示，例如典型的物理设备、bridge（一个网桥设备实际是对应一个struct bridge_state实例，但和通用设备相关的属性仍放在其dev成员中）、VLAN设备等。
 创建好一个设备后，如果要引用这个设备，就要注册一个device_user，像上面说的，device的user一般是interface，但也有device之间相互引用的情况，例如bridge member和bridge的关系。向device注册和注销device_user的函数为device_add_user(user, dev)和device_remove_user(user)。</p>
 <h2 id="device-user">Device user</h2>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/*
-</span></span><span style="display:flex;"><span> * device dependency with callbacks
-</span></span><span style="display:flex;"><span>*/
-</span></span><span style="display:flex;"><span>struct device_user {
-</span></span><span style="display:flex;"><span>    struct list_head list;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    bool claimed;
-</span></span><span style="display:flex;"><span>    bool hotplug;
-</span></span><span style="display:flex;"><span>    bool alias;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    struct device *dev;
-</span></span><span style="display:flex;"><span>    void (*cb)(struct device_user *, enum device_event);
-</span></span><span style="display:flex;"><span>};12345678910111213
-</span></span></code></pre></div><p>各个成员的含义：
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">/*
+ * device dependency with callbacks
+*/
+struct device_user {
+    struct list_head list;
+
+    bool claimed;
+    bool hotplug;
+    bool alias;
+
+    struct device *dev;
+    void (*cb)(struct device_user *, enum device_event);
+};12345678910111213
+</code></pre></div><p>各个成员的含义：
 <strong>list</strong>：该user引用的deivce的user链表节点。
 <strong>claimed</strong>：相当于引用计数，由于一个user实例只能作为某一个device的user，因此设为BOOL类型。一个user在绑定了device后，还要通过device_claim才算真正使用了device。这样就允许引用和生效可以不同时进行，例如要等热插拔设备存在时才能启动interface。与claim相反的操作为device_release()。
 <strong>hotplug</strong>：标识bridge下动态添加的、以及调ubus call network.interface add_device的设备。
@@ -282,15 +282,15 @@
 <h1 id="接口层interface">接口层（interface）</h1>
 <p>由于device属于L2层的概念，如果用户对一个网络设备配置属于L3或更高层协议的属性，则要直接对interface进行操作，进而间接作用于device。因此一个interface必须绑定到一个device上，通过struct interface的main_dev成员指定。
 Interface配置完成后，是否可以UP或DOWN由available和autostart两个成员来决定：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>struct interface {
-</span></span><span style="display:flex;"><span>    … …
-</span></span><span style="display:flex;"><span>    bool available;
-</span></span><span style="display:flex;"><span>    bool autostart;
-</span></span><span style="display:flex;"><span>    bool config_autostart; /* uci配置中的&#34;autostart&#34;，默认为true。仅用于uci有关的操作 */
-</span></span><span style="display:flex;"><span>    … …
-</span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span>12345678
-</span></span></code></pre></div><p><strong>available</strong>：interface是否是可用的(已准备好可以up了)，通过interface_set_available()来设置。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">struct interface {
+    … …
+    bool available;
+    bool autostart;
+    bool config_autostart; /* uci配置中的&#34;autostart&#34;，默认为true。仅用于uci有关的操作 */
+    … …
+};
+12345678
+</code></pre></div><p><strong>available</strong>：interface是否是可用的(已准备好可以up了)，通过interface_set_available()来设置。
 <strong>autostart</strong>：interface在配置完成后，是否自动执行up操作，默认和config_autostart值相同。但如果用户手动up了interface(如通过ubus来up)，则autostart强制变为true。如果用户手动down了interface(如通过ubus来down)，则autostart强制变为false。</p>
 <p>而一个interface的具体配置内容都放在struct interface_ip_settings的结构中，由于一个interface可能有多个IP/Route/DNS条目，因此将这些信息又封装了一层，而不是直接放到struct interface中。</p>
 <h2 id="interface-user">Interface user</h2>
@@ -300,58 +300,58 @@ Interface配置完成后，是否可以UP或DOWN由available和autostart两个�
 <h1 id="proto-shell">Proto shell</h1>
 <h2 id="proto-handler的注册">Proto handler的注册</h2>
 <p>通过构造函数，在netifd启动的时候便注册了一系列的proto handler（注册到一个全局的AVL树中）。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>proto_shell_init() -&gt; proto_shell_add_script() -&gt; proto_shell_add_handler() -&gt; add_proto_handler();
-</span></span><span style="display:flex;"><span>static_proto_init() -&gt; add_proto_handler();12
-</span></span></code></pre></div><p>注册的过程为：在/lib/netifd/proto目录下对每个.sh文件执行***./xxx.sh ” dump***，然后分析执行结果。例如对于dhcp.sh：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>root@openwrt:/lib/netifd/proto# ./dhcp.sh &#39;&#39; dump
-</span></span><span style="display:flex;"><span>{ &#34;name&#34;: &#34;dhcp&#34;, &#34;config&#34;: [ [ &#34;ipaddr&#34;, 3 ], [ &#34;netmask&#34;, 3 ], [ &#34;hostname&#34;, 3 ], [ &#34;clientid&#34;, 3 ]
-</span></span><span style="display:flex;"><span>, [ &#34;vendorid&#34;, 3 ], [ &#34;enable_broadcast&#34;, 7 ], [ &#34;reqopts&#34;, 3 ] ], &#34;no-device&#34;: false, &#34;available&#34;: 
-</span></span><span style="display:flex;"><span>false }
-</span></span><span style="display:flex;"><span>12345
-</span></span></code></pre></div><p>而最终该脚本的proto handler保存在一个struct proto_handler结构的实体中，并添加到全局的handler树中，供后续查找和引用。上述的dhcp.sh注册的结果为：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>struct proto_shell_handler *handler;
-</span></span><span style="display:flex;"><span>handler-&gt;script_name = &#34;./dhcp.sh&#34;;
-</span></span><span style="display:flex;"><span>handler-&gt;proto.name = &#34;dhcp&#34;;
-</span></span><span style="display:flex;"><span>handler-&gt;proto.config_params = &amp;handler-&gt;config;
-</span></span><span style="display:flex;"><span>handler-&gt;proto.attach = proto_shell_attach;
-</span></span><span style="display:flex;"><span>handler-&gt;proto.flags |= ...; //由no-device和available决定，ppp使用，static和dhcp不关注
-</span></span><span style="display:flex;"><span>handler-&gt;proto.avl.key = handler-&gt;proto.name; //插到handler树中的key
-</span></span><span style="display:flex;"><span>handler-&gt;config.n_params = 7; //下面config param的数目
-</span></span><span style="display:flex;"><span>handler-&gt;config_buf = &#34;ipaddr\0netmask\0hostname ...&#34;
-</span></span><span style="display:flex;"><span>handler-&gt;config.params[0].name = &#34;ipaddr&#34;;
-</span></span><span style="display:flex;"><span>handler-&gt;config.params[0].type = 3; //BLOBMSG_TYPE_STRING
-</span></span><span style="display:flex;"><span>handler-&gt;config.params[1].name = &#34;netmask&#34;;
-</span></span><span style="display:flex;"><span>handler-&gt;config.params[1].type = 3;
-</span></span><span style="display:flex;"><span>... ...
-</span></span><span style="display:flex;"><span>123456789101112131415
-</span></span></code></pre></div><p>其中handler-&gt;proto.config_params中的配置列表，就是为了使proto生效，而需要在uci中配置的项。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">proto_shell_init() -&gt; proto_shell_add_script() -&gt; proto_shell_add_handler() -&gt; add_proto_handler();
+static_proto_init() -&gt; add_proto_handler();12
+</code></pre></div><p>注册的过程为：在/lib/netifd/proto目录下对每个.sh文件执行***./xxx.sh ” dump***，然后分析执行结果。例如对于dhcp.sh：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">root@openwrt:/lib/netifd/proto# ./dhcp.sh &#39;&#39; dump
+{ &#34;name&#34;: &#34;dhcp&#34;, &#34;config&#34;: [ [ &#34;ipaddr&#34;, 3 ], [ &#34;netmask&#34;, 3 ], [ &#34;hostname&#34;, 3 ], [ &#34;clientid&#34;, 3 ]
+, [ &#34;vendorid&#34;, 3 ], [ &#34;enable_broadcast&#34;, 7 ], [ &#34;reqopts&#34;, 3 ] ], &#34;no-device&#34;: false, &#34;available&#34;: 
+false }
+12345
+</code></pre></div><p>而最终该脚本的proto handler保存在一个struct proto_handler结构的实体中，并添加到全局的handler树中，供后续查找和引用。上述的dhcp.sh注册的结果为：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">struct proto_shell_handler *handler;
+handler-&gt;script_name = &#34;./dhcp.sh&#34;;
+handler-&gt;proto.name = &#34;dhcp&#34;;
+handler-&gt;proto.config_params = &amp;handler-&gt;config;
+handler-&gt;proto.attach = proto_shell_attach;
+handler-&gt;proto.flags |= ...; //由no-device和available决定，ppp使用，static和dhcp不关注
+handler-&gt;proto.avl.key = handler-&gt;proto.name; //插到handler树中的key
+handler-&gt;config.n_params = 7; //下面config param的数目
+handler-&gt;config_buf = &#34;ipaddr\0netmask\0hostname ...&#34;
+handler-&gt;config.params[0].name = &#34;ipaddr&#34;;
+handler-&gt;config.params[0].type = 3; //BLOBMSG_TYPE_STRING
+handler-&gt;config.params[1].name = &#34;netmask&#34;;
+handler-&gt;config.params[1].type = 3;
+... ...
+123456789101112131415
+</code></pre></div><p>其中handler-&gt;proto.config_params中的配置列表，就是为了使proto生效，而需要在uci中配置的项。
 而对于static的proto handler内容就比较简单，直接在netifd代码中定义的：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static struct proto_handler static_proto = {
-</span></span><span style="display:flex;"><span>    .name = &#34;static&#34;,
-</span></span><span style="display:flex;"><span>    .flags = PROTO_FLAG_IMMEDIATE,
-</span></span><span style="display:flex;"><span>    .config_params = &amp;proto_ip_attr,
-</span></span><span style="display:flex;"><span>    .attach = static_attach,
-</span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span>1234567
-</span></span></code></pre></div><p>值得注意的是，static proto携带了PROTO_FLAG_IMMEDIATE标记。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">static struct proto_handler static_proto = {
+    .name = &#34;static&#34;,
+    .flags = PROTO_FLAG_IMMEDIATE,
+    .config_params = &amp;proto_ip_attr,
+    .attach = static_attach,
+};
+1234567
+</code></pre></div><p>值得注意的是，static proto携带了PROTO_FLAG_IMMEDIATE标记。</p>
 <h2 id="proto与interface的绑定">Proto与interface的绑定</h2>
 <p>interface的config中具有名为”proto”的属性，在interface_init()函数中读取uci配置获取proto的名字（如”static”、”dhcp”、”pptp”），然后查找已注册的对应名字的proto handler，并赋值给interface的proto_handler数据成员，这样就使一个interface绑定到了一个特定的proto handler上。这是在初始化一个interface的时候完成的。</p>
 <h2 id="proto与interface的交互">Proto与interface的交互</h2>
 <p>由于proto是更上层的概念，因此是与interface无关的，而一个interface总会关联到一种proto。例如，WAN口总会要设置一种上网方式（static/dhcp/pppoe等），因此在interface进行配置的过程中，通过调用其proto_handler的attach()方法，为自己分配一个struct interface_proto_state结构并赋值给interface的proto数据成员。这个过程是在proto_init_interface()函数中完成的。也就是说，interface通过其proto成员与proto层交互来通知proto自身状态的变化。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>struct interface_proto_state {
-</span></span><span style="display:flex;"><span>    const struct proto_handler *handler; //其对应的proto handler
-</span></span><span style="display:flex;"><span>    struct interface_t *iface; //其attach的interface
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    /* 由proto的user来赋值，对于interface，被统一赋值为了interface_proto_cb */
-</span></span><span style="display:flex;"><span>    void (*proto_event)(struct interface_proto_state *, enum interface_proto_event ev);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    /* 由特定proto handler来赋值。 */
-</span></span><span style="display:flex;"><span>    int (*notify)(struct interface_proto_state *, struct blob_attr *data);
-</span></span><span style="display:flex;"><span>    int (*cb)(struct interface_proto_state *, enum interface_proto_cmd cmd, bool force);
-</span></span><span style="display:flex;"><span>    void (*free)(struct interface_proto_state *);
-</span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span>12345678910111213
-</span></span></code></pre></div><p>这个结构中的几个方法：
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">struct interface_proto_state {
+    const struct proto_handler *handler; //其对应的proto handler
+    struct interface_t *iface; //其attach的interface
+
+    /* 由proto的user来赋值，对于interface，被统一赋值为了interface_proto_cb */
+    void (*proto_event)(struct interface_proto_state *, enum interface_proto_event ev);
+
+    /* 由特定proto handler来赋值。 */
+    int (*notify)(struct interface_proto_state *, struct blob_attr *data);
+    int (*cb)(struct interface_proto_state *, enum interface_proto_cmd cmd, bool force);
+    void (*free)(struct interface_proto_state *);
+};
+12345678910111213
+</code></pre></div><p>这个结构中的几个方法：
 <strong>cb</strong>: 在interface向proto发送某个事件event时，proto的处理函数。目前proto接受的事件有两个：PROTO_CMD_SETUP和PROTO_CMD_TEARDOWN。
 <strong>proto_event</strong>: 在proto处理event完成后，如果需要告知interface处理已完成，就调用该方法。Interface会根据这个回复的消息做这个event的收尾工作。
 <strong>notify</strong>: 如果proto需要主动改变interface的状态，则调用该方法。可以在/lib/netifd/netifd-proto.sh中去了解不同”action”的值的含义以及如何通过ubus通知到netifd的，netifd收到notify的消息后，由proto_shell_notify()进行处理。
@@ -437,7 +437,7 @@ Interface配置完成后，是否可以UP或DOWN由available和autostart两个�
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

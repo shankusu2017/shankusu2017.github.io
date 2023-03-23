@@ -254,21 +254,21 @@
 <p>为什么会要想去抢占 P 呢，说白了就是不抢，就没机会运行，会 hang 死。又或是资源分配不均了，</p>
 <p>这在调度器设计中显然是不合理的。</p>
 <p>跟这个例子一样：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>// Main Goroutine 
-</span></span><span style="display:flex;"><span>func main() {
-</span></span><span style="display:flex;"><span>    // 模拟单核 CPU
-</span></span><span style="display:flex;"><span>    runtime.GOMAXPROCS(1)
-</span></span><span style="display:flex;"><span>    
-</span></span><span style="display:flex;"><span>    // 模拟 Goroutine 死循环
-</span></span><span style="display:flex;"><span>    go func() {
-</span></span><span style="display:flex;"><span>        for {
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>    }()
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>    time.Sleep(time.Millisecond)
-</span></span><span style="display:flex;"><span>    fmt.Println(&#34;脑子进煎鱼了&#34;)
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>这个例子在老版本的 Go 语言中，就会一直阻塞，没法重见天日，是一个需要做抢占的场景。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">// Main Goroutine 
+func main() {
+    // 模拟单核 CPU
+    runtime.GOMAXPROCS(1)
+    
+    // 模拟 Goroutine 死循环
+    go func() {
+        for {
+        }
+    }()
+
+    time.Sleep(time.Millisecond)
+    fmt.Println(&#34;脑子进煎鱼了&#34;)
+}
+</code></pre></div><p>这个例子在老版本的 Go 语言中，就会一直阻塞，没法重见天日，是一个需要做抢占的场景。</p>
 <p>但可能会有小伙伴问，抢占了，会不会有新问题。因为原本正在使用 P 的 M 就凉凉了（M 会与 P 进行绑定），没了 P 也就没法继续执行了。</p>
 <p>这其实没有问题，因为该 Goroutine 已经阻塞在了系统调用上，暂时是不会有后续的执行新诉求。</p>
 <p>但万一代码是在运行了好一段时间后又能够运行了（业务上也允许长等待），也就是该 Goroutine 从阻塞状态中恢复了，期望继续运行，没了 P 怎么办？</p>
@@ -286,62 +286,62 @@
 <li>抢占运行时间过长的 G。</li>
 </ul>
 <p>在此主要针对抢占 P 的场景，分析如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func retake(now int64) uint32 {
-</span></span><span style="display:flex;"><span> n := 0
-</span></span><span style="display:flex;"><span> // 防止发生变更，对所有 P 加锁
-</span></span><span style="display:flex;"><span> lock(&amp;allpLock)
-</span></span><span style="display:flex;"><span> // 走入主逻辑，对所有 P 开始循环处理
-</span></span><span style="display:flex;"><span> for i := 0; i &lt; len(allp); i++ {
-</span></span><span style="display:flex;"><span>  _p_ := allp[i]
-</span></span><span style="display:flex;"><span>  pd := &amp;_p_.sysmontick
-</span></span><span style="display:flex;"><span>  s := _p_.status
-</span></span><span style="display:flex;"><span>  sysretake := false
-</span></span><span style="display:flex;"><span>  ...
-</span></span><span style="display:flex;"><span>  if s == _Psyscall {
-</span></span><span style="display:flex;"><span>   // 判断是否超过 1 个 sysmon tick 周期
-</span></span><span style="display:flex;"><span>   t := int64(_p_.syscalltick)
-</span></span><span style="display:flex;"><span>   if !sysretake &amp;&amp; int64(pd.syscalltick) != t {
-</span></span><span style="display:flex;"><span>    pd.syscalltick = uint32(t)
-</span></span><span style="display:flex;"><span>    pd.syscallwhen = now
-</span></span><span style="display:flex;"><span>    continue
-</span></span><span style="display:flex;"><span>   }
-</span></span><span style="display:flex;"><span>      
-</span></span><span style="display:flex;"><span>   ...
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> unlock(&amp;allpLock)
-</span></span><span style="display:flex;"><span> return uint32(n)
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>该方法会先对 <code>allpLock</code> 上锁，这个变量含义如其名，<code>allpLock</code> 可以防止该数组发生变化。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func retake(now int64) uint32 {
+ n := 0
+ // 防止发生变更，对所有 P 加锁
+ lock(&amp;allpLock)
+ // 走入主逻辑，对所有 P 开始循环处理
+ for i := 0; i &lt; len(allp); i++ {
+  _p_ := allp[i]
+  pd := &amp;_p_.sysmontick
+  s := _p_.status
+  sysretake := false
+  ...
+  if s == _Psyscall {
+   // 判断是否超过 1 个 sysmon tick 周期
+   t := int64(_p_.syscalltick)
+   if !sysretake &amp;&amp; int64(pd.syscalltick) != t {
+    pd.syscalltick = uint32(t)
+    pd.syscallwhen = now
+    continue
+   }
+      
+   ...
+  }
+ }
+ unlock(&amp;allpLock)
+ return uint32(n)
+}
+</code></pre></div><p>该方法会先对 <code>allpLock</code> 上锁，这个变量含义如其名，<code>allpLock</code> 可以防止该数组发生变化。</p>
 <p>其会保护 <code>allp</code>、<code>idlepMask</code> 和 <code>timerpMask</code> 属性的无 <code>P</code> 读取和大小变化，以及对 <code>allp</code> 的所有写入操作，可以避免影响后续的操作。</p>
 <h3 id="场景一">场景一</h3>
 <p>前置处理完毕后，进入主逻辑，会使用万能的 <code>for</code> 循环对所有的 P（allp）进行一个个处理。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>   t := int64(_p_.syscalltick)
-</span></span><span style="display:flex;"><span>   if !sysretake &amp;&amp; int64(pd.syscalltick) != t {
-</span></span><span style="display:flex;"><span>    pd.syscalltick = uint32(t)
-</span></span><span style="display:flex;"><span>    pd.syscallwhen = now
-</span></span><span style="display:flex;"><span>    continue
-</span></span><span style="display:flex;"><span>   }
-</span></span></code></pre></div><p>第一个场景是：会对 <code>syscalltick</code> 进行判定，如果在系统调用（syscall）中存在超过 1 个 sysmon tick 周期（至少 20us）的任务，则会从系统调用中抢占 P，否则跳过。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">   t := int64(_p_.syscalltick)
+   if !sysretake &amp;&amp; int64(pd.syscalltick) != t {
+    pd.syscalltick = uint32(t)
+    pd.syscallwhen = now
+    continue
+   }
+</code></pre></div><p>第一个场景是：会对 <code>syscalltick</code> 进行判定，如果在系统调用（syscall）中存在超过 1 个 sysmon tick 周期（至少 20us）的任务，则会从系统调用中抢占 P，否则跳过。</p>
 <h3 id="场景二">场景二</h3>
 <p>如果未满足会继续往下，走到如下逻辑：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func retake(now int64) uint32 {
-</span></span><span style="display:flex;"><span> for i := 0; i &lt; len(allp); i++ {
-</span></span><span style="display:flex;"><span>  ...
-</span></span><span style="display:flex;"><span>  if s == _Psyscall {
-</span></span><span style="display:flex;"><span>   // 从此处开始分析
-</span></span><span style="display:flex;"><span>   if runqempty(_p_) &amp;&amp; 
-</span></span><span style="display:flex;"><span>      atomic.Load(&amp;sched.nmspinning)+atomic.Load(&amp;sched.npidle) &gt; 0 &amp;&amp; 
-</span></span><span style="display:flex;"><span>      pd.syscallwhen+10*1000*1000 &gt; now {
-</span></span><span style="display:flex;"><span>    continue
-</span></span><span style="display:flex;"><span>   }
-</span></span><span style="display:flex;"><span>   ...
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> unlock(&amp;allpLock)
-</span></span><span style="display:flex;"><span> return uint32(n)
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>第二个场景，聚焦到这一长串的判断中：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func retake(now int64) uint32 {
+ for i := 0; i &lt; len(allp); i++ {
+  ...
+  if s == _Psyscall {
+   // 从此处开始分析
+   if runqempty(_p_) &amp;&amp; 
+      atomic.Load(&amp;sched.nmspinning)+atomic.Load(&amp;sched.npidle) &gt; 0 &amp;&amp; 
+      pd.syscallwhen+10*1000*1000 &gt; now {
+    continue
+   }
+   ...
+  }
+ }
+ unlock(&amp;allpLock)
+ return uint32(n)
+}
+</code></pre></div><p>第二个场景，聚焦到这一长串的判断中：</p>
 <ul>
 <li><code>runqempty(_p_) == true</code> 方法会判断任务队列 P 是否为空，以此来检测有没有其他任务需要执行。</li>
 <li><code>atomic.Load(&amp;sched.nmspinning)+atomic.Load(&amp;sched.npidle) &gt; 0</code> 会判断是否存在空闲 P 和正在进行调度窃取 G 的 P。</li>
@@ -350,30 +350,30 @@
 <p>这里奇怪的是 <code>runqempty</code> 方法明明已经判断了没有其他任务，这就代表了没有任务需要执行，是不需要抢夺 P 的。</p>
 <p>但实际情况是，由于可能会阻止 sysmon 线程的深度睡眠，最终还是希望继续占有 P。</p>
 <p>在完成上述判断后，进入到抢夺 P 的阶段：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>func retake(now int64) uint32 {
-</span></span><span style="display:flex;"><span> for i := 0; i &lt; len(allp); i++ {
-</span></span><span style="display:flex;"><span>  ...
-</span></span><span style="display:flex;"><span>  if s == _Psyscall {
-</span></span><span style="display:flex;"><span>   // 承接上半部分
-</span></span><span style="display:flex;"><span>   unlock(&amp;allpLock)
-</span></span><span style="display:flex;"><span>   incidlelocked(-1)
-</span></span><span style="display:flex;"><span>   if atomic.Cas(&amp;_p_.status, s, _Pidle) {
-</span></span><span style="display:flex;"><span>    if trace.enabled {
-</span></span><span style="display:flex;"><span>     traceGoSysBlock(_p_)
-</span></span><span style="display:flex;"><span>     traceProcStop(_p_)
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    n++
-</span></span><span style="display:flex;"><span>    _p_.syscalltick++
-</span></span><span style="display:flex;"><span>    handoffp(_p_)
-</span></span><span style="display:flex;"><span>   }
-</span></span><span style="display:flex;"><span>   incidlelocked(1)
-</span></span><span style="display:flex;"><span>   lock(&amp;allpLock)
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span> }
-</span></span><span style="display:flex;"><span> unlock(&amp;allpLock)
-</span></span><span style="display:flex;"><span> return uint32(n)
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">func retake(now int64) uint32 {
+ for i := 0; i &lt; len(allp); i++ {
+  ...
+  if s == _Psyscall {
+   // 承接上半部分
+   unlock(&amp;allpLock)
+   incidlelocked(-1)
+   if atomic.Cas(&amp;_p_.status, s, _Pidle) {
+    if trace.enabled {
+     traceGoSysBlock(_p_)
+     traceProcStop(_p_)
+    }
+    n++
+    _p_.syscalltick++
+    handoffp(_p_)
+   }
+   incidlelocked(1)
+   lock(&amp;allpLock)
+  }
+ }
+ unlock(&amp;allpLock)
+ return uint32(n)
+}
+</code></pre></div><ul>
 <li>解锁相关属性：需要调用 <code>unlock</code> 方法解锁 <code>allpLock</code>，从而实现获取 <code>sched.lock</code>，以便继续下一步。</li>
 <li>减少闲置 M：需要在原子操作（CAS）之前减少闲置 M 的数量（假设有一个正在运行）。否则在发生抢夺 M 时可能会退出系统调用，递增 nmidle 并报告死锁事件。</li>
 <li>修改 P 状态：调用 <code>atomic.Cas</code> 方法将所抢夺的 P 状态设为 idle，以便于交于其他 M 使用。</li>
@@ -469,7 +469,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

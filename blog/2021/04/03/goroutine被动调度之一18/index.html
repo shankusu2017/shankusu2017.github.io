@@ -241,46 +241,46 @@
 <p>本章主要分析我们称之为被动调度的第1种调度，剩下的两种调度将在后面两章分别进行讨论。</p>
 <p>Demo例子</p>
 <p>我们以一个demo程序为例来分析因阻塞而发生的被动调度。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">package</span> main
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">start</span>(c <span style="color:#00f">chan</span> <span style="color:#00f">int</span>) {
-</span></span><span style="display:flex;"><span>    c &lt;- 100
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-</span></span><span style="display:flex;"><span>    c := make(<span style="color:#00f">chan</span> <span style="color:#00f">int</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">go</span> <span style="color:#c34e00">start</span>(c)
-</span></span><span style="display:flex;"><span>    &lt;-c
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>该程序启动时，main goroutine首先会创建一个无缓存的channel，然后启动一个goroutine(为了方便讨论我们称它为g2)向channel发送数据，而main自己则去读取这个channel。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">package</span> main
+ 
+<span style="color:#00f">func</span> <span style="color:#c34e00">start</span>(c <span style="color:#00f">chan</span> <span style="color:#00f">int</span>) {
+    c &lt;- 100
+}
+<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+    c := make(<span style="color:#00f">chan</span> <span style="color:#00f">int</span>)
+    <span style="color:#00f">go</span> <span style="color:#c34e00">start</span>(c)
+    &lt;-c
+}
+</code></pre></div><p>该程序启动时，main goroutine首先会创建一个无缓存的channel，然后启动一个goroutine(为了方便讨论我们称它为g2)向channel发送数据，而main自己则去读取这个channel。</p>
 <p>这两个goroutine读写channel时一定会发生一次阻塞，不是main goroutine读取channel时发生阻塞就是g2写入channel时发生阻塞。</p>
 <p>创建g2 goroutine</p>
 <p>首先用gdb反汇编一下main函数，看看汇编代码。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>0x44f4d0 &lt;+0&gt;: mov   %fs:0xfffffffffffffff8,%rcx
-</span></span><span style="display:flex;"><span>0x44f4d9 &lt;+9&gt;: cmp   0x10(%rcx),%rsp
-</span></span><span style="display:flex;"><span>0x44f4dd &lt;+13&gt;: jbe   0x44f549 &lt;main.main+121&gt;
-</span></span><span style="display:flex;"><span>0x44f4df &lt;+15&gt;: sub   $0x28,%rsp
-</span></span><span style="display:flex;"><span>0x44f4e3 &lt;+19&gt;: mov   %rbp,0x20(%rsp)
-</span></span><span style="display:flex;"><span>0x44f4e8 &lt;+24&gt;: lea   0x20(%rsp),%rbp
-</span></span><span style="display:flex;"><span>0x44f4ed &lt;+29&gt;: lea   0xb36c(%rip),%rax        
-</span></span><span style="display:flex;"><span>0x44f4f4 &lt;+36&gt;: mov   %rax,(%rsp)
-</span></span><span style="display:flex;"><span>0x44f4f8 &lt;+40&gt;: movq   $0x0,0x8(%rsp)
-</span></span><span style="display:flex;"><span>0x44f501 &lt;+49&gt;: callq    0x404330 &lt;runtime.makechan&gt;  <span style="color:#f00;font-style:italic">#创建channel</span>
-</span></span><span style="display:flex;"><span>0x44f506 &lt;+54&gt;: mov   0x10(%rsp),%rax
-</span></span><span style="display:flex;"><span>0x44f50b &lt;+59&gt;: mov   %rax,0x18(%rsp)
-</span></span><span style="display:flex;"><span>0x44f510 &lt;+64&gt;: movl   $0x8,(%rsp)
-</span></span><span style="display:flex;"><span>0x44f517 &lt;+71&gt;: lea   0x240f2(%rip),%rcx        
-</span></span><span style="display:flex;"><span>0x44f51e &lt;+78&gt;: mov   %rcx,0x8(%rsp)
-</span></span><span style="display:flex;"><span>0x44f523 &lt;+83&gt;: callq   0x42c1b0 &lt;runtime.newproc&gt; <span style="color:#f00;font-style:italic">#创建goroutine</span>
-</span></span><span style="display:flex;"><span>0x44f528 &lt;+88&gt;: mov   0x18(%rsp),%rax
-</span></span><span style="display:flex;"><span>0x44f52d &lt;+93&gt;: mov   %rax,(%rsp)
-</span></span><span style="display:flex;"><span>0x44f531 &lt;+97&gt;: movq   $0x0,0x8(%rsp)
-</span></span><span style="display:flex;"><span>0x44f53a &lt;+106&gt;: callq   0x405080 &lt;runtime.chanrecv1&gt; <span style="color:#f00;font-style:italic">#从channel读取数据</span>
-</span></span><span style="display:flex;"><span>0x44f53f &lt;+111&gt;: mov   0x20(%rsp),%rbp
-</span></span><span style="display:flex;"><span>0x44f544 &lt;+116&gt;: add   $0x28,%rsp
-</span></span><span style="display:flex;"><span>0x44f548 &lt;+120&gt;: retq   
-</span></span><span style="display:flex;"><span>0x44f549 &lt;+121&gt;: callq 0x447390 &lt;runtime.morestack_noctxt&gt;
-</span></span><span style="display:flex;"><span>0x44f54e &lt;+126&gt;: jmp   0x44f4d0 &lt;main.main&gt;
-</span></span></code></pre></div><p>从main函数的汇编代码我们可以看到，创建goroutine的go关键字被编译器翻译成了对runtime.newproc函数的调用，第二章我们对这个函数的主要流程做过详细分析，这里简单的回顾一下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">0x44f4d0 &lt;+0&gt;: mov   %fs:0xfffffffffffffff8,%rcx
+0x44f4d9 &lt;+9&gt;: cmp   0x10(%rcx),%rsp
+0x44f4dd &lt;+13&gt;: jbe   0x44f549 &lt;main.main+121&gt;
+0x44f4df &lt;+15&gt;: sub   $0x28,%rsp
+0x44f4e3 &lt;+19&gt;: mov   %rbp,0x20(%rsp)
+0x44f4e8 &lt;+24&gt;: lea   0x20(%rsp),%rbp
+0x44f4ed &lt;+29&gt;: lea   0xb36c(%rip),%rax        
+0x44f4f4 &lt;+36&gt;: mov   %rax,(%rsp)
+0x44f4f8 &lt;+40&gt;: movq   $0x0,0x8(%rsp)
+0x44f501 &lt;+49&gt;: callq    0x404330 &lt;runtime.makechan&gt;  <span style="color:#f00;font-style:italic">#创建channel</span>
+0x44f506 &lt;+54&gt;: mov   0x10(%rsp),%rax
+0x44f50b &lt;+59&gt;: mov   %rax,0x18(%rsp)
+0x44f510 &lt;+64&gt;: movl   $0x8,(%rsp)
+0x44f517 &lt;+71&gt;: lea   0x240f2(%rip),%rcx        
+0x44f51e &lt;+78&gt;: mov   %rcx,0x8(%rsp)
+0x44f523 &lt;+83&gt;: callq   0x42c1b0 &lt;runtime.newproc&gt; <span style="color:#f00;font-style:italic">#创建goroutine</span>
+0x44f528 &lt;+88&gt;: mov   0x18(%rsp),%rax
+0x44f52d &lt;+93&gt;: mov   %rax,(%rsp)
+0x44f531 &lt;+97&gt;: movq   $0x0,0x8(%rsp)
+0x44f53a &lt;+106&gt;: callq   0x405080 &lt;runtime.chanrecv1&gt; <span style="color:#f00;font-style:italic">#从channel读取数据</span>
+0x44f53f &lt;+111&gt;: mov   0x20(%rsp),%rbp
+0x44f544 &lt;+116&gt;: add   $0x28,%rsp
+0x44f548 &lt;+120&gt;: retq   
+0x44f549 &lt;+121&gt;: callq 0x447390 &lt;runtime.morestack_noctxt&gt;
+0x44f54e &lt;+126&gt;: jmp   0x44f4d0 &lt;main.main&gt;
+</code></pre></div><p>从main函数的汇编代码我们可以看到，创建goroutine的go关键字被编译器翻译成了对runtime.newproc函数的调用，第二章我们对这个函数的主要流程做过详细分析，这里简单的回顾一下：</p>
 <p>切换到g0栈；</p>
 <p>分配g结构体对象；</p>
 <p>初始化g对应的栈信息，并把参数拷贝到新g的栈上；</p>
@@ -289,231 +289,231 @@
 <p>返回</p>
 <p>因为当时我们的主要目标是调度器的初始化部分，所以并没有详细分析上述流程中的第5步，也就是runqput是如何把goroutine放入运行队列的，现在就回头分析一下这个过程，下面我们直接从runqput函数开始。</p>
 <p>通过runqput函数把goroutine挂入运行队列</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 4746
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// runqput tries to put g on the local runnable queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// If next is false, runqput adds g to the tail of the runnable queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// If next is true, runqput puts g in the _p_.runnext slot.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// If the run queue is full, runnext puts g on the global queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Executed only by the owner P.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">runqput</span>(_p_ *p, gp *g, next <span style="color:#00f">bool</span>)   {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> randomizeScheduler &amp;&amp; next &amp;&amp; <span style="color:#c34e00">fastrand</span>() % 2 == 0  {
-</span></span><span style="display:flex;"><span>        next = <span style="color:#00f">false</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> next  {
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//把gp放在_p_.runnext成员里，
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//runnext成员中的goroutine会被优先调度起来运行
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    retryNext:
-</span></span><span style="display:flex;"><span>        oldnext := _p_.runnext
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> !_p_.runnext.<span style="color:#c34e00">cas</span>(oldnext, <span style="color:#c34e00">guintptr</span>(unsafe.<span style="color:#c34e00">Pointer</span>(gp)))  {
-</span></span><span style="display:flex;"><span>             <span style="color:#f00;font-style:italic">//有其它线程在操作runnext成员，需要重试
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">goto</span> retryNext
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> oldnext == 0  { <span style="color:#f00;font-style:italic">//原本runnext为nil，所以没任何事情可做了，直接返回
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">return</span>
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// Kick the old runnext out to the regular run queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        gp = oldnext.<span style="color:#c34e00">ptr</span>() <span style="color:#f00;font-style:italic">//原本存放在runnext的gp需要放入runq的尾部
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>retry:
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//可能有其它线程正在并发修改runqhead成员，所以需要跟其它线程同步
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    h := atomic.<span style="color:#c34e00">LoadAcq</span>(&amp;_p_.runqhead) <span style="color:#f00;font-style:italic">// load-acquire, synchronize with consumers
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    t := _p_.runqtail
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> t - h &lt; uint32(len(_p_.runq))  { <span style="color:#f00;font-style:italic">//判断队列是否满了
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//队列还没有满，可以放入
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        _p_.runq[t % uint32(len(_p_.runq))].<span style="color:#c34e00">set</span>(gp)
-</span></span><span style="display:flex;"><span>       
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// store-release, makes it available for consumption
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//虽然没有其它线程并发修改这个runqtail，但其它线程会并发读取该值以及p的runq成员
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//这里使用StoreRel是为了：
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//1，原子写入runqtail
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//2，防止编译器和CPU乱序，保证上一行代码对runq的修改发生在修改runqtail之前
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//3，可见行屏障，保证当前线程对运行队列的修改对其它线程立马可见
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        atomic.<span style="color:#c34e00">StoreRel</span>(&amp;_p_.runqtail, t + 1) 
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//p的本地运行队列已满，需要放入全局运行队列
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> <span style="color:#c34e00">runqputslow</span>(_p_, gp, h, t) {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// the queue is not full, now the put above must succeed
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">goto</span> retry
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>runqput函数流程很清晰，它首先尝试把gp放入_p_的本地运行队列，如果本地队列满了，则通过runqputslow函数把gp放入全局运行队列。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 4784
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Put g and a batch of work from local runnable queue on global queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Executed only by the owner P.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">runqputslow</span>(_p_ *p, gp *g, h, t <span style="color:#00f">uint32</span>) <span style="color:#00f">bool</span>  {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">var</span> batch [len(_p_.runq) / 2 + 1]*g  <span style="color:#f00;font-style:italic">//gp加上_p_本地队列的一半
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// First, grab a batch from local queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    n := t - h
-</span></span><span style="display:flex;"><span>    n = n / 2
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> n != uint32(len(_p_.runq) / 2)  {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;runqputslow: queue is not full&#34;</span>)
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> i := uint32(0); i &lt; n; i++ { <span style="color:#f00;font-style:italic">//取出p本地队列的一半
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        batch[i] = _p_.runq[(h+i) % uint32(len(_p_.runq))].<span style="color:#c34e00">ptr</span>()
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> !atomic.<span style="color:#c34e00">CasRel</span>(&amp;_p_.runqhead, h, h + n)  { <span style="color:#f00;font-style:italic">// cas-release, commits consume
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//如果cas操作失败，说明已经有其它工作线程从_p_的本地运行队列偷走了一些goroutine，所以直接返回
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">return</span> <span style="color:#00f">false</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    batch[n] = gp
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> randomizeScheduler {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> i := uint32(1); i &lt;= n; i++ {
-</span></span><span style="display:flex;"><span>            j := <span style="color:#c34e00">fastrandn</span>(i + 1)
-</span></span><span style="display:flex;"><span>            batch[i], batch[j] = batch[j], batch[i]
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Link the goroutines.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//全局运行队列是一个链表，这里首先把所有需要放入全局运行队列的g链接起来，
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//减少后面对全局链表的锁住时间，从而降低锁冲突
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> i := uint32(0); i &lt; n; i++  {
-</span></span><span style="display:flex;"><span>        batch[i].schedlink.<span style="color:#c34e00">set</span>(batch[i+1])
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">var</span> q gQueue
-</span></span><span style="display:flex;"><span>    q.head.<span style="color:#c34e00">set</span>(batch[0])
-</span></span><span style="display:flex;"><span>    q.tail.<span style="color:#c34e00">set</span>(batch[n])
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Now put the batch on global queue.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">lock</span>(&amp;sched.lock)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">globrunqputbatch</span>(&amp;q, int32(n+1))
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">unlock</span>(&amp;sched.lock)
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> <span style="color:#00f">true</span>
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>runqputslow函数首先使用链表把从_p_的本地队列中取出的一半连同gp一起串联起来，然后在加锁成功之后通过globrunqputbatch函数把该链表链入全局运行队列（全局运行队列是使用链表实现的）。值的一提的是runqputslow函数并没有一开始就把全局运行队列锁住，而是等所有的准备工作做完之后才锁住全局运行队列，这是并发编程加锁的基本原则，需要尽量减小锁的粒度，降低锁冲突的概率。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 4746
+
+<span style="color:#f00;font-style:italic">// runqput tries to put g on the local runnable queue.
+</span><span style="color:#f00;font-style:italic">// If next is false, runqput adds g to the tail of the runnable queue.
+</span><span style="color:#f00;font-style:italic">// If next is true, runqput puts g in the _p_.runnext slot.
+</span><span style="color:#f00;font-style:italic">// If the run queue is full, runnext puts g on the global queue.
+</span><span style="color:#f00;font-style:italic">// Executed only by the owner P.
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">runqput</span>(_p_ *p, gp *g, next <span style="color:#00f">bool</span>)   {
+    <span style="color:#00f">if</span> randomizeScheduler &amp;&amp; next &amp;&amp; <span style="color:#c34e00">fastrand</span>() % 2 == 0  {
+        next = <span style="color:#00f">false</span>
+    }
+ 
+    <span style="color:#00f">if</span> next  {
+        <span style="color:#f00;font-style:italic">//把gp放在_p_.runnext成员里，
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//runnext成员中的goroutine会被优先调度起来运行
+</span><span style="color:#f00;font-style:italic"></span>    retryNext:
+        oldnext := _p_.runnext
+        <span style="color:#00f">if</span> !_p_.runnext.<span style="color:#c34e00">cas</span>(oldnext, <span style="color:#c34e00">guintptr</span>(unsafe.<span style="color:#c34e00">Pointer</span>(gp)))  {
+             <span style="color:#f00;font-style:italic">//有其它线程在操作runnext成员，需要重试
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">goto</span> retryNext
+        }
+        <span style="color:#00f">if</span> oldnext == 0  { <span style="color:#f00;font-style:italic">//原本runnext为nil，所以没任何事情可做了，直接返回
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">return</span>
+        }
+        <span style="color:#f00;font-style:italic">// Kick the old runnext out to the regular run queue.
+</span><span style="color:#f00;font-style:italic"></span>        gp = oldnext.<span style="color:#c34e00">ptr</span>() <span style="color:#f00;font-style:italic">//原本存放在runnext的gp需要放入runq的尾部
+</span><span style="color:#f00;font-style:italic"></span>    }
+ 
+retry:
+    <span style="color:#f00;font-style:italic">//可能有其它线程正在并发修改runqhead成员，所以需要跟其它线程同步
+</span><span style="color:#f00;font-style:italic"></span>    h := atomic.<span style="color:#c34e00">LoadAcq</span>(&amp;_p_.runqhead) <span style="color:#f00;font-style:italic">// load-acquire, synchronize with consumers
+</span><span style="color:#f00;font-style:italic"></span>    t := _p_.runqtail
+    <span style="color:#00f">if</span> t - h &lt; uint32(len(_p_.runq))  { <span style="color:#f00;font-style:italic">//判断队列是否满了
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//队列还没有满，可以放入
+</span><span style="color:#f00;font-style:italic"></span>        _p_.runq[t % uint32(len(_p_.runq))].<span style="color:#c34e00">set</span>(gp)
+       
+        <span style="color:#f00;font-style:italic">// store-release, makes it available for consumption
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//虽然没有其它线程并发修改这个runqtail，但其它线程会并发读取该值以及p的runq成员
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//这里使用StoreRel是为了：
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//1，原子写入runqtail
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//2，防止编译器和CPU乱序，保证上一行代码对runq的修改发生在修改runqtail之前
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//3，可见行屏障，保证当前线程对运行队列的修改对其它线程立马可见
+</span><span style="color:#f00;font-style:italic"></span>        atomic.<span style="color:#c34e00">StoreRel</span>(&amp;_p_.runqtail, t + 1) 
+        <span style="color:#00f">return</span>
+    }
+    <span style="color:#f00;font-style:italic">//p的本地运行队列已满，需要放入全局运行队列
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> <span style="color:#c34e00">runqputslow</span>(_p_, gp, h, t) {
+        <span style="color:#00f">return</span>
+    }
+    <span style="color:#f00;font-style:italic">// the queue is not full, now the put above must succeed
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">goto</span> retry
+}
+</code></pre></div><p>runqput函数流程很清晰，它首先尝试把gp放入_p_的本地运行队列，如果本地队列满了，则通过runqputslow函数把gp放入全局运行队列。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 4784
+
+<span style="color:#f00;font-style:italic">// Put g and a batch of work from local runnable queue on global queue.
+</span><span style="color:#f00;font-style:italic">// Executed only by the owner P.
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">runqputslow</span>(_p_ *p, gp *g, h, t <span style="color:#00f">uint32</span>) <span style="color:#00f">bool</span>  {
+    <span style="color:#00f">var</span> batch [len(_p_.runq) / 2 + 1]*g  <span style="color:#f00;font-style:italic">//gp加上_p_本地队列的一半
+</span><span style="color:#f00;font-style:italic"></span> 
+    <span style="color:#f00;font-style:italic">// First, grab a batch from local queue.
+</span><span style="color:#f00;font-style:italic"></span>    n := t - h
+    n = n / 2
+    <span style="color:#00f">if</span> n != uint32(len(_p_.runq) / 2)  {
+        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;runqputslow: queue is not full&#34;</span>)
+    }
+    <span style="color:#00f">for</span> i := uint32(0); i &lt; n; i++ { <span style="color:#f00;font-style:italic">//取出p本地队列的一半
+</span><span style="color:#f00;font-style:italic"></span>        batch[i] = _p_.runq[(h+i) % uint32(len(_p_.runq))].<span style="color:#c34e00">ptr</span>()
+    }
+    <span style="color:#00f">if</span> !atomic.<span style="color:#c34e00">CasRel</span>(&amp;_p_.runqhead, h, h + n)  { <span style="color:#f00;font-style:italic">// cas-release, commits consume
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//如果cas操作失败，说明已经有其它工作线程从_p_的本地运行队列偷走了一些goroutine，所以直接返回
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">return</span> <span style="color:#00f">false</span>
+    }
+    batch[n] = gp
+    <span style="color:#00f">if</span> randomizeScheduler {
+        <span style="color:#00f">for</span> i := uint32(1); i &lt;= n; i++ {
+            j := <span style="color:#c34e00">fastrandn</span>(i + 1)
+            batch[i], batch[j] = batch[j], batch[i]
+        }
+    }
+    <span style="color:#f00;font-style:italic">// Link the goroutines.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//全局运行队列是一个链表，这里首先把所有需要放入全局运行队列的g链接起来，
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//减少后面对全局链表的锁住时间，从而降低锁冲突
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> i := uint32(0); i &lt; n; i++  {
+        batch[i].schedlink.<span style="color:#c34e00">set</span>(batch[i+1])
+    }
+    <span style="color:#00f">var</span> q gQueue
+    q.head.<span style="color:#c34e00">set</span>(batch[0])
+    q.tail.<span style="color:#c34e00">set</span>(batch[n])
+    <span style="color:#f00;font-style:italic">// Now put the batch on global queue.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">lock</span>(&amp;sched.lock)
+    <span style="color:#c34e00">globrunqputbatch</span>(&amp;q, int32(n+1))
+    <span style="color:#c34e00">unlock</span>(&amp;sched.lock)
+    <span style="color:#00f">return</span> <span style="color:#00f">true</span>
+}
+</code></pre></div><p>runqputslow函数首先使用链表把从_p_的本地队列中取出的一半连同gp一起串联起来，然后在加锁成功之后通过globrunqputbatch函数把该链表链入全局运行队列（全局运行队列是使用链表实现的）。值的一提的是runqputslow函数并没有一开始就把全局运行队列锁住，而是等所有的准备工作做完之后才锁住全局运行队列，这是并发编程加锁的基本原则，需要尽量减小锁的粒度，降低锁冲突的概率。</p>
 <p>分析完runqput函数是如何把goroutine放入运行队列之后，接下来我们继续分析main goroutine因读取channel而发生的阻塞流程。</p>
 <p>因读取channel阻塞而发生的被动调度</p>
 <p>从代码逻辑的角度来说，我们不能确定main goroutine和新创建出来的g2谁先运行，但对于我们分析来说我们可以假定某个goroutine先运行，因为不管谁先运行，都会阻塞在channel的读或则写上，所以这里我们假设main创建好g2后首先阻塞在了对channel的读操作上。下面我们看看读取channel的过程。</p>
 <p>从前面的反汇编代码我们知道读取channel是通过调用runtime.chanrecv1函数来完成的，我们就从它开始分析，不过在分析过程中我们不会把精力放在对channel的操作上，而是分析这个过程中跟调度有关的细节。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/<span style="color:#00f">chan</span>.<span style="color:#00f">go</span> : 403
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// entry points for &lt;- c from compiled code
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//go:nosplit
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">chanrecv1</span>(c *hchan, elem unsafe.Pointer) {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">chanrecv</span>(c, elem, <span style="color:#00f">true</span>)
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// runtime/chan.go : 415
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">chanrecv</span>(c *hchan, ep unsafe.Pointer, block <span style="color:#00f">bool</span>) (selected, received <span style="color:#00f">bool</span>) {
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//省略部分的代码逻辑主要在判断读取操作是否可以立即完成，如果不能立即完成
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//就需要把g挂在channel c的读取队列上，然后调用goparkunlock函数阻塞此goroutine
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">goparkunlock</span>(&amp;c.lock, waitReasonChanReceive, traceEvGoBlockRecv, 3)
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>chanrecv1直接调用chanrecv函数实现读取操作，chanrecv首先会判断channel是否有数据可读，如果有数据则直接读取并返回，但如果没有数据，则需要把当前goroutine挂入channel的读取队列之中并调用goparkunlock函数阻塞该goroutine.</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 304
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Puts the current goroutine into a waiting state and unlocks the lock.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// The goroutine can be made runnable again by calling goready(gp).
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">goparkunlock</span>(lock *mutex, reason waitReason, traceEv <span style="color:#00f">byte</span>, traceskip <span style="color:#00f">int</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">gopark</span>(parkunlock_c, unsafe.<span style="color:#c34e00">Pointer</span>(lock), reason, traceEv, traceskip)
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// runtime/proc.go : 276
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Puts the current goroutine into a waiting state and calls unlockf.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// If unlockf returns false, the goroutine is resumed.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// unlockf must not access this G&#39;s stack, as it may be moved between
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// the call to gopark and the call to unlockf.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Reason explains why the goroutine has been parked.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// It is displayed in stack traces and heap dumps.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Reasons should be unique and descriptive.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Do not re-use reasons, add new ones.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">gopark</span>(unlockf <span style="color:#00f">func</span>(*g, unsafe.Pointer) <span style="color:#00f">bool</span>, lock unsafe.Pointer, reason     waitReason,traceEv <span style="color:#00f">byte</span>, traceskip <span style="color:#00f">int</span>) {
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// can&#39;t do anything that might move the G between Ms here.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">mcall</span>(park_m) <span style="color:#f00;font-style:italic">//切换到g0栈执行park_m函数
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
-</span></span></code></pre></div><p>goparkunlock函数直接调用gopark函数，gopark则调用mcall从当前main goroutine切换到g0去执行park_m函数（mcall前面我们分析过，其主要作用就是保存当前goroutine的现场，然后切换到g0栈去调用作为参数传递给它的函数）</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 2581
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// park continuation on g0.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">park_m</span>(gp *g) {
-</span></span><span style="display:flex;"><span>    _g_ := <span style="color:#c34e00">getg</span>()
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> trace.enabled {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">traceGoPark</span>(_g_.m.waittraceev, _g_.m.waittraceskip)
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span> 
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">casgstatus</span>(gp, _Grunning, _Gwaiting)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">dropg</span>()  <span style="color:#f00;font-style:italic">//解除g和m之间的关系
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>   
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">schedule</span>()
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>park_m首先把当前goroutine的状态设置为_Gwaiting（因为它正在等待其它goroutine往channel里面写数据），然后调用dropg函数解除g和m之间的关系，最后通过调用schedule函数进入调度循环，schedule函数我们也详细分析过，它首先会从运行队列中挑选出一个goroutine，然后调用gogo函数切换到被挑选出来的goroutine去运行。因为main goroutine在读取channel被阻塞之前已经把创建好的g2放入了运行队列，所以在这里schedule会把g2调度起来运行，这里完成了一次从main goroutine到g2调度（我们假设只有一个工作线程在进行调度）。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/<span style="color:#00f">chan</span>.<span style="color:#00f">go</span> : 403
+
+<span style="color:#f00;font-style:italic">// entry points for &lt;- c from compiled code
+</span><span style="color:#f00;font-style:italic">//go:nosplit
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">chanrecv1</span>(c *hchan, elem unsafe.Pointer) {
+    <span style="color:#c34e00">chanrecv</span>(c, elem, <span style="color:#00f">true</span>)
+}
+<span style="color:#f00;font-style:italic">// runtime/chan.go : 415
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">chanrecv</span>(c *hchan, ep unsafe.Pointer, block <span style="color:#00f">bool</span>) (selected, received <span style="color:#00f">bool</span>) {
+    ......
+    <span style="color:#f00;font-style:italic">//省略部分的代码逻辑主要在判断读取操作是否可以立即完成，如果不能立即完成
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//就需要把g挂在channel c的读取队列上，然后调用goparkunlock函数阻塞此goroutine
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">goparkunlock</span>(&amp;c.lock, waitReasonChanReceive, traceEvGoBlockRecv, 3)
+    ......
+}
+</code></pre></div><p>chanrecv1直接调用chanrecv函数实现读取操作，chanrecv首先会判断channel是否有数据可读，如果有数据则直接读取并返回，但如果没有数据，则需要把当前goroutine挂入channel的读取队列之中并调用goparkunlock函数阻塞该goroutine.</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 304
+
+<span style="color:#f00;font-style:italic">// Puts the current goroutine into a waiting state and unlocks the lock.
+</span><span style="color:#f00;font-style:italic">// The goroutine can be made runnable again by calling goready(gp).
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">goparkunlock</span>(lock *mutex, reason waitReason, traceEv <span style="color:#00f">byte</span>, traceskip <span style="color:#00f">int</span>) {
+    <span style="color:#c34e00">gopark</span>(parkunlock_c, unsafe.<span style="color:#c34e00">Pointer</span>(lock), reason, traceEv, traceskip)
+}
+ 
+<span style="color:#f00;font-style:italic">// runtime/proc.go : 276
+</span><span style="color:#f00;font-style:italic">// Puts the current goroutine into a waiting state and calls unlockf.
+</span><span style="color:#f00;font-style:italic">// If unlockf returns false, the goroutine is resumed.
+</span><span style="color:#f00;font-style:italic">// unlockf must not access this G&#39;s stack, as it may be moved between
+</span><span style="color:#f00;font-style:italic">// the call to gopark and the call to unlockf.
+</span><span style="color:#f00;font-style:italic">// Reason explains why the goroutine has been parked.
+</span><span style="color:#f00;font-style:italic">// It is displayed in stack traces and heap dumps.
+</span><span style="color:#f00;font-style:italic">// Reasons should be unique and descriptive.
+</span><span style="color:#f00;font-style:italic">// Do not re-use reasons, add new ones.
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">gopark</span>(unlockf <span style="color:#00f">func</span>(*g, unsafe.Pointer) <span style="color:#00f">bool</span>, lock unsafe.Pointer, reason     waitReason,traceEv <span style="color:#00f">byte</span>, traceskip <span style="color:#00f">int</span>) {
+    ......
+    <span style="color:#f00;font-style:italic">// can&#39;t do anything that might move the G between Ms here.
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">mcall</span>(park_m) <span style="color:#f00;font-style:italic">//切换到g0栈执行park_m函数
+</span><span style="color:#f00;font-style:italic"></span>}
+</code></pre></div><p>goparkunlock函数直接调用gopark函数，gopark则调用mcall从当前main goroutine切换到g0去执行park_m函数（mcall前面我们分析过，其主要作用就是保存当前goroutine的现场，然后切换到g0栈去调用作为参数传递给它的函数）</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 2581
+
+<span style="color:#f00;font-style:italic">// park continuation on g0.
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">park_m</span>(gp *g) {
+    _g_ := <span style="color:#c34e00">getg</span>()
+ 
+    <span style="color:#00f">if</span> trace.enabled {
+        <span style="color:#c34e00">traceGoPark</span>(_g_.m.waittraceev, _g_.m.waittraceskip)
+    }
+ 
+    <span style="color:#c34e00">casgstatus</span>(gp, _Grunning, _Gwaiting)
+    <span style="color:#c34e00">dropg</span>()  <span style="color:#f00;font-style:italic">//解除g和m之间的关系
+</span><span style="color:#f00;font-style:italic"></span> 
+    ......
+   
+    <span style="color:#c34e00">schedule</span>()
+}
+</code></pre></div><p>park_m首先把当前goroutine的状态设置为_Gwaiting（因为它正在等待其它goroutine往channel里面写数据），然后调用dropg函数解除g和m之间的关系，最后通过调用schedule函数进入调度循环，schedule函数我们也详细分析过，它首先会从运行队列中挑选出一个goroutine，然后调用gogo函数切换到被挑选出来的goroutine去运行。因为main goroutine在读取channel被阻塞之前已经把创建好的g2放入了运行队列，所以在这里schedule会把g2调度起来运行，这里完成了一次从main goroutine到g2调度（我们假设只有一个工作线程在进行调度）。</p>
 <p>唤醒阻塞在channel上的goroutine</p>
 <p>g2 goroutine的入口是start函数，下面我们就从该函数开始分析g2写channel的流程，看它如何唤醒正在等待着读取channel的main goroutine。还是先来反汇编一下start函数的代码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>0x44f480 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
-</span></span><span style="display:flex;"><span>0x44f489 &lt;+9&gt;:cmp   0x10(%rcx),%rsp
-</span></span><span style="display:flex;"><span>0x44f48d &lt;+13&gt;:jbe   0x44f4c1 &lt;main.start+65&gt;
-</span></span><span style="display:flex;"><span>0x44f48f &lt;+15&gt;:sub   $0x18,%rsp
-</span></span><span style="display:flex;"><span>0x44f493 &lt;+19&gt;:mov   %rbp,0x10(%rsp)
-</span></span><span style="display:flex;"><span>0x44f498 &lt;+24&gt;:lea   0x10(%rsp),%rbp
-</span></span><span style="display:flex;"><span>0x44f49d &lt;+29&gt;:mov   0x20(%rsp),%rax
-</span></span><span style="display:flex;"><span>0x44f4a2 &lt;+34&gt;:mov   %rax,(%rsp)
-</span></span><span style="display:flex;"><span>0x44f4a6 &lt;+38&gt;:lea   0x2d71b(%rip),%rax        
-</span></span><span style="display:flex;"><span>0x44f4ad &lt;+45&gt;:mov   %rax,0x8(%rsp)
-</span></span><span style="display:flex;"><span>0x44f4b2 &lt;+50&gt;:callq   0x404560 &lt;runtime.chansend1&gt; <span style="color:#f00;font-style:italic">#写channel</span>
-</span></span><span style="display:flex;"><span>0x44f4b7 &lt;+55&gt;:mov   0x10(%rsp),%rbp
-</span></span><span style="display:flex;"><span>0x44f4bc &lt;+60&gt;:add   $0x18,%rsp
-</span></span><span style="display:flex;"><span>0x44f4c0 &lt;+64&gt;:retq   
-</span></span><span style="display:flex;"><span>0x44f4c1 &lt;+65&gt;:callq    0x447390 &lt;runtime.morestack_noctxt&gt;
-</span></span><span style="display:flex;"><span>0x44f4c6 &lt;+70&gt;:jmp   0x44f480 &lt;main.start&gt;
-</span></span></code></pre></div><p>可以看到，编译器把对channel的发送操作翻译成了对runtime.chansend1函数的调用</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/<span style="color:#00f">chan</span>.<span style="color:#00f">go</span> : 124
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// entry point for c &lt;- x from compiled code
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//go:nosplit
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">chansend1</span>(c *hchan, elem unsafe.Pointer) {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">chansend</span>(c, elem, <span style="color:#00f">true</span>, <span style="color:#c34e00">getcallerpc</span>())
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// runtime/chan.go : 142
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">chansend</span>(c *hchan, ep unsafe.Pointer, block <span style="color:#00f">bool</span>, callerpc <span style="color:#00f">uintptr</span>) <span style="color:#00f">bool</span> {
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> sg := c.recvq.<span style="color:#c34e00">dequeue</span>(); sg != <span style="color:#00f">nil</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// Found a waiting receiver. We pass the value we want to send
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// directly to the receiver, bypassing the channel buffer (if any).
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//可以直接发送数据给sg
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">send</span>(c, sg, ep, <span style="color:#00f">func</span>() { <span style="color:#c34e00">unlock</span>(&amp;c.lock) }, 3)
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> <span style="color:#00f">true</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// runtime/chan.go : 269
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">send</span>(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf <span style="color:#00f">func</span>(), skip <span style="color:#00f">int</span>) {
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">goready</span>(gp, skip+1)
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// runtime/proc.go : 310
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">goready</span>(gp *g, traceskip <span style="color:#00f">int</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">systemstack</span>(<span style="color:#00f">func</span>() {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">ready</span>(gp, traceskip, <span style="color:#00f">true</span>)
-</span></span><span style="display:flex;"><span>    })
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>channel发送和读取的流程类似，如果能够立即发送则立即发送并返回，如果不能立即发送则需要阻塞，在我们这个场景中，因为main goroutine此时此刻正挂在channel的读取队列上等待数据，所以这里直接调用send函数发送给main goroutine，send函数则调用goready函数切换到g0栈并调用ready函数来唤醒sg对应的goroutine，即正在等待读channel的main goroutine。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 639
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Mark gp ready to run.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">ready</span>(gp *g, traceskip <span style="color:#00f">int</span>, next <span style="color:#00f">bool</span>) {
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Mark runnable.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    _g_ := <span style="color:#c34e00">getg</span>()
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// status is Gwaiting or Gscanwaiting, make Grunnable and put on runq
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">casgstatus</span>(gp, _Gwaiting, _Grunnable)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">runqput</span>(_g_.m.p.<span style="color:#c34e00">ptr</span>(), gp, next) <span style="color:#f00;font-style:italic">//放入运行队列
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> atomic.<span style="color:#c34e00">Load</span>(&amp;sched.npidle) != 0 &amp;&amp; atomic.<span style="color:#c34e00">Load</span>(&amp;sched.nmspinning) == 0 {
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//有空闲的p而且没有正在偷取goroutine的工作线程，则需要唤醒p出来工作
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">wakep</span>()
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    ......
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>ready函数首先把需要唤醒的goroutine的状态设置为_Grunnable，然后把其放入运行队列之中等待调度器的调度。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">0x44f480 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
+0x44f489 &lt;+9&gt;:cmp   0x10(%rcx),%rsp
+0x44f48d &lt;+13&gt;:jbe   0x44f4c1 &lt;main.start+65&gt;
+0x44f48f &lt;+15&gt;:sub   $0x18,%rsp
+0x44f493 &lt;+19&gt;:mov   %rbp,0x10(%rsp)
+0x44f498 &lt;+24&gt;:lea   0x10(%rsp),%rbp
+0x44f49d &lt;+29&gt;:mov   0x20(%rsp),%rax
+0x44f4a2 &lt;+34&gt;:mov   %rax,(%rsp)
+0x44f4a6 &lt;+38&gt;:lea   0x2d71b(%rip),%rax        
+0x44f4ad &lt;+45&gt;:mov   %rax,0x8(%rsp)
+0x44f4b2 &lt;+50&gt;:callq   0x404560 &lt;runtime.chansend1&gt; <span style="color:#f00;font-style:italic">#写channel</span>
+0x44f4b7 &lt;+55&gt;:mov   0x10(%rsp),%rbp
+0x44f4bc &lt;+60&gt;:add   $0x18,%rsp
+0x44f4c0 &lt;+64&gt;:retq   
+0x44f4c1 &lt;+65&gt;:callq    0x447390 &lt;runtime.morestack_noctxt&gt;
+0x44f4c6 &lt;+70&gt;:jmp   0x44f480 &lt;main.start&gt;
+</code></pre></div><p>可以看到，编译器把对channel的发送操作翻译成了对runtime.chansend1函数的调用</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/<span style="color:#00f">chan</span>.<span style="color:#00f">go</span> : 124
+
+<span style="color:#f00;font-style:italic">// entry point for c &lt;- x from compiled code
+</span><span style="color:#f00;font-style:italic">//go:nosplit
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">chansend1</span>(c *hchan, elem unsafe.Pointer) {
+    <span style="color:#c34e00">chansend</span>(c, elem, <span style="color:#00f">true</span>, <span style="color:#c34e00">getcallerpc</span>())
+}
+<span style="color:#f00;font-style:italic">// runtime/chan.go : 142
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">chansend</span>(c *hchan, ep unsafe.Pointer, block <span style="color:#00f">bool</span>, callerpc <span style="color:#00f">uintptr</span>) <span style="color:#00f">bool</span> {
+    ......
+    <span style="color:#00f">if</span> sg := c.recvq.<span style="color:#c34e00">dequeue</span>(); sg != <span style="color:#00f">nil</span> {
+        <span style="color:#f00;font-style:italic">// Found a waiting receiver. We pass the value we want to send
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// directly to the receiver, bypassing the channel buffer (if any).
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//可以直接发送数据给sg
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">send</span>(c, sg, ep, <span style="color:#00f">func</span>() { <span style="color:#c34e00">unlock</span>(&amp;c.lock) }, 3)
+        <span style="color:#00f">return</span> <span style="color:#00f">true</span>
+    }
+    ......
+}
+<span style="color:#f00;font-style:italic">// runtime/chan.go : 269
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">send</span>(c *hchan, sg *sudog, ep unsafe.Pointer, unlockf <span style="color:#00f">func</span>(), skip <span style="color:#00f">int</span>) {
+    ......
+    <span style="color:#c34e00">goready</span>(gp, skip+1)
+}
+<span style="color:#f00;font-style:italic">// runtime/proc.go : 310
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">goready</span>(gp *g, traceskip <span style="color:#00f">int</span>) {
+    <span style="color:#c34e00">systemstack</span>(<span style="color:#00f">func</span>() {
+        <span style="color:#c34e00">ready</span>(gp, traceskip, <span style="color:#00f">true</span>)
+    })
+}
+</code></pre></div><p>channel发送和读取的流程类似，如果能够立即发送则立即发送并返回，如果不能立即发送则需要阻塞，在我们这个场景中，因为main goroutine此时此刻正挂在channel的读取队列上等待数据，所以这里直接调用send函数发送给main goroutine，send函数则调用goready函数切换到g0栈并调用ready函数来唤醒sg对应的goroutine，即正在等待读channel的main goroutine。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 639
+
+<span style="color:#f00;font-style:italic">// Mark gp ready to run.
+</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">ready</span>(gp *g, traceskip <span style="color:#00f">int</span>, next <span style="color:#00f">bool</span>) {
+    ......
+    <span style="color:#f00;font-style:italic">// Mark runnable.
+</span><span style="color:#f00;font-style:italic"></span>    _g_ := <span style="color:#c34e00">getg</span>()
+    ......
+    <span style="color:#f00;font-style:italic">// status is Gwaiting or Gscanwaiting, make Grunnable and put on runq
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">casgstatus</span>(gp, _Gwaiting, _Grunnable)
+    <span style="color:#c34e00">runqput</span>(_g_.m.p.<span style="color:#c34e00">ptr</span>(), gp, next) <span style="color:#f00;font-style:italic">//放入运行队列
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> atomic.<span style="color:#c34e00">Load</span>(&amp;sched.npidle) != 0 &amp;&amp; atomic.<span style="color:#c34e00">Load</span>(&amp;sched.nmspinning) == 0 {
+        <span style="color:#f00;font-style:italic">//有空闲的p而且没有正在偷取goroutine的工作线程，则需要唤醒p出来工作
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">wakep</span>()
+    }
+    ......
+}
+</code></pre></div><p>ready函数首先把需要唤醒的goroutine的状态设置为_Grunnable，然后把其放入运行队列之中等待调度器的调度。</p>
 <p>对于本章我们分析的场景，执行到这里main goroutine已经被放入了运行队列，但还未被调度起来运行，而g2 goroutine在向channel写完数据之后就从这里的ready函数返回并退出了，从第二章我们对goroutine的退出流程的分析可以得知，在g2的退出过程中将会在goexit0函数中调用schedule函数进入下一轮调度，从而把刚刚放入运行队列的main goroutine调度起来运行。</p>
 <p>在上面分析ready函数时我们略过了一种情况：如果当前有空闲的p而且没有工作线程正在尝试从各个工作线程的本地运行队列偷取goroutine的话（没有处于spinning状态的工作线程），那么就需要通过wakep函数把空闲的p唤醒起来工作。为了不让篇幅过长，下一节我们再来分析wakep如何去唤醒和创建新的工作线程。</p>
 <p>最后，如果你觉得本文对你有帮助的话，麻烦帮忙点一下文末右下角的 在看 或转发到朋友圈，非常感谢！</p>
@@ -593,7 +593,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

@@ -233,107 +233,108 @@
     <div class="post-body" itemprop="articleBody">
     <p>​		server将topology推送至client，这就是为何必须实现net30模式的原因，就是为了兼容windows，由于windows的低版本tap-win32驱动只支持这种模式，而后的topology为p2p(实际上windows的tap-win32驱动通过简单修改，比如改掉自问自答的那一部分逻辑看上去也支持这种拓扑，但是如果涉及到dhcp，事情就复杂了，因为通过net30拓扑分给windows的两个主机ip中有一个会充当虚假的dhcp服务器，如果在windows上采用了p2p拓扑，那么tap-win32网卡将直连server的虚拟网卡，而server的虚拟网卡可不敢担此大任)，对于server来讲，没有什么变化，只是对于client来讲，解放了ip的占用，但是client必须是非windows的，不过server倒是可以是 windows，因为对于net30和p2p而言，server端的虚拟ip地址是一样的，不同的是对client的影响</p>
 <p>vpn服务器中有一个ifconfig_pool结构体用于保存ip地址池的重要信息：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> ifconfig_pool
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">in_addr_t</span> base; <span style="color:#f00;font-style:italic">//初始ip地址
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> size;    <span style="color:#f00;font-style:italic">//pool的大小，也就是容量，即能同时分配给几个client
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> type;    <span style="color:#f00;font-style:italic">//指示topology
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">bool</span> duplicate_cn;
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> ifconfig_pool_entry *list;<span style="color:#f00;font-style:italic">//每一个pool保存一个链表，用于遍历和查找，每次分配和释放时要用
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>};
-</span></span></code></pre></div><p>服务器启动的时候首先要初始化ip地址的pool，用于以后为连接的客户端分配ip地址，在multi_init有以下代码:</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">if</span> (t-&gt;options.ifconfig_pool_defined) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (dev == DEV_TYPE_TAP) { <span style="color:#f00;font-style:italic">//tap模式的初始化
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        m-&gt;ifconfig_pool = <span style="color:#c34e00">ifconfig_pool_init</span> (IFCONFIG_POOL_INDIV,
-</span></span><span style="display:flex;"><span>                         t-&gt;options.ifconfig_pool_start,
-</span></span><span style="display:flex;"><span>                         t-&gt;options.ifconfig_pool_end,
-</span></span><span style="display:flex;"><span>                         t-&gt;options.duplicate_cn);
-</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> <span style="color:#00f">if</span> (dev == DEV_TYPE_TUN) { <span style="color:#f00;font-style:italic">//tun模式的初始化
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        m-&gt;ifconfig_pool = <span style="color:#c34e00">ifconfig_pool_init</span> (
-</span></span><span style="display:flex;"><span>                        (t-&gt;options.topology == TOP_NET30) ? IFCONFIG_POOL_30NET : IFCONFIG_POOL_INDIV,
-</span></span><span style="display:flex;"><span>                            t-&gt;options.ifconfig_pool_start,
-</span></span><span style="display:flex;"><span>                            t-&gt;options.ifconfig_pool_end,
-</span></span><span style="display:flex;"><span>                            t-&gt;options.duplicate_cn);
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> ifconfig_pool *<span style="color:#c34e00">ifconfig_pool_init</span> (<span style="color:#00f">int</span> type, <span style="color:#00f">in_addr_t</span> start, <span style="color:#00f">in_addr_t</span> end, <span style="color:#00f">const</span> <span style="color:#00f">bool</span> duplicate_cn)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> gc_arena gc = <span style="color:#c34e00">gc_new</span> ();
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> ifconfig_pool *pool = NULL;
-</span></span><span style="display:flex;"><span>    pool-&gt;type = type;
-</span></span><span style="display:flex;"><span>    pool-&gt;duplicate_cn = duplicate_cn;
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">switch</span> (type) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> IFCONFIG_POOL_30NET:<span style="color:#f00;font-style:italic">//兼容诸如windows的tap-win32之类驱动，每次分配4个ip地址，当中除去一个网络地址一个广播地址，仅剩下两个可用，这就是tap-win32网卡的本地地址和虚拟出来的远端地址(详情可见arp自问自答)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        pool-&gt;base = start &amp; ~3;<span style="color:#f00;font-style:italic">//252掩码模式中，ip分配是按照4个一组分配的，因此要按4对齐
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        pool-&gt;size = (((end | 3) + 1) - pool-&gt;base) &gt;&gt; 2;<span style="color:#f00;font-style:italic">//最后要除以4，因为4个ip一组
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> IFCONFIG_POOL_INDIV:<span style="color:#f00;font-style:italic">//其余的模式就是实打实得分配，是几个就是几个
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        pool-&gt;base = start;
-</span></span><span style="display:flex;"><span>        pool-&gt;size = end - start + 1;
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">multi_select_virtual_addr</span> (<span style="color:#00f">struct</span> multi_context *m, <span style="color:#00f">struct</span> multi_instance *mi)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> gc_arena gc = <span style="color:#c34e00">gc_new</span> ();
-</span></span><span style="display:flex;"><span>...<span style="color:#f00;font-style:italic">//省略从文件中导入ip地址，只看动态分配
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">else</span> <span style="color:#00f">if</span> (m-&gt;ifconfig_pool &amp;&amp; mi-&gt;vaddr_handle &lt; 0) {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">in_addr_t</span> local=0, remote=0;
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">const</span> <span style="color:#00f">char</span> *cn = NULL;
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (!mi-&gt;context.options.duplicate_cn)
-</span></span><span style="display:flex;"><span>            cn = <span style="color:#c34e00">tls_common_name</span> (mi-&gt;context.c2.tls_multi, true);
-</span></span><span style="display:flex;"><span>        mi-&gt;vaddr_handle = <span style="color:#c34e00">ifconfig_pool_acquire</span> (m-&gt;ifconfig_pool, &amp;local, &amp;remote, cn); <span style="color:#f00;font-style:italic">//见下面分析
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (mi-&gt;vaddr_handle &gt;= 0) {
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">const</span> <span style="color:#00f">int</span> tunnel_type = <span style="color:#c34e00">TUNNEL_TYPE</span> (mi-&gt;context.c1.tuntap);
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">const</span> <span style="color:#00f">int</span> tunnel_topology = <span style="color:#c34e00">TUNNEL_TOPOLOGY</span> (mi-&gt;context.c1.tuntap);
-</span></span><span style="display:flex;"><span>            mi-&gt;context.c2.push_ifconfig_local = remote; <span style="color:#f00;font-style:italic">//无论如何都要将从pool中找到的ip地址给与client，余下的client虚拟网卡的配置信息还差两个，如果是net30或者p2p拓扑的话，需要一个“对端”地址，如果是subnet拓扑的话，需要一个子网掩码，故push_ifconfig_remote_netmask的含义就是既可以表示“对端”地址又可以表示子网掩码
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (tunnel_type == DEV_TYPE_TAP || (tunnel_type == DEV_TYPE_TUN &amp;&amp; tunnel_topology == TOP_SUBNET)) {
-</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">//对于subnet来讲，最简单，直接将从pool中找到的ip地址分配给client，然后将自己的子网掩码给client的子网掩码
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                mi-&gt;context.c2.push_ifconfig_remote_netmask = mi-&gt;context.options.ifconfig_pool_netmask;
-</span></span><span style="display:flex;"><span>                <span style="color:#00f">if</span> (!mi-&gt;context.c2.push_ifconfig_remote_netmask)
-</span></span><span style="display:flex;"><span>                    mi-&gt;context.c2.push_ifconfig_remote_netmask = mi-&gt;context.c1.tuntap-&gt;remote_netmask;
-</span></span><span style="display:flex;"><span>        } <span style="color:#00f">else</span> <span style="color:#00f">if</span> (tunnel_type == DEV_TYPE_TUN) { <span style="color:#f00;font-style:italic">//只有tun模式拥有topology的概念
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (tunnel_topology == TOP_P2P)    <span style="color:#f00;font-style:italic">//对于p2p来讲，直接将server端虚拟网卡的ip给client作为ifconfig命令pointopoint的另一端，注意client不能是windows这种多事又麻烦的系统        
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                mi-&gt;context.c2.push_ifconfig_remote_netmask = mi-&gt;context.c1.tuntap-&gt;local;
-</span></span><span style="display:flex;"><span>                  <span style="color:#00f">else</span> <span style="color:#c34e00">if</span> (tunnel_topology == TOP_NET30) <span style="color:#f00;font-style:italic">//对于net30来讲，
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                mi-&gt;context.c2.push_ifconfig_remote_netmask = local;
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">if</span> (mi-&gt;context.c2.push_ifconfig_remote_netmask)
-</span></span><span style="display:flex;"><span>                mi-&gt;context.c2.push_ifconfig_defined = true;
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>ifconfig_pool_handle <span style="color:#c34e00">ifconfig_pool_acquire</span> (<span style="color:#00f">struct</span> ifconfig_pool *pool, <span style="color:#00f">in_addr_t</span> *local, <span style="color:#00f">in_addr_t</span> *remote, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *common_name)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> i;
-</span></span><span style="display:flex;"><span>    i = <span style="color:#c34e00">ifconfig_pool_find</span> (pool, common_name);  <span style="color:#f00;font-style:italic">//在所有可用的ip-entry中选择一个索引，注意并不是直接选择ip，选择ip的逻辑在下面。OpenVPN内核将每次分配给client的一系列(一个或者四个)ip地址组织成ifconfig_pool_entry结构体，这样就将ip的分配和topology的配置分离了。该算法很简单，就是遍历链表，然后选出in_use为0的。
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> (i &gt;= 0) {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">struct</span> ifconfig_pool_entry *ipe = &amp;pool-&gt;list[i];
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">ifconfig_pool_entry_free</span> (ipe, true);
-</span></span><span style="display:flex;"><span>        ipe-&gt;in_use = true;  <span style="color:#f00;font-style:italic">//设置使用标志
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (common_name)
-</span></span><span style="display:flex;"><span>            ipe-&gt;common_name = <span style="color:#c34e00">string_alloc</span> (common_name, NULL);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">switch</span> (pool-&gt;type) {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> IFCONFIG_POOL_30NET: {
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">in_addr_t</span> b = pool-&gt;base + (i &lt;&lt; 2); <span style="color:#f00;font-style:italic">//由于按照4个一组分配，所以要i*4
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            *local = b + 1;  <span style="color:#f00;font-style:italic">//对于client来讲是remote
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            *remote = b + 2; <span style="color:#f00;font-style:italic">//对于server来讲是remote
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> IFCONFIG_POOL_INDIV: {
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">in_addr_t</span> b = pool-&gt;base + i;
-</span></span><span style="display:flex;"><span>            *local = 0; <span style="color:#f00;font-style:italic">//其余的两种topology，client直连server的实际虚拟ip
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            *remote = b; <span style="color:#f00;font-style:italic">//直接将可用的ip地址分配给client，无需再分配一个模拟的server端ip
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>...
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> i;
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>因此，OpenVPN为client端分配ip地址实际上很简单，总结如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">struct</span> ifconfig_pool
+{
+    in_addr_t base; <span style="color:#f00;font-style:italic">//初始ip地址
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> size;    <span style="color:#f00;font-style:italic">//pool的大小，也就是容量，即能同时分配给几个client
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> type;    <span style="color:#f00;font-style:italic">//指示topology
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">bool</span> duplicate_cn;
+    <span style="color:#00f">struct</span> ifconfig_pool_entry *list;<span style="color:#f00;font-style:italic">//每一个pool保存一个链表，用于遍历和查找，每次分配和释放时要用
+</span><span style="color:#f00;font-style:italic"></span>};
+</code></pre></div><p>服务器启动的时候首先要初始化ip地址的pool，用于以后为连接的客户端分配ip地址，在multi_init有以下代码:</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">if</span> (t-&gt;options.ifconfig_pool_defined) {
+    <span style="color:#00f">if</span> (dev == DEV_TYPE_TAP) { <span style="color:#f00;font-style:italic">//tap模式的初始化
+</span><span style="color:#f00;font-style:italic"></span>        m-&gt;ifconfig_pool = ifconfig_pool_init (IFCONFIG_POOL_INDIV,
+                         t-&gt;options.ifconfig_pool_start,
+                         t-&gt;options.ifconfig_pool_end,
+                         t-&gt;options.duplicate_cn);
+    } <span style="color:#00f">else</span> <span style="color:#00f">if</span> (dev == DEV_TYPE_TUN) { <span style="color:#f00;font-style:italic">//tun模式的初始化
+</span><span style="color:#f00;font-style:italic"></span>        m-&gt;ifconfig_pool = ifconfig_pool_init (
+                        (t-&gt;options.topology == TOP_NET30) ? IFCONFIG_POOL_30NET : IFCONFIG_POOL_INDIV,
+                            t-&gt;options.ifconfig_pool_start,
+                            t-&gt;options.ifconfig_pool_end,
+                            t-&gt;options.duplicate_cn);
+    }
+...
+}
+<span style="color:#00f">struct</span> ifconfig_pool *ifconfig_pool_init (<span style="color:#00f">int</span> type, in_addr_t start, in_addr_t end, <span style="color:#00f">const</span> <span style="color:#00f">bool</span> duplicate_cn)
+{
+    <span style="color:#00f">struct</span> gc_arena gc = gc_new ();
+    <span style="color:#00f">struct</span> ifconfig_pool *pool = NULL;
+    pool-&gt;type = type;
+    pool-&gt;duplicate_cn = duplicate_cn;
+    <span style="color:#00f">switch</span> (type) {
+    <span style="color:#00f">case</span> IFCONFIG_POOL_30NET:<span style="color:#f00;font-style:italic">//兼容诸如windows的tap-win32之类驱动，每次分配4个ip地址，当中除去一个网络地址一个广播地址，仅剩下两个可用，这就是tap-win32网卡的本地地址和虚拟出来的远端地址(详情可见arp自问自答)
+</span><span style="color:#f00;font-style:italic"></span>        pool-&gt;base = start &amp; ~3;<span style="color:#f00;font-style:italic">//252掩码模式中，ip分配是按照4个一组分配的，因此要按4对齐
+</span><span style="color:#f00;font-style:italic"></span>        pool-&gt;size = (((end | 3) + 1) - pool-&gt;base) &gt;&gt; 2;<span style="color:#f00;font-style:italic">//最后要除以4，因为4个ip一组
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">break</span>;
+    <span style="color:#00f">case</span> IFCONFIG_POOL_INDIV:<span style="color:#f00;font-style:italic">//其余的模式就是实打实得分配，是几个就是几个
+</span><span style="color:#f00;font-style:italic"></span>        pool-&gt;base = start;
+        pool-&gt;size = end - start + 1;
+        <span style="color:#00f">break</span>;
+...
+    }
+...
+}
+<span style="color:#00f">static</span> <span style="color:#00f">void</span> multi_select_virtual_addr (<span style="color:#00f">struct</span> multi_context *m, <span style="color:#00f">struct</span> multi_instance *mi)
+{
+    <span style="color:#00f">struct</span> gc_arena gc = gc_new ();
+...<span style="color:#f00;font-style:italic">//省略从文件中导入ip地址，只看动态分配
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">else</span> <span style="color:#00f">if</span> (m-&gt;ifconfig_pool &amp;&amp; mi-&gt;vaddr_handle &lt; 0) {
+        in_addr_t local=0, remote=0;
+        <span style="color:#00f">const</span> <span style="color:#00f">char</span> *cn = NULL;
+        <span style="color:#00f">if</span> (!mi-&gt;context.options.duplicate_cn)
+            cn = tls_common_name (mi-&gt;context.c2.tls_multi, true);
+        mi-&gt;vaddr_handle = ifconfig_pool_acquire (m-&gt;ifconfig_pool, &amp;local, &amp;remote, cn); <span style="color:#f00;font-style:italic">//见下面分析
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (mi-&gt;vaddr_handle &gt;= 0) {
+            <span style="color:#00f">const</span> <span style="color:#00f">int</span> tunnel_type = TUNNEL_TYPE (mi-&gt;context.c1.tuntap);
+            <span style="color:#00f">const</span> <span style="color:#00f">int</span> tunnel_topology = TUNNEL_TOPOLOGY (mi-&gt;context.c1.tuntap);
+            mi-&gt;context.c2.push_ifconfig_local = remote; <span style="color:#f00;font-style:italic">//无论如何都要将从pool中找到的ip地址给与client，余下的client虚拟网卡的配置信息还差两个，如果是net30或者p2p拓扑的话，需要一个“对端”地址，如果是subnet拓扑的话，需要一个子网掩码，故push_ifconfig_remote_netmask的含义就是既可以表示“对端”地址又可以表示子网掩码
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (tunnel_type == DEV_TYPE_TAP || (tunnel_type == DEV_TYPE_TUN &amp;&amp; tunnel_topology == TOP_SUBNET)) {
+            <span style="color:#f00;font-style:italic">//对于subnet来讲，最简单，直接将从pool中找到的ip地址分配给client，然后将自己的子网掩码给client的子网掩码
+</span><span style="color:#f00;font-style:italic"></span>                mi-&gt;context.c2.push_ifconfig_remote_netmask = mi-&gt;context.options.ifconfig_pool_netmask;
+                <span style="color:#00f">if</span> (!mi-&gt;context.c2.push_ifconfig_remote_netmask)
+                    mi-&gt;context.c2.push_ifconfig_remote_netmask = mi-&gt;context.c1.tuntap-&gt;remote_netmask;
+        } <span style="color:#00f">else</span> <span style="color:#00f">if</span> (tunnel_type == DEV_TYPE_TUN) { <span style="color:#f00;font-style:italic">//只有tun模式拥有topology的概念
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (tunnel_topology == TOP_P2P)    <span style="color:#f00;font-style:italic">//对于p2p来讲，直接将server端虚拟网卡的ip给client作为ifconfig命令pointopoint的另一端，注意client不能是windows这种多事又麻烦的系统        
+</span><span style="color:#f00;font-style:italic"></span>                mi-&gt;context.c2.push_ifconfig_remote_netmask = mi-&gt;context.c1.tuntap-&gt;local;
+                  <span style="color:#00f">else</span> <span style="color:#c34e00">if</span> (tunnel_topology == TOP_NET30) <span style="color:#f00;font-style:italic">//对于net30来讲，
+</span><span style="color:#f00;font-style:italic"></span>                mi-&gt;context.c2.push_ifconfig_remote_netmask = local;
+            }
+          <span style="color:#00f">if</span> (mi-&gt;context.c2.push_ifconfig_remote_netmask)
+                mi-&gt;context.c2.push_ifconfig_defined = true;
+...
+}
+ifconfig_pool_handle ifconfig_pool_acquire (<span style="color:#00f">struct</span> ifconfig_pool *pool, in_addr_t *local, in_addr_t *remote, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *common_name)
+{
+    <span style="color:#00f">int</span> i;
+    i = ifconfig_pool_find (pool, common_name);  <span style="color:#f00;font-style:italic">//在所有可用的ip-entry中选择一个索引，注意并不是直接选择ip，选择ip的逻辑在下面。OpenVPN内核将每次分配给client的一系列(一个或者四个)ip地址组织成ifconfig_pool_entry结构体，这样就将ip的分配和topology的配置分离了。该算法很简单，就是遍历链表，然后选出in_use为0的。
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> (i &gt;= 0) {
+        <span style="color:#00f">struct</span> ifconfig_pool_entry *ipe = &amp;pool-&gt;list[i];
+        ifconfig_pool_entry_free (ipe, true);
+        ipe-&gt;in_use = true;  <span style="color:#f00;font-style:italic">//设置使用标志
+</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (common_name)
+            ipe-&gt;common_name = string_alloc (common_name, NULL);
+        <span style="color:#00f">switch</span> (pool-&gt;type) {
+        <span style="color:#00f">case</span> IFCONFIG_POOL_30NET: {
+            in_addr_t b = pool-&gt;base + (i &lt;&lt; 2); <span style="color:#f00;font-style:italic">//由于按照4个一组分配，所以要i*4
+</span><span style="color:#f00;font-style:italic"></span>            *local = b + 1;  <span style="color:#f00;font-style:italic">//对于client来讲是remote
+</span><span style="color:#f00;font-style:italic"></span>            *remote = b + 2; <span style="color:#f00;font-style:italic">//对于server来讲是remote
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">break</span>;
+        }
+        <span style="color:#00f">case</span> IFCONFIG_POOL_INDIV: {
+            in_addr_t b = pool-&gt;base + i;
+            *local = 0; <span style="color:#f00;font-style:italic">//其余的两种topology，client直连server的实际虚拟ip
+</span><span style="color:#f00;font-style:italic"></span>            *remote = b; <span style="color:#f00;font-style:italic">//直接将可用的ip地址分配给client，无需再分配一个模拟的server端ip
+</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">break</span>;
+        }
+...
+        }
+    }
+    <span style="color:#00f">return</span> i;
+}
+
+</code></pre></div><p>因此，OpenVPN为client端分配ip地址实际上很简单，总结如下：</p>
 <p><strong>tun模式</strong>：</p>
 <ol>
 <li>
@@ -434,7 +435,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>

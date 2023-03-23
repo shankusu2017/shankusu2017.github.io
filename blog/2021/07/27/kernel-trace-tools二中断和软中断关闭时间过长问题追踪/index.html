@@ -245,102 +245,102 @@
 <h1 id="3-如何实现">3. 如何实现</h1>
 <p>我们知道应用程序陷入内核态的方式主要是系统调用。我们是否可以通过系统调用提供的 tracepoint 完成呢？当系统调用开始，记录时间戳，系统调用退出，再次记录时间戳。求差值，就是本次系统调用花费的时间。这种方法是否可靠？很明显不可靠。因为进程在内核态很可能由于资源不满足导致主动 schedule。这种情况下，根本不是一直占用 CPU 不调度的情况。因此，这种方法不可行。</p>
 <p>既然系统调用这条路走不通，我们就换一种方式。我们知道一个线程执行的生命周期，起于 schedule，止于 schedule。所以我们可以知道一个线程从开始执行到主动或被动放弃 CPU 之间的时间差。这部分时间是总时间，即 user+kernel 的时间。我们是否有办法获取总时间呢？很幸运我们有 schedule 的 tracepoint 可以获取。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void __sched notrace __schedule(bool preempt)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>    /* ... */
-</span></span><span style="display:flex;"><span>    trace_sched_switch(preempt, prev, next);
-</span></span><span style="display:flex;"><span>    /* ... */
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>我们只需要 enable sched_switch 即可获取每个线程执行的总时间。是不是激动的心，颤抖的手，是不是马上想用 bcc 行动了？但是有个新的问题摆在我们面前，如何过滤掉 user 态执行的时间？因为用户态支持抢占，内核态不支持抢占。所以统计内核态的时间才是有意义的。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">static void __sched notrace __schedule(bool preempt)
+{
+    /* ... */
+    trace_sched_switch(preempt, prev, next);
+    /* ... */
+}
+</code></pre></div><p>我们只需要 enable sched_switch 即可获取每个线程执行的总时间。是不是激动的心，颤抖的手，是不是马上想用 bcc 行动了？但是有个新的问题摆在我们面前，如何过滤掉 user 态执行的时间？因为用户态支持抢占，内核态不支持抢占。所以统计内核态的时间才是有意义的。</p>
 <p>过滤用户态执行时间可以间接的通过定时器实现。我们知道周期性定时中断，可以获取被打断的上下文是用户态或者内核态。所以开始时间戳 last 需要不断的更新。第一次是从 schedule 开始，后面每次更新是在定时器中断中，如果发现当前中断是打断的用户态，那么更新 last 时间戳，否则不更新。此刻认为用户线程在内核态执行。我们看下示例代码。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>static enum hrtimer_restart <span style="color:#c34e00">trace_nosched_hrtimer_handler</span>(<span style="color:#00f">struct</span> hrtimer *hrtimer)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         * Skip the idle task and make sure we are not only the
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         * running task on the CPU. If we are interrupted from
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         * user mode, it indicate that we are not executing in
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         * the kernel space, so we should also skip it.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (!<span style="color:#c34e00">is_idle_task</span>(current) &amp;&amp; regs &amp;&amp; !<span style="color:#c34e00">user_mode</span>(regs) &amp;&amp;
-</span></span><span style="display:flex;"><span>            !<span style="color:#c34e00">single_task_running</span>()) {
-</span></span><span style="display:flex;"><span>                <span style="color:#f00;font-style:italic">/* The kernel mode */</span>
-</span></span><span style="display:flex;"><span>                <span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">                 * If the execution time exceeds the threshold, record
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">                 * the call trace.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">                 */</span>
-</span></span><span style="display:flex;"><span>        } <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>                <span style="color:#f00;font-style:italic">/* The user mode */</span>
-</span></span><span style="display:flex;"><span>                stack_trace-&gt;last_timestamp = now;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>我们看到不更新时间戳的条件比较苛刻。主要考虑以下几种情况：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">static enum hrtimer_restart <span style="color:#c34e00">trace_nosched_hrtimer_handler</span>(<span style="color:#00f">struct</span> hrtimer *hrtimer)
+{
+        <span style="color:#f00;font-style:italic">/*
+</span><span style="color:#f00;font-style:italic">         * Skip the idle task and make sure we are not only the
+</span><span style="color:#f00;font-style:italic">         * running task on the CPU. If we are interrupted from
+</span><span style="color:#f00;font-style:italic">         * user mode, it indicate that we are not executing in
+</span><span style="color:#f00;font-style:italic">         * the kernel space, so we should also skip it.
+</span><span style="color:#f00;font-style:italic">         */</span>
+        <span style="color:#00f">if</span> (!<span style="color:#c34e00">is_idle_task</span>(current) &amp;&amp; regs &amp;&amp; !<span style="color:#c34e00">user_mode</span>(regs) &amp;&amp;
+            !<span style="color:#c34e00">single_task_running</span>()) {
+                <span style="color:#f00;font-style:italic">/* The kernel mode */</span>
+                <span style="color:#f00;font-style:italic">/*
+</span><span style="color:#f00;font-style:italic">                 * If the execution time exceeds the threshold, record
+</span><span style="color:#f00;font-style:italic">                 * the call trace.
+</span><span style="color:#f00;font-style:italic">                 */</span>
+        } <span style="color:#00f">else</span> {
+                <span style="color:#f00;font-style:italic">/* The user mode */</span>
+                stack_trace-&gt;last_timestamp = now;
+        }
+}
+</code></pre></div><p>我们看到不更新时间戳的条件比较苛刻。主要考虑以下几种情况：</p>
 <ul>
 <li>如果中断时从用户态发生，则更新 last_timestamp 时间戳。</li>
 <li>如果当前 CPU 运行队列只有一个 task，更新 last_timestamp 时间戳。因为这种情况下，占有 CPU 不放没有任何问题。</li>
 <li>如果当前进程是 idle 进程，同样更新 last_timestamp 时间戳。因为 idle 进程本身就可能在内核态长时间运行，没有任何问题。</li>
 </ul>
 <p>我们再看下 tracepoint 的 hook 函数实现。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>static void <span style="color:#c34e00">probe_sched_switch</span>(void *priv, <span style="color:#00f">bool</span> preempt,
-</span></span><span style="display:flex;"><span>                               <span style="color:#00f">struct</span> task_struct *prev,
-</span></span><span style="display:flex;"><span>                               <span style="color:#00f">struct</span> task_struct *next)
-</span></span><span style="display:flex;"><span>{
-</span></span><span style="display:flex;"><span>        u64 now = <span style="color:#c34e00">local_clock</span>();
-</span></span><span style="display:flex;"><span>        u64 last = cpu_stack_trace-&gt;last_timestamp;
-</span></span><span style="display:flex;"><span>        cpu_stack_trace-&gt;last_timestamp = now;
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         * Skip the idle task and make sure we are not only the
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         * running task on the CPU.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (!<span style="color:#c34e00">is_idle_task</span>(prev) &amp;&amp; !<span style="color:#c34e00">single_task_running</span>())
-</span></span><span style="display:flex;"><span>                <span style="color:#c34e00">hist_update</span>(cpu_stack_trace, now - last);
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>记录时间差值，差不多可以认为是内核态执行的时间。当操作设定阈值，我们更新柱状图统计计数。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">static void <span style="color:#c34e00">probe_sched_switch</span>(void *priv, <span style="color:#00f">bool</span> preempt,
+                               <span style="color:#00f">struct</span> task_struct *prev,
+                               <span style="color:#00f">struct</span> task_struct *next)
+{
+        u64 now = <span style="color:#c34e00">local_clock</span>();
+        u64 last = cpu_stack_trace-&gt;last_timestamp;
+        cpu_stack_trace-&gt;last_timestamp = now;
+        <span style="color:#f00;font-style:italic">/*
+</span><span style="color:#f00;font-style:italic">         * Skip the idle task and make sure we are not only the
+</span><span style="color:#f00;font-style:italic">         * running task on the CPU.
+</span><span style="color:#f00;font-style:italic">         */</span>
+        <span style="color:#00f">if</span> (!<span style="color:#c34e00">is_idle_task</span>(prev) &amp;&amp; !<span style="color:#c34e00">single_task_running</span>())
+                <span style="color:#c34e00">hist_update</span>(cpu_stack_trace, now - last);
+}
+</code></pre></div><p>记录时间差值，差不多可以认为是内核态执行的时间。当操作设定阈值，我们更新柱状图统计计数。</p>
 <h1 id="4-如何安装">4. 如何安装</h1>
 <p>安装 trace-noschedule 工具很简单，git clone 代码后执行如下命令即可安装。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>make -j8
-</span></span><span style="display:flex;"><span>make install
-</span></span></code></pre></div><h1 id="5-如何使用">5. 如何使用</h1>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">make -j8
+make install
+</code></pre></div><h1 id="5-如何使用">5. 如何使用</h1>
 <p>安装 trace-noschedule 工具成功后。会创建如下 /proc/trace_noschedule 目录。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_noschedule# ls
-</span></span><span style="display:flex;"><span>distribution  enable  stack_trace  threshold
-</span></span></code></pre></div><p>/proc/trace_noschedule 目录下存在 4 个文件，分别：distribution, enable, stack_trace 和 threshold。工具安装后，默认是关闭状态。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_noschedule# ls
+distribution  enable  stack_trace  threshold
+</code></pre></div><p>/proc/trace_noschedule 目录下存在 4 个文件，分别：distribution, enable, stack_trace 和 threshold。工具安装后，默认是关闭状态。</p>
 <h3 id="51-打开-tracer">5.1 打开 tracer</h3>
 <p>执行以下命令打开 tracer。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 1 &gt; /proc/trace_noschedule/enable
-</span></span></code></pre></div><h3 id="52-关闭-tracer">5.2 关闭 tracer</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 1 &gt; /proc/trace_noschedule/enable
+</code></pre></div><h3 id="52-关闭-tracer">5.2 关闭 tracer</h3>
 <p>执行如下命令关闭 tracer。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 0 &gt; /proc/trace_noschedule/enable
-</span></span></code></pre></div><p>Note: debug 问题后请记得关闭 tracer。因为模块内部实现基于 sched tracepoint，overhead 不能忽略。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 0 &gt; /proc/trace_noschedule/enable
+</code></pre></div><p>Note: debug 问题后请记得关闭 tracer。因为模块内部实现基于 sched tracepoint，overhead 不能忽略。</p>
 <h3 id="53-设置阈值">5.3 设置阈值</h3>
 <p>trace_noschedule 只会针对内核态执行时间超过阈值不调度的进程记录 stack trace。为了更高效的运作，我们有必要设定一个合理阈值。例如设置 60ms 的阈值(单位：ns)：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 60000000 &gt; /proc/trace_noschedule/threshold
-</span></span></code></pre></div><h3 id="54-查看内核态长时间未调度进程执行的时间分布">5.4 查看内核态长时间未调度进程执行的时间分布。</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_noschedule# cat distribution
-</span></span><span style="display:flex;"><span>Trace noschedule thread:
-</span></span><span style="display:flex;"><span>         msecs           : count     distribution
-</span></span><span style="display:flex;"><span>        20 -&gt; 39         : 1        |**********                              |
-</span></span><span style="display:flex;"><span>        40 -&gt; 79         : 0        |                                        |
-</span></span><span style="display:flex;"><span>        80 -&gt; 159        : 4        |****************************************|
-</span></span><span style="display:flex;"><span>       160 -&gt; 319        : 2        |********************                    |
-</span></span></code></pre></div><p>在内核态有 4 次执行时间在[80, 159]ms 范围内没有调度。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 60000000 &gt; /proc/trace_noschedule/threshold
+</code></pre></div><h3 id="54-查看内核态长时间未调度进程执行的时间分布">5.4 查看内核态长时间未调度进程执行的时间分布。</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_noschedule# cat distribution
+Trace noschedule thread:
+         msecs           : count     distribution
+        20 -&gt; 39         : 1        |**********                              |
+        40 -&gt; 79         : 0        |                                        |
+        80 -&gt; 159        : 4        |****************************************|
+       160 -&gt; 319        : 2        |********************                    |
+</code></pre></div><p>在内核态有 4 次执行时间在[80, 159]ms 范围内没有调度。</p>
 <h3 id="55-是谁占用-cpu-不调度">5.5 是谁占用 CPU 不调度</h3>
 <p>stack_trace 记录占用 CPU 时间超过阈值不调度进程的栈。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_noschedule# cat stack_trace
-</span></span><span style="display:flex;"><span> cpu: 0
-</span></span><span style="display:flex;"><span>     COMM: sh PID: 1270013 DURATION: 100ms
-</span></span><span style="display:flex;"><span>     delay_tsc+0x21/0x50
-</span></span><span style="display:flex;"><span>     nosched_test_write+0x53/0x90 [trace_noschedule]
-</span></span><span style="display:flex;"><span>     proc_reg_write+0x36/0x60
-</span></span><span style="display:flex;"><span>     __vfs_write+0x33/0x190
-</span></span><span style="display:flex;"><span>     vfs_write+0xb0/0x190
-</span></span><span style="display:flex;"><span>     ksys_write+0x52/0xc0
-</span></span><span style="display:flex;"><span>     do_syscall_64+0x4f/0xe0
-</span></span><span style="display:flex;"><span>     entry_SYSCALL_64_after_hwframe+0x44/0xa9
-</span></span></code></pre></div><p>这是个内核态测试的 case，在内核态执行 mdelay(100)占用 CPU 100ms 不调度。此时记录的栈如上面所示。&ldquo;DURATION&quot;记录的就是执行持续时间。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_noschedule# cat stack_trace
+ cpu: 0
+     COMM: sh PID: 1270013 DURATION: 100ms
+     delay_tsc+0x21/0x50
+     nosched_test_write+0x53/0x90 [trace_noschedule]
+     proc_reg_write+0x36/0x60
+     __vfs_write+0x33/0x190
+     vfs_write+0xb0/0x190
+     ksys_write+0x52/0xc0
+     do_syscall_64+0x4f/0xe0
+     entry_SYSCALL_64_after_hwframe+0x44/0xa9
+</code></pre></div><p>这是个内核态测试的 case，在内核态执行 mdelay(100)占用 CPU 100ms 不调度。此时记录的栈如上面所示。&ldquo;DURATION&quot;记录的就是执行持续时间。</p>
 <h3 id="56-清除-stack-trace">5.6 清除 stack trace</h3>
 <p>如果我们需要清除 stack trace 记录的信息（stack trace buffer 是有大小限制的，必要的时候需要 clear）。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 0 &gt; /proc/trace_noschedule/stack_trace
-</span></span></code></pre></div><h1 id="6-案例展示">6. 案例展示</h1>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 0 &gt; /proc/trace_noschedule/stack_trace
+</code></pre></div><h1 id="6-案例展示">6. 案例展示</h1>
 <p>这里以一个实际问题带你了解工具的使用。问题是背景是，业务发现 docker 好像有问题，pull 不下来镜像。登录机器会卡顿，执行很多命令也会卡顿。</p>
 <h3 id="61-首先看下-cpu-使用情况">6.1 首先看下 CPU 使用情况。</h3>
 <p><img src="https://imgconvert.csdnimg.cn/aHR0cHM6Ly9tbWJpei5xcGljLmNuL21tYml6X3BuZy81RWN3WWhsbFFPajkwMHlHWnlpYXkyc1lyWkZ1SVNrUHpmdW1aclY5TFA1YW9RWllJZmU2aWFDcDc2dGljb2ljSU5PeFgxQmFpYWFjNGhEcXJaOEJXMGljaHo5Zy82NDA?x-oss-process=image/format,png" alt="img"></p>
@@ -348,45 +348,45 @@
 <h3 id="62-使用-perf-工具">6.2 使用 perf 工具</h3>
 <p>使用 perf top 看下 CPU 情况，发现 60%左右的时间在 spinlock 上。但是没看出内核哪个路径的 spinlock。使用 trace-noschedule 工具看看是否有发现。</p>
 <h3 id="63-trace-noschedule-跟踪">6.3 trace-noschedule 跟踪</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n131-103-013:/proc/trace_noschedule# cat distribution
-</span></span><span style="display:flex;"><span>Trace noschedule thread:
-</span></span><span style="display:flex;"><span>         msecs           : count     distribution
-</span></span><span style="display:flex;"><span>        20 -&gt; 39         : 760      |****************************************|
-</span></span><span style="display:flex;"><span>        40 -&gt; 79         : 488      |*************************               |
-</span></span><span style="display:flex;"><span>        80 -&gt; 159        : 73       |***                                     |
-</span></span></code></pre></div><p>内核态长时间未调度，而且时间很长。看下工具记录的栈信息，截取如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>COMM: runc PID: 499045 DURATION: 75ms
-</span></span><span style="display:flex;"><span>     native_queued_spin_lock_slowpath+0x112/0x190
-</span></span><span style="display:flex;"><span>     _raw_spin_lock+0x1d/0x20
-</span></span><span style="display:flex;"><span>     prepend_path+0x266/0x2d0
-</span></span><span style="display:flex;"><span>     __d_path+0x4b/0x80
-</span></span><span style="display:flex;"><span>     seq_path_root+0x53/0xb0
-</span></span><span style="display:flex;"><span>     show_mountinfo+0xb8/0x290
-</span></span><span style="display:flex;"><span>     seq_read+0x321/0x3f0
-</span></span><span style="display:flex;"><span>     __vfs_read+0x33/0x160
-</span></span><span style="display:flex;"><span>     vfs_read+0x91/0x130
-</span></span><span style="display:flex;"><span>     SyS_read+0x52/0xc0
-</span></span><span style="display:flex;"><span>     do_syscall_64+0x68/0x100
-</span></span><span style="display:flex;"><span>     entry_SYSCALL_64_after_hwframe+0x3d/0xa2
-</span></span><span style="display:flex;"><span>COMM: falcon-agent PID: 3002056 DURATION: 114ms
-</span></span><span style="display:flex;"><span>     native_queued_spin_lock_slowpath+0x10f/0x190
-</span></span><span style="display:flex;"><span>     _raw_spin_lock+0x1d/0x20
-</span></span><span style="display:flex;"><span>     prepend_path+0x266/0x2d0
-</span></span><span style="display:flex;"><span>     __d_path+0x4b/0x80
-</span></span><span style="display:flex;"><span>     seq_path_root+0x53/0xb0
-</span></span><span style="display:flex;"><span>     show_vfsmnt+0x7a/0x170
-</span></span><span style="display:flex;"><span>     seq_read+0x321/0x3f0
-</span></span><span style="display:flex;"><span>     __vfs_read+0x33/0x160
-</span></span><span style="display:flex;"><span>     vfs_read+0x91/0x130
-</span></span><span style="display:flex;"><span>     SyS_read+0x52/0xc0
-</span></span><span style="display:flex;"><span>     do_syscall_64+0x68/0x100
-</span></span><span style="display:flex;"><span>     entry_SYSCALL_64_after_hwframe+0x3d/0xa2
-</span></span></code></pre></div><p>说明内核态确实一直在 spin。主要集中在以上两个路径文件的读取。分别是<code>/proc/$pid/mounts</code>和<code>/proc/$pid/mountinfo</code>文件。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n131-103-013:/proc/trace_noschedule# cat distribution
+Trace noschedule thread:
+         msecs           : count     distribution
+        20 -&gt; 39         : 760      |****************************************|
+        40 -&gt; 79         : 488      |*************************               |
+        80 -&gt; 159        : 73       |***                                     |
+</code></pre></div><p>内核态长时间未调度，而且时间很长。看下工具记录的栈信息，截取如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">COMM: runc PID: 499045 DURATION: 75ms
+     native_queued_spin_lock_slowpath+0x112/0x190
+     _raw_spin_lock+0x1d/0x20
+     prepend_path+0x266/0x2d0
+     __d_path+0x4b/0x80
+     seq_path_root+0x53/0xb0
+     show_mountinfo+0xb8/0x290
+     seq_read+0x321/0x3f0
+     __vfs_read+0x33/0x160
+     vfs_read+0x91/0x130
+     SyS_read+0x52/0xc0
+     do_syscall_64+0x68/0x100
+     entry_SYSCALL_64_after_hwframe+0x3d/0xa2
+COMM: falcon-agent PID: 3002056 DURATION: 114ms
+     native_queued_spin_lock_slowpath+0x10f/0x190
+     _raw_spin_lock+0x1d/0x20
+     prepend_path+0x266/0x2d0
+     __d_path+0x4b/0x80
+     seq_path_root+0x53/0xb0
+     show_vfsmnt+0x7a/0x170
+     seq_read+0x321/0x3f0
+     __vfs_read+0x33/0x160
+     vfs_read+0x91/0x130
+     SyS_read+0x52/0xc0
+     do_syscall_64+0x68/0x100
+     entry_SYSCALL_64_after_hwframe+0x3d/0xa2
+</code></pre></div><p>说明内核态确实一直在 spin。主要集中在以上两个路径文件的读取。分别是<code>/proc/$pid/mounts</code>和<code>/proc/$pid/mountinfo</code>文件。</p>
 <h3 id="64-查看-mountinfo-信息">6.4 查看 mountinfo 信息</h3>
 <p>可能是 mount 太多，导致遍历时间很久。而且长时间持锁。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n131-103-013:/<span style="color:#00f">var</span>/log/atop# mount -v | wc -l
-</span></span><span style="display:flex;"><span>65803
-</span></span></code></pre></div><p>确实很多，65803 多个。大量的/dev/shm 挂载。以下信息只是其中一部分展示。既然知道了问题原因就可以对症下药了，下一步就是排查为什么/dev/shm 挂载很多。这让我们很快定位问题原因。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n131-103-013:/<span style="color:#00f">var</span>/log/atop# mount -v | wc -l
+65803
+</code></pre></div><p>确实很多，65803 多个。大量的/dev/shm 挂载。以下信息只是其中一部分展示。既然知道了问题原因就可以对症下药了，下一步就是排查为什么/dev/shm 挂载很多。这让我们很快定位问题原因。</p>
 <h1 id="7-总结">7. 总结</h1>
 <p>根据字节内部实践来看，trace-noschedule 安装便捷且使用灵活度高，能将问题定位耗时缩短至分钟级别，使用收益可观，并且已经通过该工具定位一些，提高了工作效率。</p>
 <h1 id="更多分享">更多分享</h1>
@@ -472,7 +472,7 @@
       <nav class="site-state motion-element">
     <div class="site-state-item site-state-posts">
       <a href="http://shanks.link/post/">
-        <span class="site-state-item-count">501</span>
+        <span class="site-state-item-count">502</span>
         <span class="site-state-item-name">日志</span>
       </a>
     </div>
