@@ -2872,32 +2872,22 @@ restart:
     }
 
     proto=PPP_PROTO(skb);
-
     read_lock_bh(&amp;pch-&gt;upl);
 
     <span style="color:#f00;font-style:italic">/* LCP的协议号为0xC021，因此对控制帧在这里处理 */</span>
     <span style="color:#00f">if</span>(pch-&gt;ppp==0||proto&gt;=0xc000||proto==PPP_CCPFRAG){
-
-    <span style="color:#f00;font-style:italic">/* put it on the channel queue */</span>
-    skb_queue_tail(&amp;pch-&gt;file.rq,skb); <span style="color:#f00;font-style:italic">//放在channel的接收队列中
+        <span style="color:#f00;font-style:italic">/* put it on the channel queue */</span>
+        skb_queue_tail(&amp;pch-&gt;file.rq,skb); <span style="color:#f00;font-style:italic">//放在channel的接收队列中
 </span><span style="color:#f00;font-style:italic"></span>
-    <span style="color:#f00;font-style:italic">/* drop old frames if queue too long */</span>
-    <span style="color:#00f">while</span>(pch-&gt;file.rq.qlen&gt;PPP_MAX_RQLEN
-
-    &amp;&amp;(skb=skb_dequeue(&amp;pch-&gt;file.rq))!=0)
-
-    kfree_skb(skb);
-
-    wake_up_interruptible(&amp;pch-&gt;file.rwait); <span style="color:#f00;font-style:italic">//唤醒PPPD进程进行read处理
-</span><span style="color:#f00;font-style:italic"></span>
-    }<span style="color:#00f">else</span>{
-
-    ppp_do_recv(pch-&gt;ppp,skb,pch); <span style="color:#f00;font-style:italic">//对非控制帧进行处理
-</span><span style="color:#f00;font-style:italic"></span>
-    }
-
+        <span style="color:#f00;font-style:italic">/* drop old frames if queue too long */</span>
+        <span style="color:#00f">while</span>(pch-&gt;file.rq.qlen&gt;PPP_MAX_RQLEN
+    			&amp;&amp;(skb=skb_dequeue(&amp;pch-&gt;file.rq))!=0)
+    	kfree_skb(skb);
+    	wake_up_interruptible(&amp;pch-&gt;file.rwait); <span style="color:#f00;font-style:italic">//唤醒PPPD进程进行read处理
+</span><span style="color:#f00;font-style:italic"></span>    }<span style="color:#00f">else</span>{
+    	ppp_do_recv(pch-&gt;ppp,skb,pch); <span style="color:#f00;font-style:italic">//对非控制帧进行处理
+</span><span style="color:#f00;font-style:italic"></span>    }
     read_unlock_bh(&amp;pch-&gt;upl);
-
 }
 </code></pre></div><p>函数ppp_input分两种情况分发报文：</p>
 <ol>
@@ -2906,56 +2896,39 @@ restart:
 </ol>
 <p>linux-2.6.18/drivers/net/ppp_generic.c</p>
 <div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">static</span> <span style="color:#00f">inline</span> <span style="color:#00f">void</span>
-
 <span style="color:#c34e00">ppp_do_recv</span>(<span style="color:#00f">struct</span> ppp *ppp,<span style="color:#00f">struct</span> sk_buff *skb,<span style="color:#00f">struct</span> channel *pch)
 {
     ppp_recv_lock(ppp);
 
     <span style="color:#f00;font-style:italic">/* ppp-&gt;dev == 0 means interface is closing down */</span>
-
     <span style="color:#00f">if</span>(ppp-&gt;dev!=0)
-
-    ppp_receive_frame(ppp,skb,pch);
-
+    	ppp_receive_frame(ppp,skb,pch);
     <span style="color:#00f">else</span>
-
-    kfree_skb(skb);
+         kfree_skb(skb);
 
     ppp_recv_unlock(ppp);
 }
 </code></pre></div><p>由于PPP unit上已建立了ppp0网络接口，这里会调用ppp_receive_frame：</p>
 <p>linux-2.6.18/drivers/net/ppp_generic.c</p>
 <div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">static</span> <span style="color:#00f">void</span>
-
 <span style="color:#c34e00">ppp_receive_frame</span>(<span style="color:#00f">struct</span> ppp *ppp,<span style="color:#00f">struct</span> sk_buff *skb, <span style="color:#00f">struct</span> channel *pch)
 {
     <span style="color:#00f">if</span>(skb-&gt;len&gt;=2){
-
 <span style="color:#f00;font-style:italic">#ifdef CONFIG_PPP_MULTILINK
-</span><span style="color:#f00;font-style:italic"></span>
-    <span style="color:#f00;font-style:italic">/*XXX do channel-level decompression here */</span>
+</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">/*XXX do channel-level decompression here */</span>
     <span style="color:#00f">if</span>(PPP_PROTO(skb)== PPP_MP)
-
-    ppp_receive_mp_frame(ppp, skb, pch);
-
+    	ppp_receive_mp_frame(ppp, skb, pch);
     <span style="color:#00f">else</span>
-
 <span style="color:#f00;font-style:italic">#endif</span><span style="color:#f00;font-style:italic">/* CONFIG_PPP_MULTILINK */</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>
-    ppp_receive_nonmp_frame(ppp,skb); <span style="color:#f00;font-style:italic">//非多链路PPP
-</span><span style="color:#f00;font-style:italic"></span>
-    <span style="color:#00f">return</span>;
-
+</span><span style="color:#f00;font-style:italic"></span>    	ppp_receive_nonmp_frame(ppp,skb); <span style="color:#f00;font-style:italic">//非多链路PPP
+</span><span style="color:#f00;font-style:italic"></span>    	<span style="color:#00f">return</span>;
     }
 
     <span style="color:#00f">if</span>(skb-&gt;len&gt;0)
-
     <span style="color:#f00;font-style:italic">/* note: a 0-length skb is used as an error indication */</span>
-
     ++ppp-&gt;stats.rx_length_errors;
 
     kfree_skb(skb);
-
     ppp_receive_error(ppp);
 }
 </code></pre></div><p>对于非多链路PPP调用ppp_receive_nonmp_frame：</p>
