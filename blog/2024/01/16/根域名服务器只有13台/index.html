@@ -390,36 +390,36 @@ octets either in one piece or in fragments to be reassembled.
 <p>每个根服务器运营者通过DNS区域传输（RFC 5936的AXFR和RFC 1995的IXFR）从根区域维护者（IANA）获取根区域信息，传输数据通过RFC 2845的TSIG保护，资源记录现在还有DNSSEC的签名，保证根区域信息正确。根服务器运营者获取根区域信息后通过自己的内部分发系统交付信息到所有任播节点。</p>
 <p>根区域的信息完全公开，完整的根区域文件我们可以在IANA的网站上获取<a href="https://link.zhihu.com/?target=http%3A//www.internic.net/domain/root.zone">http://www.internic.net/domain/root.zone</a>。事实上根据RFC 7706我们甚至可以在本地建立一个自己的根域名服务器部署在回环地址，用于降低查询延迟和避免查询被窃听，使用BIND或NSD作为DNS服务器程序。通过AXFR从ICANN的服务器lax.xfr.dns.icann.org或iad.xfr.dns.icann.org获取根区域的完整信息，用DNSSEC验证信息，根据SOA记录中的信息定期更新。</p>
 <p>如果你想测试一下DNS的完整区域传输（AXFR），可以通过以下命令</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">dig @lax.xfr.dns.icann.org AXFR .
-</code></pre></div><p>在返回的结果中你可以看到完整的根区域内容，根区域所有的资源记录，由于内容实在太多，这里为了节省篇幅省略，可以自己做一下这个测试。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>dig @lax.xfr.dns.icann.org AXFR .
+</span></span></code></pre></div><p>在返回的结果中你可以看到完整的根区域内容，根区域所有的资源记录，由于内容实在太多，这里为了节省篇幅省略，可以自己做一下这个测试。</p>
 <h2 id="如何标识根服务器的任播节点">如何标识根服务器的任播节点</h2>
 <p>随着DNS越来越多的部署在任播上，大量任播节点使用同一个任播地址，有时候很难判断到底是哪一个节点对查询返回响应，这会给管理者排错带来一些困扰，RFC 4892中记录了这个问题，并给出了常用的解决办法。</p>
 <p>在BIND服务器程序中可以使用CHAOS类中的TXT类型的资源记录存储根域名服务器的标识，查询名称为“HOSTNAME.BIND.”。这种机制被其他DNS实现引入后去除了BIND特有的BIND.域，改为了SERVER.域，查询名称改为“ID.SERVER.”，我们可以通过以下dig命令测试这种标识机制：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">dig @k.root-servers.net TXT CHAOS ID.SERVER
-;; QUESTION SECTION:
-;ID.SERVER.   CH TXT
-;; ANSWER SECTION:
-ID.SERVER.  0 CH TXT &#34;ns1.cn-gya.k.ripe.net&#34;
-</code></pre></div><p>可以看到我这里的K根任播节点的标识为<a href="https://link.zhihu.com/?target=http%3A//ns1.cn-gya.k.ripe.net">http://ns1.cn-gya.k.ripe.net</a>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>dig @k.root-servers.net TXT CHAOS ID.SERVER
+</span></span><span style="display:flex;"><span>;; QUESTION SECTION:
+</span></span><span style="display:flex;"><span>;ID.SERVER.   CH TXT
+</span></span><span style="display:flex;"><span>;; ANSWER SECTION:
+</span></span><span style="display:flex;"><span>ID.SERVER.  0 CH TXT &#34;ns1.cn-gya.k.ripe.net&#34;
+</span></span></code></pre></div><p>可以看到我这里的K根任播节点的标识为<a href="https://link.zhihu.com/?target=http%3A//ns1.cn-gya.k.ripe.net">http://ns1.cn-gya.k.ripe.net</a>。</p>
 <p>以上这种方法有一点不好在于需要一个额外的DNS查询报文去确认任播节点，但是此查询报文和其他普通查询报文有可能会被路由到不同的任播节点，导致获取到错误标识，所以利用CHAOS类的方法没有被标准化。</p>
 <p>更好的方法应该是标识包含在普通查询的响应报文内，在RFC 5001中标准化了DNS名称服务器标识选项（NSID），作为EDNS0伪资源记录RDATA中的选项来存储标识信息。DNS解析器通过在DNS查询中包含一个空的NSID选项表示想要获取名称服务器标识，如果名称服务器支持NSID则返回包含标识内容的NSID选项的响应。NSID在权威名称服务器和递归名称服务器都可以使用，不过NSID是逐跳选项(hop-by-hop)，不会被传递，只作用于接收到的服务器本身。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">dig @k.root-servers.net www.baidu.com +nsid
-;; OPT PSEUDOSECTION:
-; EDNS: version: 0, flags:; udp: 4096
-; NSID: 6e 73 31 2e 63 6e 2d 67 79 61 2e 6b 2e 72 69 70 65 2e 6e 65 74 (&#34;ns1.cn-gya.k.ripe.net&#34;)
-;; QUESTION SECTION:
-;www.baidu.com.   IN A
-;; AUTHORITY SECTION:
-com.   172800 IN NS a.gtld-servers.net.
-...
-;; ADDITIONAL SECTION:
-a.gtld-servers.net. 172800 IN A 192.5.6.30
-...
-</code></pre></div><p>通过dig使用NSID机制可以看到我这里的K根任播节点的NSID中的标识为<a href="https://link.zhihu.com/?target=http%3A//ns1.cn-gya.k.ripe.net">http://ns1.cn-gya.k.ripe.net</a>，包含在查询<a href="https://link.zhihu.com/?target=http%3A//www.baidu.com">http://www.baidu.com</a>的响应报文内。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">dig ns1.cn-gya.k.ripe.net A
-;; ANSWER SECTION:
-ns1.cn-gya.k.ripe.net. 86400 IN A 58.16.72.74
-</code></pre></div><p><a href="https://link.zhihu.com/?target=http%3A//ns1.cn-gya.k.ripe.net">http://ns1.cn-gya.k.ripe.net</a>刚好是这个K根服务器的域名，我们查询其A记录可以看到此域名对应的IPv4地址为58.16.72.74。为了更好的让管理员对特定节点监控管理，通常每个任播节点除了任播地址还会有自己的单播地址。注意，不是所有根域名服务器返回的NSID内容都是域名，NSID内容可由管理员随意设置。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>dig @k.root-servers.net www.baidu.com +nsid
+</span></span><span style="display:flex;"><span>;; OPT PSEUDOSECTION:
+</span></span><span style="display:flex;"><span>; EDNS: version: 0, flags:; udp: 4096
+</span></span><span style="display:flex;"><span>; NSID: 6e 73 31 2e 63 6e 2d 67 79 61 2e 6b 2e 72 69 70 65 2e 6e 65 74 (&#34;ns1.cn-gya.k.ripe.net&#34;)
+</span></span><span style="display:flex;"><span>;; QUESTION SECTION:
+</span></span><span style="display:flex;"><span>;www.baidu.com.   IN A
+</span></span><span style="display:flex;"><span>;; AUTHORITY SECTION:
+</span></span><span style="display:flex;"><span>com.   172800 IN NS a.gtld-servers.net.
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>;; ADDITIONAL SECTION:
+</span></span><span style="display:flex;"><span>a.gtld-servers.net. 172800 IN A 192.5.6.30
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><p>通过dig使用NSID机制可以看到我这里的K根任播节点的NSID中的标识为<a href="https://link.zhihu.com/?target=http%3A//ns1.cn-gya.k.ripe.net">http://ns1.cn-gya.k.ripe.net</a>，包含在查询<a href="https://link.zhihu.com/?target=http%3A//www.baidu.com">http://www.baidu.com</a>的响应报文内。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>dig ns1.cn-gya.k.ripe.net A
+</span></span><span style="display:flex;"><span>;; ANSWER SECTION:
+</span></span><span style="display:flex;"><span>ns1.cn-gya.k.ripe.net. 86400 IN A 58.16.72.74
+</span></span></code></pre></div><p><a href="https://link.zhihu.com/?target=http%3A//ns1.cn-gya.k.ripe.net">http://ns1.cn-gya.k.ripe.net</a>刚好是这个K根服务器的域名，我们查询其A记录可以看到此域名对应的IPv4地址为58.16.72.74。为了更好的让管理员对特定节点监控管理，通常每个任播节点除了任播地址还会有自己的单播地址。注意，不是所有根域名服务器返回的NSID内容都是域名，NSID内容可由管理员随意设置。</p>
 <p><img src="https://pic1.zhimg.com/80/v2-873ce75021c5dcfe72a8da95082697a4_1440w.webp" alt="img"></p>
 <p>查询58.16.72.74的地理位置可以发现这是一个贵阳市的IP地址，显然这是在贵阳市部署的K根域名服务器的任播节点。</p>
 <h2 id="不再有512字节限制后的dns">不再有512字节限制后的DNS</h2>

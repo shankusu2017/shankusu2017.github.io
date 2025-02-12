@@ -305,175 +305,175 @@
 <p>调度循环。</p>
 <p>非main goroutine会返回到goexit吗</p>
 <p>首先来看一段代码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">package</span> main
- 
-<span style="color:#00f">import</span> (
-    <span style="color:#009c00">&#34;fmt&#34;</span>
-)
- 
-<span style="color:#00f">func</span> <span style="color:#c34e00">g2</span>(n <span style="color:#00f">int</span>, ch <span style="color:#00f">chan</span> <span style="color:#00f">int</span>) {
-    ch &lt;- n * n
-}
-<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-    ch := make(<span style="color:#00f">chan</span> <span style="color:#00f">int</span>)
-    <span style="color:#00f">go</span> <span style="color:#c34e00">g2</span>(100, ch)
-    fmt.<span style="color:#c34e00">Println</span>(&lt;-ch)
-}
-</code></pre></div><p>这个程序比较简单，main goroutine启动后在main函数中创建了一个goroutine执行g2函数，我们称它为g2 goroutine，下面我们就用这个g2的退出来验证一下非main goroutine退出时是否真的会返回到goexit继续执行。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">package</span> main
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">import</span> (
+</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">g2</span>(n <span style="color:#00f">int</span>, ch <span style="color:#00f">chan</span> <span style="color:#00f">int</span>) {
+</span></span><span style="display:flex;"><span>    ch &lt;- n * n
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>    ch := make(<span style="color:#00f">chan</span> <span style="color:#00f">int</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">go</span> <span style="color:#c34e00">g2</span>(100, ch)
+</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Println</span>(&lt;-ch)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这个程序比较简单，main goroutine启动后在main函数中创建了一个goroutine执行g2函数，我们称它为g2 goroutine，下面我们就用这个g2的退出来验证一下非main goroutine退出时是否真的会返回到goexit继续执行。</p>
 <p>怎么验证呢？比较简单的办法就是用gdb来调试，在gdb中首先使用backtrace命令查看g2函数是被谁调用的，然后单步执行看它能否返回到goexit继续执行。下面是gdb调试过程：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">(gdb) b main.g2       // 在main.g2函数入口处下断点
-Breakpoint 1 at 0x4869c0: file /home/bobo/study/go/goexit.go, line 7.
-(gdb) r
-Starting program: /home/bobo/study/go/goexit 
-Thread 1 <span style="color:#009c00">&#34;goexit&#34;</span> hit Breakpoint 1 at /home/bobo/study/go/goexit.go:7
-(gdb) bt       //查看函数调用链，看起来g2真的是被runtime.goexit调用的
-<span style="color:#f00;font-style:italic">#0 main.g2 (n=100, ch=0xc000052060) at /home/bobo/study/go/goexit.go:7</span>
-<span style="color:#f00;font-style:italic">#1 0x0000000000450ad1 in runtime.goexit () at /usr/local/go/src/runtime/asm_amd64.s:1337</span>
-(gdb) disass     //反汇编找ret的地址，这是为了在ret处下断点
-Dump of assembler code <span style="color:#00f">for</span> <span style="color:#00f">function</span> main.g2:
-=&gt; 0x00000000004869c0 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
-  0x00000000004869c9 &lt;+9&gt;:cmp   0x10(%rcx),%rsp
-  0x00000000004869cd &lt;+13&gt;:jbe   0x486a0d &lt;main.g2+77&gt;
-  0x00000000004869cf &lt;+15&gt;:sub   $0x20,%rsp
-  0x00000000004869d3 &lt;+19&gt;:mov   %rbp,0x18(%rsp)
-  0x00000000004869d8 &lt;+24&gt;:lea   0x18(%rsp),%rbp
-  0x00000000004869dd &lt;+29&gt;:mov   0x28(%rsp),%rax
-  0x00000000004869e2 &lt;+34&gt;:imul   %rax,%rax
-  0x00000000004869e6 &lt;+38&gt;:mov   %rax,0x10(%rsp)
-  0x00000000004869eb &lt;+43&gt;:mov   0x30(%rsp),%rax
-  0x00000000004869f0 &lt;+48&gt;:mov   %rax,(%rsp)
-  0x00000000004869f4 &lt;+52&gt;:lea   0x10(%rsp),%rax
-  0x00000000004869f9 &lt;+57&gt;:mov   %rax,0x8(%rsp)
-  0x00000000004869fe &lt;+62&gt;:callq 0x4046a0 &lt;runtime.chansend1&gt;
-  0x0000000000486a03 &lt;+67&gt;:mov   0x18(%rsp),%rbp
-  0x0000000000486a08 &lt;+72&gt;:add   $0x20,%rsp
-  0x0000000000486a0c &lt;+76&gt;:retq   
-  0x0000000000486a0d &lt;+77&gt;:callq 0x44ece0 &lt;runtime.morestack_noctxt&gt;
-  0x0000000000486a12 &lt;+82&gt;:jmp   0x4869c0 &lt;main.g2&gt;
-End of assembler dump.
-(gdb) b *0x0000000000486a0c             //在retq指令位置下断点
-Breakpoint 2 at 0x486a0c: file /home/bobo/study/go/goexit.go, line 9.
-(gdb) c
-Continuing.
- 
-Thread 1 <span style="color:#009c00">&#34;goexit&#34;</span> hit Breakpoint 2 at /home/bobo/study/go/goexit.go:9
-(gdb) disass             //程序停在了ret指令处
-Dump of assembler code <span style="color:#00f">for</span> <span style="color:#00f">function</span> main.g2:
-  0x00000000004869c0 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
-  0x00000000004869c9 &lt;+9&gt;:cmp   0x10(%rcx),%rsp
-  0x00000000004869cd &lt;+13&gt;:jbe   0x486a0d &lt;main.g2+77&gt;
-  0x00000000004869cf &lt;+15&gt;:sub   $0x20,%rsp
-  0x00000000004869d3 &lt;+19&gt;:mov   %rbp,0x18(%rsp)
-  0x00000000004869d8 &lt;+24&gt;:lea   0x18(%rsp),%rbp
-  0x00000000004869dd &lt;+29&gt;:mov   0x28(%rsp),%rax
-  0x00000000004869e2 &lt;+34&gt;:imul   %rax,%rax
-  0x00000000004869e6 &lt;+38&gt;:mov   %rax,0x10(%rsp)
-  0x00000000004869eb &lt;+43&gt;:mov   0x30(%rsp),%rax
-  0x00000000004869f0 &lt;+48&gt;:mov   %rax,(%rsp)
-  0x00000000004869f4 &lt;+52&gt;:lea   0x10(%rsp),%rax
-  0x00000000004869f9 &lt;+57&gt;:mov   %rax,0x8(%rsp)
-  0x00000000004869fe &lt;+62&gt;:callq 0x4046a0 &lt;runtime.chansend1&gt;
-  0x0000000000486a03 &lt;+67&gt;:mov   0x18(%rsp),%rbp
-  0x0000000000486a08 &lt;+72&gt;:add   $0x20,%rsp
-=&gt; 0x0000000000486a0c &lt;+76&gt;:retq   
-  0x0000000000486a0d &lt;+77&gt;:callq 0x44ece0 &lt;runtime.morestack_noctxt&gt;
-  0x0000000000486a12 &lt;+82&gt;:jmp   0x4869c0 &lt;main.g2&gt;
-End of assembler dump.
-(gdb) si         //单步执行一条指令
-runtime.goexit () at /usr/local/go/src/runtime/asm_amd64.s:1338
-1338CALLruntime·goexit1(SB)// does not <span style="color:#00f">return</span>
-(gdb) disass           //可以看出来g2已经返回到了goexit函数中
-Dump of assembler code <span style="color:#00f">for</span> <span style="color:#00f">function</span> runtime.goexit:
-  0x0000000000450ad0 &lt;+0&gt;:nop
-=&gt; 0x0000000000450ad1 &lt;+1&gt;:callq 0x42faf0 &lt;runtime.goexit1&gt;
-  0x0000000000450ad6 &lt;+6&gt;:nop
-</code></pre></div><p>使用gdb调试时，首先我们在g2函数入口处下了一个断点，程序暂停后通过查看函数调用栈发现g2函数确实是被goexit调用的，然后再一次使用断点让程序暂停在g2返回之前的最后一条指令retq处，最后单步执行这条指令，可以看到程序从g2函数返回到了goexit函数的第二条指令的位置，这个位置正是当初在创建goroutine时设置好的返回地址。可以看到，虽然g2函数并不是被goexit函数直接调用的，但它执行完成之后却返回到了goexit函数中！</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>(gdb) b main.g2       // 在main.g2函数入口处下断点
+</span></span><span style="display:flex;"><span>Breakpoint 1 at 0x4869c0: file /home/bobo/study/go/goexit.go, line 7.
+</span></span><span style="display:flex;"><span>(gdb) r
+</span></span><span style="display:flex;"><span>Starting program: /home/bobo/study/go/goexit 
+</span></span><span style="display:flex;"><span>Thread 1 <span style="color:#009c00">&#34;goexit&#34;</span> hit Breakpoint 1 at /home/bobo/study/go/goexit.go:7
+</span></span><span style="display:flex;"><span>(gdb) bt       //查看函数调用链，看起来g2真的是被runtime.goexit调用的
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#0 main.g2 (n=100, ch=0xc000052060) at /home/bobo/study/go/goexit.go:7</span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#1 0x0000000000450ad1 in runtime.goexit () at /usr/local/go/src/runtime/asm_amd64.s:1337</span>
+</span></span><span style="display:flex;"><span>(gdb) disass     //反汇编找ret的地址，这是为了在ret处下断点
+</span></span><span style="display:flex;"><span>Dump of assembler code <span style="color:#00f">for</span> <span style="color:#00f">function</span> main.g2:
+</span></span><span style="display:flex;"><span>=&gt; 0x00000000004869c0 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
+</span></span><span style="display:flex;"><span>  0x00000000004869c9 &lt;+9&gt;:cmp   0x10(%rcx),%rsp
+</span></span><span style="display:flex;"><span>  0x00000000004869cd &lt;+13&gt;:jbe   0x486a0d &lt;main.g2+77&gt;
+</span></span><span style="display:flex;"><span>  0x00000000004869cf &lt;+15&gt;:sub   $0x20,%rsp
+</span></span><span style="display:flex;"><span>  0x00000000004869d3 &lt;+19&gt;:mov   %rbp,0x18(%rsp)
+</span></span><span style="display:flex;"><span>  0x00000000004869d8 &lt;+24&gt;:lea   0x18(%rsp),%rbp
+</span></span><span style="display:flex;"><span>  0x00000000004869dd &lt;+29&gt;:mov   0x28(%rsp),%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869e2 &lt;+34&gt;:imul   %rax,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869e6 &lt;+38&gt;:mov   %rax,0x10(%rsp)
+</span></span><span style="display:flex;"><span>  0x00000000004869eb &lt;+43&gt;:mov   0x30(%rsp),%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869f0 &lt;+48&gt;:mov   %rax,(%rsp)
+</span></span><span style="display:flex;"><span>  0x00000000004869f4 &lt;+52&gt;:lea   0x10(%rsp),%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869f9 &lt;+57&gt;:mov   %rax,0x8(%rsp)
+</span></span><span style="display:flex;"><span>  0x00000000004869fe &lt;+62&gt;:callq 0x4046a0 &lt;runtime.chansend1&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000486a03 &lt;+67&gt;:mov   0x18(%rsp),%rbp
+</span></span><span style="display:flex;"><span>  0x0000000000486a08 &lt;+72&gt;:add   $0x20,%rsp
+</span></span><span style="display:flex;"><span>  0x0000000000486a0c &lt;+76&gt;:retq   
+</span></span><span style="display:flex;"><span>  0x0000000000486a0d &lt;+77&gt;:callq 0x44ece0 &lt;runtime.morestack_noctxt&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000486a12 &lt;+82&gt;:jmp   0x4869c0 &lt;main.g2&gt;
+</span></span><span style="display:flex;"><span>End of assembler dump.
+</span></span><span style="display:flex;"><span>(gdb) b *0x0000000000486a0c             //在retq指令位置下断点
+</span></span><span style="display:flex;"><span>Breakpoint 2 at 0x486a0c: file /home/bobo/study/go/goexit.go, line 9.
+</span></span><span style="display:flex;"><span>(gdb) c
+</span></span><span style="display:flex;"><span>Continuing.
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>Thread 1 <span style="color:#009c00">&#34;goexit&#34;</span> hit Breakpoint 2 at /home/bobo/study/go/goexit.go:9
+</span></span><span style="display:flex;"><span>(gdb) disass             //程序停在了ret指令处
+</span></span><span style="display:flex;"><span>Dump of assembler code <span style="color:#00f">for</span> <span style="color:#00f">function</span> main.g2:
+</span></span><span style="display:flex;"><span>  0x00000000004869c0 &lt;+0&gt;:mov   %fs:0xfffffffffffffff8,%rcx
+</span></span><span style="display:flex;"><span>  0x00000000004869c9 &lt;+9&gt;:cmp   0x10(%rcx),%rsp
+</span></span><span style="display:flex;"><span>  0x00000000004869cd &lt;+13&gt;:jbe   0x486a0d &lt;main.g2+77&gt;
+</span></span><span style="display:flex;"><span>  0x00000000004869cf &lt;+15&gt;:sub   $0x20,%rsp
+</span></span><span style="display:flex;"><span>  0x00000000004869d3 &lt;+19&gt;:mov   %rbp,0x18(%rsp)
+</span></span><span style="display:flex;"><span>  0x00000000004869d8 &lt;+24&gt;:lea   0x18(%rsp),%rbp
+</span></span><span style="display:flex;"><span>  0x00000000004869dd &lt;+29&gt;:mov   0x28(%rsp),%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869e2 &lt;+34&gt;:imul   %rax,%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869e6 &lt;+38&gt;:mov   %rax,0x10(%rsp)
+</span></span><span style="display:flex;"><span>  0x00000000004869eb &lt;+43&gt;:mov   0x30(%rsp),%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869f0 &lt;+48&gt;:mov   %rax,(%rsp)
+</span></span><span style="display:flex;"><span>  0x00000000004869f4 &lt;+52&gt;:lea   0x10(%rsp),%rax
+</span></span><span style="display:flex;"><span>  0x00000000004869f9 &lt;+57&gt;:mov   %rax,0x8(%rsp)
+</span></span><span style="display:flex;"><span>  0x00000000004869fe &lt;+62&gt;:callq 0x4046a0 &lt;runtime.chansend1&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000486a03 &lt;+67&gt;:mov   0x18(%rsp),%rbp
+</span></span><span style="display:flex;"><span>  0x0000000000486a08 &lt;+72&gt;:add   $0x20,%rsp
+</span></span><span style="display:flex;"><span>=&gt; 0x0000000000486a0c &lt;+76&gt;:retq   
+</span></span><span style="display:flex;"><span>  0x0000000000486a0d &lt;+77&gt;:callq 0x44ece0 &lt;runtime.morestack_noctxt&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000486a12 &lt;+82&gt;:jmp   0x4869c0 &lt;main.g2&gt;
+</span></span><span style="display:flex;"><span>End of assembler dump.
+</span></span><span style="display:flex;"><span>(gdb) si         //单步执行一条指令
+</span></span><span style="display:flex;"><span>runtime.goexit () at /usr/local/go/src/runtime/asm_amd64.s:1338
+</span></span><span style="display:flex;"><span>1338CALLruntime·goexit1(SB)// does not <span style="color:#00f">return</span>
+</span></span><span style="display:flex;"><span>(gdb) disass           //可以看出来g2已经返回到了goexit函数中
+</span></span><span style="display:flex;"><span>Dump of assembler code <span style="color:#00f">for</span> <span style="color:#00f">function</span> runtime.goexit:
+</span></span><span style="display:flex;"><span>  0x0000000000450ad0 &lt;+0&gt;:nop
+</span></span><span style="display:flex;"><span>=&gt; 0x0000000000450ad1 &lt;+1&gt;:callq 0x42faf0 &lt;runtime.goexit1&gt;
+</span></span><span style="display:flex;"><span>  0x0000000000450ad6 &lt;+6&gt;:nop
+</span></span></code></pre></div><p>使用gdb调试时，首先我们在g2函数入口处下了一个断点，程序暂停后通过查看函数调用栈发现g2函数确实是被goexit调用的，然后再一次使用断点让程序暂停在g2返回之前的最后一条指令retq处，最后单步执行这条指令，可以看到程序从g2函数返回到了goexit函数的第二条指令的位置，这个位置正是当初在创建goroutine时设置好的返回地址。可以看到，虽然g2函数并不是被goexit函数直接调用的，但它执行完成之后却返回到了goexit函数中！</p>
 <p>至此，我们已经证实非main goroutine退出时确实会返回到goexit函数继续执行，下面我们就沿着这条线继续分析非main goroutine的退出流程。</p>
 <p>非main goroutine的退出流程</p>
 <p>首先来看goexit函数</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 1334
-
-<span style="color:#f00;font-style:italic">// The top-most function running on a goroutine
-</span><span style="color:#f00;font-style:italic">// returns to goexit+PCQuantum.
-</span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">goexit</span>(SB),NOSPLIT,$0-0
-    BYTE  $0x90  <span style="color:#f00;font-style:italic">// NOP
-</span><span style="color:#f00;font-style:italic"></span>    CALL  runtime·<span style="color:#c34e00">goexit1</span>(SB)  <span style="color:#f00;font-style:italic">// does not return
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// traceback from goexit1 must hit code range of goexit
-</span><span style="color:#f00;font-style:italic"></span>    BYTE  $0x90  <span style="color:#f00;font-style:italic">// NOP
-</span><span style="color:#f00;font-style:italic"></span>从前面的分析我们已经看到，非main goroutine返回时直接返回到了goexit的第二条指令：CALL runtime·<span style="color:#c34e00">goexit1</span>(SB)，该指令继续调用goexit1函数。
-
-runtime/proc.<span style="color:#00f">go</span> : 2652
-
-<span style="color:#f00;font-style:italic">// Finishes execution of the current goroutine.
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">goexit1</span>() {
-    <span style="color:#00f">if</span> raceenabled {  <span style="color:#f00;font-style:italic">//与竞态检查有关，不关注
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">racegoend</span>()
-    }
-    <span style="color:#00f">if</span> trace.enabled { <span style="color:#f00;font-style:italic">//与backtrace有关，不关注
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">traceGoEnd</span>()
-    }
-    <span style="color:#c34e00">mcall</span>(goexit0)
-}
-goexit1函数通过调用mcall从当前运行的g2 goroutine切换到g0，然后在g0栈上调用和执行goexit0这个函数。
-
-runtime/asm_amd64.s : 270
-
-# <span style="color:#00f">func</span> <span style="color:#c34e00">mcall</span>(fn <span style="color:#00f">func</span>(*g))
-# Switch to m-&gt;g0&#39;s stack, call <span style="color:#c34e00">fn</span>(g).
-# Fn must never <span style="color:#00f">return</span>. It should <span style="color:#c34e00">gogo</span>(&amp;g-&gt;sched)
-# to keep running g.
-# mcall的参数是一个指向funcval对象的指针
-TEXT runtime·<span style="color:#c34e00">mcall</span>(SB), NOSPLIT, $0-8
-    #取出参数的值放入DI寄存器，它是funcval对象的指针，此场景中fn.fn是goexit0的地址
-    MOVQ  fn+0(FP), DI
- 
-    <span style="color:#c34e00">get_tls</span>(CX)
-    MOVQ  <span style="color:#c34e00">g</span>(CX), AX # AX = g，本场景g 是 g2
- 
-    #mcall返回地址放入BX
-    MOVQ  0(SP), BX# caller&#39;s PC
- 
-    #保存g2的调度信息，因为我们要从当前正在运行的g2切换到g0
-    MOVQ  BX, (g_sched+gobuf_pc)(AX)   #g.sched.pc = BX，保存g2的rip
-    LEAQ  fn+0(FP), BX # caller&#39;s SP  
-    MOVQ  BX, (g_sched+gobuf_sp)(AX)  #g.sched.sp = BX，保存g2的rsp
-    MOVQ  AX, (g_sched+gobuf_g)(AX)   #g.sched.g = g
-    MOVQ  BP, (g_sched+gobuf_bp)(AX)  #g.sched.bp = BP，保存g2的rbp
- 
-    # <span style="color:#00f">switch</span> to m-&gt;g0 &amp; its stack, call fn
-    #下面三条指令主要目的是找到g0的指针
-    MOVQ  <span style="color:#c34e00">g</span>(CX), BX         #BX = g
-    MOVQ  <span style="color:#c34e00">g_m</span>(BX), BX    #BX = g.m
-    MOVQ  <span style="color:#c34e00">m_g0</span>(BX), SI   #SI = g.m.g0
- 
-    #此刻，SI = g0， AX = g，所以这里在判断g 是否是 g0，如果g == g0则一定是哪里代码写错了
-    CMPQ  SI, AX# <span style="color:#00f">if</span> g == m-&gt;g0 call badmcall
-    JNE  3(PC)
-    MOVQ  $runtime·<span style="color:#c34e00">badmcall</span>(SB), AX
-    JMP  AX
- 
-    #把g0的地址设置到线程本地存储之中
-    MOVQ  SI, <span style="color:#c34e00">g</span>(CX)
- 
-    #恢复g0的栈顶指针到CPU的rsp积存，这一条指令完成了栈的切换，从g的栈切换到了g0的栈
-    <span style="color:#c34e00">MOVQ</span>  (g_sched+gobuf_sp)(SI), SP# rsp = g0-&gt;sched.sp
- 
-    #AX = g
-    PUSHQ  AX   #fn的参数g入栈 
-    MOVQ  DI, DX   #DI是结构体funcval实例对象的指针，它的第一个成员才是goexit0的地址
-    MOVQ  0(DI), DI   #读取第一个成员到DI寄存器
-    CALL  DI   #调用goexit0(g)
-    POPQ  AX
-    MOVQ  $runtime·<span style="color:#c34e00">badmcall2</span>(SB), AX
-    JMP  AX
-    RET
-mcall的参数是一个函数，在Go语言的实现中，函数变量并不是一个直接指向函数代码的指针，而是一个指向funcval结构体对象的指针，funcval结构体对象的第一个成员fn才是真正指向函数代码的指针。
-
-<span style="color:#00f">type</span> funcval <span style="color:#00f">struct</span> {
-    fn <span style="color:#00f">uintptr</span>
-    <span style="color:#f00;font-style:italic">// variable-size, fn-specific data here
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>也就是说，在我们这个场景中mcall函数的fn参数的fn成员中存放的才是goexit0函数的第一条指令的地址。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 1334
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// The top-most function running on a goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// returns to goexit+PCQuantum.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">goexit</span>(SB),NOSPLIT,$0-0
+</span></span><span style="display:flex;"><span>    BYTE  $0x90  <span style="color:#f00;font-style:italic">// NOP
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    CALL  runtime·<span style="color:#c34e00">goexit1</span>(SB)  <span style="color:#f00;font-style:italic">// does not return
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// traceback from goexit1 must hit code range of goexit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    BYTE  $0x90  <span style="color:#f00;font-style:italic">// NOP
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>从前面的分析我们已经看到，非main goroutine返回时直接返回到了goexit的第二条指令：CALL runtime·<span style="color:#c34e00">goexit1</span>(SB)，该指令继续调用goexit1函数。
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 2652
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Finishes execution of the current goroutine.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">goexit1</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> raceenabled {  <span style="color:#f00;font-style:italic">//与竞态检查有关，不关注
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">racegoend</span>()
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> trace.enabled { <span style="color:#f00;font-style:italic">//与backtrace有关，不关注
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">traceGoEnd</span>()
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">mcall</span>(goexit0)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>goexit1函数通过调用mcall从当前运行的g2 goroutine切换到g0，然后在g0栈上调用和执行goexit0这个函数。
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>runtime/asm_amd64.s : 270
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span># <span style="color:#00f">func</span> <span style="color:#c34e00">mcall</span>(fn <span style="color:#00f">func</span>(*g))
+</span></span><span style="display:flex;"><span># Switch to m-&gt;g0&#39;s stack, call <span style="color:#c34e00">fn</span>(g).
+</span></span><span style="display:flex;"><span># Fn must never <span style="color:#00f">return</span>. It should <span style="color:#c34e00">gogo</span>(&amp;g-&gt;sched)
+</span></span><span style="display:flex;"><span># to keep running g.
+</span></span><span style="display:flex;"><span># mcall的参数是一个指向funcval对象的指针
+</span></span><span style="display:flex;"><span>TEXT runtime·<span style="color:#c34e00">mcall</span>(SB), NOSPLIT, $0-8
+</span></span><span style="display:flex;"><span>    #取出参数的值放入DI寄存器，它是funcval对象的指针，此场景中fn.fn是goexit0的地址
+</span></span><span style="display:flex;"><span>    MOVQ  fn+0(FP), DI
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">get_tls</span>(CX)
+</span></span><span style="display:flex;"><span>    MOVQ  <span style="color:#c34e00">g</span>(CX), AX # AX = g，本场景g 是 g2
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    #mcall返回地址放入BX
+</span></span><span style="display:flex;"><span>    MOVQ  0(SP), BX# caller&#39;s PC
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    #保存g2的调度信息，因为我们要从当前正在运行的g2切换到g0
+</span></span><span style="display:flex;"><span>    MOVQ  BX, (g_sched+gobuf_pc)(AX)   #g.sched.pc = BX，保存g2的rip
+</span></span><span style="display:flex;"><span>    LEAQ  fn+0(FP), BX # caller&#39;s SP  
+</span></span><span style="display:flex;"><span>    MOVQ  BX, (g_sched+gobuf_sp)(AX)  #g.sched.sp = BX，保存g2的rsp
+</span></span><span style="display:flex;"><span>    MOVQ  AX, (g_sched+gobuf_g)(AX)   #g.sched.g = g
+</span></span><span style="display:flex;"><span>    MOVQ  BP, (g_sched+gobuf_bp)(AX)  #g.sched.bp = BP，保存g2的rbp
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    # <span style="color:#00f">switch</span> to m-&gt;g0 &amp; its stack, call fn
+</span></span><span style="display:flex;"><span>    #下面三条指令主要目的是找到g0的指针
+</span></span><span style="display:flex;"><span>    MOVQ  <span style="color:#c34e00">g</span>(CX), BX         #BX = g
+</span></span><span style="display:flex;"><span>    MOVQ  <span style="color:#c34e00">g_m</span>(BX), BX    #BX = g.m
+</span></span><span style="display:flex;"><span>    MOVQ  <span style="color:#c34e00">m_g0</span>(BX), SI   #SI = g.m.g0
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    #此刻，SI = g0， AX = g，所以这里在判断g 是否是 g0，如果g == g0则一定是哪里代码写错了
+</span></span><span style="display:flex;"><span>    CMPQ  SI, AX# <span style="color:#00f">if</span> g == m-&gt;g0 call badmcall
+</span></span><span style="display:flex;"><span>    JNE  3(PC)
+</span></span><span style="display:flex;"><span>    MOVQ  $runtime·<span style="color:#c34e00">badmcall</span>(SB), AX
+</span></span><span style="display:flex;"><span>    JMP  AX
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    #把g0的地址设置到线程本地存储之中
+</span></span><span style="display:flex;"><span>    MOVQ  SI, <span style="color:#c34e00">g</span>(CX)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    #恢复g0的栈顶指针到CPU的rsp积存，这一条指令完成了栈的切换，从g的栈切换到了g0的栈
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">MOVQ</span>  (g_sched+gobuf_sp)(SI), SP# rsp = g0-&gt;sched.sp
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    #AX = g
+</span></span><span style="display:flex;"><span>    PUSHQ  AX   #fn的参数g入栈 
+</span></span><span style="display:flex;"><span>    MOVQ  DI, DX   #DI是结构体funcval实例对象的指针，它的第一个成员才是goexit0的地址
+</span></span><span style="display:flex;"><span>    MOVQ  0(DI), DI   #读取第一个成员到DI寄存器
+</span></span><span style="display:flex;"><span>    CALL  DI   #调用goexit0(g)
+</span></span><span style="display:flex;"><span>    POPQ  AX
+</span></span><span style="display:flex;"><span>    MOVQ  $runtime·<span style="color:#c34e00">badmcall2</span>(SB), AX
+</span></span><span style="display:flex;"><span>    JMP  AX
+</span></span><span style="display:flex;"><span>    RET
+</span></span><span style="display:flex;"><span>mcall的参数是一个函数，在Go语言的实现中，函数变量并不是一个直接指向函数代码的指针，而是一个指向funcval结构体对象的指针，funcval结构体对象的第一个成员fn才是真正指向函数代码的指针。
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">type</span> funcval <span style="color:#00f">struct</span> {
+</span></span><span style="display:flex;"><span>    fn <span style="color:#00f">uintptr</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// variable-size, fn-specific data here
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p>也就是说，在我们这个场景中mcall函数的fn参数的fn成员中存放的才是goexit0函数的第一条指令的地址。</p>
 <p>mcall函数主要有两个功能：</p>
 <p>首先从当前运行的g(我们这个场景是g2)切换到g0，这一步包括保存当前g的调度信息，把g0设置到tls中，修改CPU的rsp寄存器使其指向g0的栈；</p>
 <p>以当前运行的g(我们这个场景是g2)为参数调用fn函数(此处为goexit0)。</p>
@@ -485,52 +485,52 @@ mcall的参数是一个函数，在Go语言的实现中，函数变量并不是�
 <p>调用dropg函数解除g和m之间的关系，其实就是设置g-&gt;m = nil, m-&gt;currg = nil；</p>
 <p>把g放入p的freeg队列缓存起来供下次创建g时快速获取而不用从内存分配。freeg就是g的一个对象池；</p>
 <p>调用schedule函数再次进行调度；</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 2662
-
- 
-
-<span style="color:#f00;font-style:italic">// goexit continuation on g0.
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">goexit0</span>(gp *g) {
-    _g_ := <span style="color:#c34e00">getg</span>()  <span style="color:#f00;font-style:italic">//g0
-</span><span style="color:#f00;font-style:italic"></span> 
-    <span style="color:#c34e00">casgstatus</span>(gp, _Grunning, _Gdead) <span style="color:#f00;font-style:italic">//g马上退出，所以设置其状态为_Gdead
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> <span style="color:#c34e00">isSystemGoroutine</span>(gp, <span style="color:#00f">false</span>) {
-        atomic.<span style="color:#c34e00">Xadd</span>(&amp;sched.ngsys, -1)
-    }
-   
-   <span style="color:#f00;font-style:italic">//清空g保存的一些信息
-</span><span style="color:#f00;font-style:italic"></span>    gp.m = <span style="color:#00f">nil</span>
-    locked := gp.lockedm != 0
-    gp.lockedm = 0
-    _g_.m.lockedg = 0
-    gp.paniconfault = <span style="color:#00f">false</span>
-    gp._defer = <span style="color:#00f">nil</span> <span style="color:#f00;font-style:italic">// should be true already but just in case.
-</span><span style="color:#f00;font-style:italic"></span>    gp._panic = <span style="color:#00f">nil</span> <span style="color:#f00;font-style:italic">// non-nil for Goexit during panic. points at stack-allocated data.
-</span><span style="color:#f00;font-style:italic"></span>    gp.writebuf = <span style="color:#00f">nil</span>
-    gp.waitreason = 0
-    gp.param = <span style="color:#00f">nil</span>
-    gp.labels = <span style="color:#00f">nil</span>
-    gp.timer = <span style="color:#00f">nil</span>
- 
-    ......
- 
-    <span style="color:#f00;font-style:italic">// Note that gp&#39;s stack scan is now &#34;valid&#34; because it has no
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// stack.
-</span><span style="color:#f00;font-style:italic"></span>    gp.gcscanvalid = <span style="color:#00f">true</span>
-   
-    <span style="color:#f00;font-style:italic">//g-&gt;m = nil, m-&gt;currg = nil 解绑g和m之关系
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">dropg</span>()
- 
-    ......
-   
-    <span style="color:#c34e00">gfput</span>(_g_.m.p.<span style="color:#c34e00">ptr</span>(), gp) <span style="color:#f00;font-style:italic">//g放入p的freeg队列，方便下次重用，免得再去申请内存，提高效率
-</span><span style="color:#f00;font-style:italic"></span> 
-    ......
-   
-    <span style="color:#f00;font-style:italic">//下面再次调用schedule
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">schedule</span>()
-}
-</code></pre></div><p>到此为止g2的生命周期就结束了，工作线程再次调用了schedule函数进入新一轮的调度循环。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 2662
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// goexit continuation on g0.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">goexit0</span>(gp *g) {
+</span></span><span style="display:flex;"><span>    _g_ := <span style="color:#c34e00">getg</span>()  <span style="color:#f00;font-style:italic">//g0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">casgstatus</span>(gp, _Grunning, _Gdead) <span style="color:#f00;font-style:italic">//g马上退出，所以设置其状态为_Gdead
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> <span style="color:#c34e00">isSystemGoroutine</span>(gp, <span style="color:#00f">false</span>) {
+</span></span><span style="display:flex;"><span>        atomic.<span style="color:#c34e00">Xadd</span>(&amp;sched.ngsys, -1)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>   <span style="color:#f00;font-style:italic">//清空g保存的一些信息
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    gp.m = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>    locked := gp.lockedm != 0
+</span></span><span style="display:flex;"><span>    gp.lockedm = 0
+</span></span><span style="display:flex;"><span>    _g_.m.lockedg = 0
+</span></span><span style="display:flex;"><span>    gp.paniconfault = <span style="color:#00f">false</span>
+</span></span><span style="display:flex;"><span>    gp._defer = <span style="color:#00f">nil</span> <span style="color:#f00;font-style:italic">// should be true already but just in case.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    gp._panic = <span style="color:#00f">nil</span> <span style="color:#f00;font-style:italic">// non-nil for Goexit during panic. points at stack-allocated data.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    gp.writebuf = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>    gp.waitreason = 0
+</span></span><span style="display:flex;"><span>    gp.param = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>    gp.labels = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>    gp.timer = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Note that gp&#39;s stack scan is now &#34;valid&#34; because it has no
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// stack.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    gp.gcscanvalid = <span style="color:#00f">true</span>
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//g-&gt;m = nil, m-&gt;currg = nil 解绑g和m之关系
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">dropg</span>()
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">gfput</span>(_g_.m.p.<span style="color:#c34e00">ptr</span>(), gp) <span style="color:#f00;font-style:italic">//g放入p的freeg队列，方便下次重用，免得再去申请内存，提高效率
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//下面再次调用schedule
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">schedule</span>()
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>到此为止g2的生命周期就结束了，工作线程再次调用了schedule函数进入新一轮的调度循环。</p>
 <p>调度循环</p>
 <p>我们说过，任何goroutine被调度起来运行都是通过schedule()-&gt;execute()-&gt;gogo()这个函数调用链完成的，而且这个调用链中的函数一直没有返回。以我们刚刚讨论过的g2 goroutine为例，从g2开始被调度起来运行到退出是沿着下面这条路径进行的</p>
 <p>schedule()-&gt;execute()-&gt;gogo()-&gt;g2()-&gt;goexit()-&gt;goexit1()-&gt;mcall()-&gt;goexit0()-&gt;schedule()

@@ -304,275 +304,275 @@
 <p>/<strong>p4_16,v1_model</strong>/</p>
 <p><img src="http://shanks.link/img/p4/1329608-20190222152127575-1085498091.jpg" alt="img"></p>
 <p><img src="http://shanks.link/img/p4/1329608-20190222152330056-343296360.jpg" alt="img"></p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback"> #include&lt;core.p4&gt;
- #include&lt;v1model.p4&gt;
- 
- const bit&lt;16&gt; TYPE_IPV6 = 0x08DD;//ipv6在以太网中的id
- 
- /*HEADERS*/
- 
- typedef bit&lt;9&gt; egressSpec_t;
- typedef bit&lt;48&gt; macAddr_t;
- 
- header ethernet_t{
-     macAddr_t dstAddr;
-     macAddr_t srcAddr;
-     bit&lt;16&gt; etherType;
- }
-  
- header ipv6_t{
-     bit&lt;4&gt; version;
-     bit&lt;8&gt; trafficClass;
-     bit&lt;20&gt; flowLabel;
-     bit&lt;16&gt; payLoadLen;
-     bit&lt;8&gt; nextHdr;
-     bit&lt;8&gt; hopLimit;
-     bit&lt;128&gt; srcAddr;
-     bit&lt;128&gt; dstAddr;
- }
- 
- struct metadata{
- }
- 
- struct headers{
-     ethernet_t ethernet;
-     ipv6_t ipv6;
- }
- 
- /*PARSER*/
- 
- parser MyParser(packet_in packet,out headers hdr,inout metadata meta,inout standard_metadata_t standard_metadata){
-     state start{
-         transition parse_ethernet;//start开始先以底层eth解析
-     }
-     
-     state parse_ethernet{
-         packet.extract(hdr.ethernet);
-         transition select(hdr.ethernet.etherType){
-             TYPE_IPV6:parse_ipv6;//转至ipv6解析
-             default:accept;
-         }
-     }
-     
-     state parse_ipv6{
-         packet.extract(hdr.ipv6);
-         transition accept;
-     }
- }
- 
- /*CHECKSUM VERIFICATION*/
- 
-control MyVerifyChecksum(inout headers hdr,inout metadata meta){
-    apply{}
-}
- 
- /*INGRESS PROCESSING*/
- 
- control MyIngress(inout headers hdr,inout metadata meta,inout standard_metadata_t standard_metadata){
-     action drop(){
-         mark_to_drop();//将要丢弃的包标记为丢弃
-     }
-     
-     action ipv6_forward(macAddr_t dstAddr,egressSpec_t port){
-         standard_metadata.egress_spec = port;
-         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
-         hdr.ethernet.dstAddr = dstAddr;
-         hdr.ipv6.hopLimit = hdr.ipv6.hopLimit - 1;//这个类似ipv4中ttl，为0时就超时
-     }
-     
-     table ipv6_lpm{
-         key = {
-             hdr.ipv6.dstAddr: lpm;//lpm是最长前缀匹配，exact完全匹配，ternary三元匹配
-         }
-         
-         actions = {
-             ipv6_forward;//转发
-             drop;//丢弃
-             NoAction;//空动作
-         }
-         
-         size = 1024;//流表项容量
-         
-         default_action = drop();//table miss则丢弃
-     }
-     
-     apply{
-         if(hdr.ipv6.isValid()){
-             ipv6_lpm.apply();
-         }
-     }
- }
- 
- /*EGRESS PROCESSING*/
- 
- control MyEgress(inout headers hdr,inout metadata meta,inout standard_metadata_t standard_metadata){
-     apply{}
- }
- 
- /*CHECKSUM COMPUTATION*/
- 
- control MyComputeChecksum(inout headers hdr,inout metadata meta){
-     apply{}
- }
- 
- /*DEPARSER*/
- 
- control MyDeparser(packet_out packet,in headers hdr){
-     apply{
-         packet.emit(hdr.ethernet);
-         packet.emit(hdr.ipv6);
-     }
- }
- 
- /*SWITCH*/
- 
- V1Switch(
- MyParser(),
- MyVerifyChecksum(),
- MyIngress(),
- MyEgress(),
- MyComputeChecksum(),
- MyDeparser()
- )main;
-</code></pre></div><hr>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span> #include&lt;core.p4&gt;
+</span></span><span style="display:flex;"><span> #include&lt;v1model.p4&gt;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> const bit&lt;16&gt; TYPE_IPV6 = 0x08DD;//ipv6在以太网中的id
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> /*HEADERS*/
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> typedef bit&lt;9&gt; egressSpec_t;
+</span></span><span style="display:flex;"><span> typedef bit&lt;48&gt; macAddr_t;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> header ethernet_t{
+</span></span><span style="display:flex;"><span>     macAddr_t dstAddr;
+</span></span><span style="display:flex;"><span>     macAddr_t srcAddr;
+</span></span><span style="display:flex;"><span>     bit&lt;16&gt; etherType;
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span> header ipv6_t{
+</span></span><span style="display:flex;"><span>     bit&lt;4&gt; version;
+</span></span><span style="display:flex;"><span>     bit&lt;8&gt; trafficClass;
+</span></span><span style="display:flex;"><span>     bit&lt;20&gt; flowLabel;
+</span></span><span style="display:flex;"><span>     bit&lt;16&gt; payLoadLen;
+</span></span><span style="display:flex;"><span>     bit&lt;8&gt; nextHdr;
+</span></span><span style="display:flex;"><span>     bit&lt;8&gt; hopLimit;
+</span></span><span style="display:flex;"><span>     bit&lt;128&gt; srcAddr;
+</span></span><span style="display:flex;"><span>     bit&lt;128&gt; dstAddr;
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> struct metadata{
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> struct headers{
+</span></span><span style="display:flex;"><span>     ethernet_t ethernet;
+</span></span><span style="display:flex;"><span>     ipv6_t ipv6;
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> /*PARSER*/
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> parser MyParser(packet_in packet,out headers hdr,inout metadata meta,inout standard_metadata_t standard_metadata){
+</span></span><span style="display:flex;"><span>     state start{
+</span></span><span style="display:flex;"><span>         transition parse_ethernet;//start开始先以底层eth解析
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>     
+</span></span><span style="display:flex;"><span>     state parse_ethernet{
+</span></span><span style="display:flex;"><span>         packet.extract(hdr.ethernet);
+</span></span><span style="display:flex;"><span>         transition select(hdr.ethernet.etherType){
+</span></span><span style="display:flex;"><span>             TYPE_IPV6:parse_ipv6;//转至ipv6解析
+</span></span><span style="display:flex;"><span>             default:accept;
+</span></span><span style="display:flex;"><span>         }
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>     
+</span></span><span style="display:flex;"><span>     state parse_ipv6{
+</span></span><span style="display:flex;"><span>         packet.extract(hdr.ipv6);
+</span></span><span style="display:flex;"><span>         transition accept;
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> /*CHECKSUM VERIFICATION*/
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>control MyVerifyChecksum(inout headers hdr,inout metadata meta){
+</span></span><span style="display:flex;"><span>    apply{}
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> /*INGRESS PROCESSING*/
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> control MyIngress(inout headers hdr,inout metadata meta,inout standard_metadata_t standard_metadata){
+</span></span><span style="display:flex;"><span>     action drop(){
+</span></span><span style="display:flex;"><span>         mark_to_drop();//将要丢弃的包标记为丢弃
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>     
+</span></span><span style="display:flex;"><span>     action ipv6_forward(macAddr_t dstAddr,egressSpec_t port){
+</span></span><span style="display:flex;"><span>         standard_metadata.egress_spec = port;
+</span></span><span style="display:flex;"><span>         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+</span></span><span style="display:flex;"><span>         hdr.ethernet.dstAddr = dstAddr;
+</span></span><span style="display:flex;"><span>         hdr.ipv6.hopLimit = hdr.ipv6.hopLimit - 1;//这个类似ipv4中ttl，为0时就超时
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>     
+</span></span><span style="display:flex;"><span>     table ipv6_lpm{
+</span></span><span style="display:flex;"><span>         key = {
+</span></span><span style="display:flex;"><span>             hdr.ipv6.dstAddr: lpm;//lpm是最长前缀匹配，exact完全匹配，ternary三元匹配
+</span></span><span style="display:flex;"><span>         }
+</span></span><span style="display:flex;"><span>         
+</span></span><span style="display:flex;"><span>         actions = {
+</span></span><span style="display:flex;"><span>             ipv6_forward;//转发
+</span></span><span style="display:flex;"><span>             drop;//丢弃
+</span></span><span style="display:flex;"><span>             NoAction;//空动作
+</span></span><span style="display:flex;"><span>         }
+</span></span><span style="display:flex;"><span>         
+</span></span><span style="display:flex;"><span>         size = 1024;//流表项容量
+</span></span><span style="display:flex;"><span>         
+</span></span><span style="display:flex;"><span>         default_action = drop();//table miss则丢弃
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span>     
+</span></span><span style="display:flex;"><span>     apply{
+</span></span><span style="display:flex;"><span>         if(hdr.ipv6.isValid()){
+</span></span><span style="display:flex;"><span>             ipv6_lpm.apply();
+</span></span><span style="display:flex;"><span>         }
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> /*EGRESS PROCESSING*/
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> control MyEgress(inout headers hdr,inout metadata meta,inout standard_metadata_t standard_metadata){
+</span></span><span style="display:flex;"><span>     apply{}
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> /*CHECKSUM COMPUTATION*/
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> control MyComputeChecksum(inout headers hdr,inout metadata meta){
+</span></span><span style="display:flex;"><span>     apply{}
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> /*DEPARSER*/
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> control MyDeparser(packet_out packet,in headers hdr){
+</span></span><span style="display:flex;"><span>     apply{
+</span></span><span style="display:flex;"><span>         packet.emit(hdr.ethernet);
+</span></span><span style="display:flex;"><span>         packet.emit(hdr.ipv6);
+</span></span><span style="display:flex;"><span>     }
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> /*SWITCH*/
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span> V1Switch(
+</span></span><span style="display:flex;"><span> MyParser(),
+</span></span><span style="display:flex;"><span> MyVerifyChecksum(),
+</span></span><span style="display:flex;"><span> MyIngress(),
+</span></span><span style="display:flex;"><span> MyEgress(),
+</span></span><span style="display:flex;"><span> MyComputeChecksum(),
+</span></span><span style="display:flex;"><span> MyDeparser()
+</span></span><span style="display:flex;"><span> )main;
+</span></span></code></pre></div><hr>
 <h3 id="实验拓扑">实验拓扑</h3>
 <p>这里实验的拓扑用来最简单的一个交换机下挂两个主机，交换机是bmv2。其json文件书写如下： 交换机s1的流表项通过s1-commands.txt文件定义。</p>
 <p><img src="http://shanks.link/img/p4/1329608-20190222153509842-1962007100.png" alt="img"></p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">{
-    &#34;program&#34;: &#34;ipv6_forward.p4&#34;,
-    &#34;language&#34;: &#34;p4-16&#34;,
-    &#34;targets&#34;: {
-      &#34;multiswitch&#34;: {
-          &#34;auto-control-plane&#34;: true,
-          &#34;cli&#34;: true,
-          &#34;pcap_dump&#34;: true,
-          &#34;bmv2_log&#34;: true,
-          &#34;links&#34;: [[&#34;h1&#34;, &#34;s1&#34;], [&#34;h2&#34;, &#34;s1&#34;]],
-          &#34;hosts&#34;: {
-            &#34;h1&#34;: {
-            },
-            &#34;h2&#34;: {
-            }
-          },
-          &#34;switches&#34;: {
-              &#34;s1&#34;: {
-                  &#34;entries&#34;: &#34;s1-commands.txt&#34;
-              }
-        }
-    }
-    }
-}
-</code></pre></div><p>在s1-commans.txt文件中做如下定义：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">table_set_default ipv6_lpm drop
-table_add ipv6_lpm ipv6_forward fe80::5678/128 =&gt; 00:04:00:00:00:02 2
-table_add ipv6_lpm ipv6_forward fe80::1234/128 =&gt; 00:04:00:00:00:01 1
-</code></pre></div><p>将其流表项画出来如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    &#34;program&#34;: &#34;ipv6_forward.p4&#34;,
+</span></span><span style="display:flex;"><span>    &#34;language&#34;: &#34;p4-16&#34;,
+</span></span><span style="display:flex;"><span>    &#34;targets&#34;: {
+</span></span><span style="display:flex;"><span>      &#34;multiswitch&#34;: {
+</span></span><span style="display:flex;"><span>          &#34;auto-control-plane&#34;: true,
+</span></span><span style="display:flex;"><span>          &#34;cli&#34;: true,
+</span></span><span style="display:flex;"><span>          &#34;pcap_dump&#34;: true,
+</span></span><span style="display:flex;"><span>          &#34;bmv2_log&#34;: true,
+</span></span><span style="display:flex;"><span>          &#34;links&#34;: [[&#34;h1&#34;, &#34;s1&#34;], [&#34;h2&#34;, &#34;s1&#34;]],
+</span></span><span style="display:flex;"><span>          &#34;hosts&#34;: {
+</span></span><span style="display:flex;"><span>            &#34;h1&#34;: {
+</span></span><span style="display:flex;"><span>            },
+</span></span><span style="display:flex;"><span>            &#34;h2&#34;: {
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>          },
+</span></span><span style="display:flex;"><span>          &#34;switches&#34;: {
+</span></span><span style="display:flex;"><span>              &#34;s1&#34;: {
+</span></span><span style="display:flex;"><span>                  &#34;entries&#34;: &#34;s1-commands.txt&#34;
+</span></span><span style="display:flex;"><span>              }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在s1-commans.txt文件中做如下定义：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>table_set_default ipv6_lpm drop
+</span></span><span style="display:flex;"><span>table_add ipv6_lpm ipv6_forward fe80::5678/128 =&gt; 00:04:00:00:00:02 2
+</span></span><span style="display:flex;"><span>table_add ipv6_lpm ipv6_forward fe80::1234/128 =&gt; 00:04:00:00:00:01 1
+</span></span></code></pre></div><p>将其流表项画出来如下：</p>
 <p><img src="http://shanks.link/img/p4/1329608-20190222153519643-26096651.png" alt="img"></p>
 <hr>
 <h3 id="收发包脚本代码">收发包脚本代码</h3>
 <p>鉴于对python socket发包代码不是那么了解，所以套用了一部分模板做了修改。</p>
 <h3 id="sendpy">send.py</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">import argparse
-import sys
-import socket
-import random
-import struct
-
-from scapy.all import sendp, send, get_if_list, get_if_hwaddr
-from scapy.all import Packet
-from scapy.all import Ether, IPv6, UDP
-
-def get_if():
-    ifs=get_if_list()[20230912P4语法三.md](20230912P4%D3%EF%B7%A8%C8%FD.md)
-    iface=None
-    for i in get_if_list():
-        if &#34;eth0&#34; in i:
-            iface=i
-            break;
-    if not iface:
-        print &#34;Cannot find eth0 interface&#34;
-        exit(1)
-    return iface
-
-def main():
-
-    if len(sys.argv)&lt;3:
-        print &#39;pass 3 arguments:&lt;source&gt; &lt;destination&gt; &#34;&lt;message&gt;&#34;&#39;
-        exit(1)
-    saddr = sys.argv[1]
-    addr = sys.argv[2]
-    iface = get_if()
-
-    print &#34;sending on interface %s to %s&#34; % (iface, str(addr))
-    pkt =  Ether(src=get_if_hwaddr(iface), dst=&#39;ff:ff:ff:ff:ff:ff&#39;) / IPv6(src=saddr,dst=addr) / UDP(dport=4321, sport=1234) / sys.argv[3]
-    pkt.show2()
-    sendp(pkt, iface=iface, verbose=False)
-
-
-if __name__ == &#39;__main__&#39;:
-    main()
-</code></pre></div><h3 id="receivepy">receive.py</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">import sys
-import struct
-import os
-
-from scapy.all import sniff, sendp, hexdump, get_if_list, get_if_hwaddr
-from scapy.all import Packet, IPOption
-from scapy.all import ShortField, IntField, LongField, BitField, FieldListField, FieldLenField
-from scapy.all import IPv6, TCP, UDP, Raw
-from scapy.layers.inet import _IPOption_HDR
-
-def get_if():
-    ifs=get_if_list()
-    iface=None
-    for i in get_if_list():
-        if &#34;eth0&#34; in i:
-            iface=i
-            break;
-    if not iface:
-        print &#34;Cannot find eth0 interface&#34;
-        exit(1)
-    return iface
-
-class IPOption_MRI(IPOption):
-    name = &#34;MRI&#34;
-    option = 31
-    fields_desc = [ _IPOption_HDR,
-                    FieldLenField(&#34;length&#34;, None, fmt=&#34;B&#34;,
-                                  length_of=&#34;swids&#34;,
-                                  adjust=lambda pkt,l:l+4),
-                    ShortField(&#34;count&#34;, 0),
-                    FieldListField(&#34;swids&#34;,
-                                   [],
-                                   IntField(&#34;&#34;, 0),
-                                   length_from=lambda pkt:pkt.count*4) ]
-def handle_pkt(pkt):
-    print &#34;got a packet&#34;
-    pkt.show2()
-    #hexdump(pkt)
-    sys.stdout.flush()
-
-
-def main():
-    ifaces = filter(lambda i: &#39;eth&#39; in i, os.listdir(&#39;/sys/class/net/&#39;))
-    iface = ifaces[0]
-    print &#34;sniffing on %s&#34; % iface
-    sys.stdout.flush()
-    sniff(filter=&#34;udp and port 4321&#34;,iface = iface,
-          prn = lambda x: handle_pkt(x))
-
-if __name__ == &#39;__main__&#39;:
-    main()
-</code></pre></div><hr>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>import argparse
+</span></span><span style="display:flex;"><span>import sys
+</span></span><span style="display:flex;"><span>import socket
+</span></span><span style="display:flex;"><span>import random
+</span></span><span style="display:flex;"><span>import struct
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>from scapy.all import sendp, send, get_if_list, get_if_hwaddr
+</span></span><span style="display:flex;"><span>from scapy.all import Packet
+</span></span><span style="display:flex;"><span>from scapy.all import Ether, IPv6, UDP
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>def get_if():
+</span></span><span style="display:flex;"><span>    ifs=get_if_list()[20230912P4语法三.md](20230912P4%D3%EF%B7%A8%C8%FD.md)
+</span></span><span style="display:flex;"><span>    iface=None
+</span></span><span style="display:flex;"><span>    for i in get_if_list():
+</span></span><span style="display:flex;"><span>        if &#34;eth0&#34; in i:
+</span></span><span style="display:flex;"><span>            iface=i
+</span></span><span style="display:flex;"><span>            break;
+</span></span><span style="display:flex;"><span>    if not iface:
+</span></span><span style="display:flex;"><span>        print &#34;Cannot find eth0 interface&#34;
+</span></span><span style="display:flex;"><span>        exit(1)
+</span></span><span style="display:flex;"><span>    return iface
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>def main():
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    if len(sys.argv)&lt;3:
+</span></span><span style="display:flex;"><span>        print &#39;pass 3 arguments:&lt;source&gt; &lt;destination&gt; &#34;&lt;message&gt;&#34;&#39;
+</span></span><span style="display:flex;"><span>        exit(1)
+</span></span><span style="display:flex;"><span>    saddr = sys.argv[1]
+</span></span><span style="display:flex;"><span>    addr = sys.argv[2]
+</span></span><span style="display:flex;"><span>    iface = get_if()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    print &#34;sending on interface %s to %s&#34; % (iface, str(addr))
+</span></span><span style="display:flex;"><span>    pkt =  Ether(src=get_if_hwaddr(iface), dst=&#39;ff:ff:ff:ff:ff:ff&#39;) / IPv6(src=saddr,dst=addr) / UDP(dport=4321, sport=1234) / sys.argv[3]
+</span></span><span style="display:flex;"><span>    pkt.show2()
+</span></span><span style="display:flex;"><span>    sendp(pkt, iface=iface, verbose=False)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>if __name__ == &#39;__main__&#39;:
+</span></span><span style="display:flex;"><span>    main()
+</span></span></code></pre></div><h3 id="receivepy">receive.py</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>import sys
+</span></span><span style="display:flex;"><span>import struct
+</span></span><span style="display:flex;"><span>import os
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>from scapy.all import sniff, sendp, hexdump, get_if_list, get_if_hwaddr
+</span></span><span style="display:flex;"><span>from scapy.all import Packet, IPOption
+</span></span><span style="display:flex;"><span>from scapy.all import ShortField, IntField, LongField, BitField, FieldListField, FieldLenField
+</span></span><span style="display:flex;"><span>from scapy.all import IPv6, TCP, UDP, Raw
+</span></span><span style="display:flex;"><span>from scapy.layers.inet import _IPOption_HDR
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>def get_if():
+</span></span><span style="display:flex;"><span>    ifs=get_if_list()
+</span></span><span style="display:flex;"><span>    iface=None
+</span></span><span style="display:flex;"><span>    for i in get_if_list():
+</span></span><span style="display:flex;"><span>        if &#34;eth0&#34; in i:
+</span></span><span style="display:flex;"><span>            iface=i
+</span></span><span style="display:flex;"><span>            break;
+</span></span><span style="display:flex;"><span>    if not iface:
+</span></span><span style="display:flex;"><span>        print &#34;Cannot find eth0 interface&#34;
+</span></span><span style="display:flex;"><span>        exit(1)
+</span></span><span style="display:flex;"><span>    return iface
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>class IPOption_MRI(IPOption):
+</span></span><span style="display:flex;"><span>    name = &#34;MRI&#34;
+</span></span><span style="display:flex;"><span>    option = 31
+</span></span><span style="display:flex;"><span>    fields_desc = [ _IPOption_HDR,
+</span></span><span style="display:flex;"><span>                    FieldLenField(&#34;length&#34;, None, fmt=&#34;B&#34;,
+</span></span><span style="display:flex;"><span>                                  length_of=&#34;swids&#34;,
+</span></span><span style="display:flex;"><span>                                  adjust=lambda pkt,l:l+4),
+</span></span><span style="display:flex;"><span>                    ShortField(&#34;count&#34;, 0),
+</span></span><span style="display:flex;"><span>                    FieldListField(&#34;swids&#34;,
+</span></span><span style="display:flex;"><span>                                   [],
+</span></span><span style="display:flex;"><span>                                   IntField(&#34;&#34;, 0),
+</span></span><span style="display:flex;"><span>                                   length_from=lambda pkt:pkt.count*4) ]
+</span></span><span style="display:flex;"><span>def handle_pkt(pkt):
+</span></span><span style="display:flex;"><span>    print &#34;got a packet&#34;
+</span></span><span style="display:flex;"><span>    pkt.show2()
+</span></span><span style="display:flex;"><span>    #hexdump(pkt)
+</span></span><span style="display:flex;"><span>    sys.stdout.flush()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>def main():
+</span></span><span style="display:flex;"><span>    ifaces = filter(lambda i: &#39;eth&#39; in i, os.listdir(&#39;/sys/class/net/&#39;))
+</span></span><span style="display:flex;"><span>    iface = ifaces[0]
+</span></span><span style="display:flex;"><span>    print &#34;sniffing on %s&#34; % iface
+</span></span><span style="display:flex;"><span>    sys.stdout.flush()
+</span></span><span style="display:flex;"><span>    sniff(filter=&#34;udp and port 4321&#34;,iface = iface,
+</span></span><span style="display:flex;"><span>          prn = lambda x: handle_pkt(x))
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>if __name__ == &#39;__main__&#39;:
+</span></span><span style="display:flex;"><span>    main()
+</span></span></code></pre></div><hr>
 <h3 id="测试">测试</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">./run.sh
-//在mininet cli中
-xterm h1 h2
-//在h2中
-./receive.py
-//在h1中
-./send.py fe80::1234 fe80::5678 &#34;Hello p4!&#34;
-</code></pre></div><p>结果如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>./run.sh
+</span></span><span style="display:flex;"><span>//在mininet cli中
+</span></span><span style="display:flex;"><span>xterm h1 h2
+</span></span><span style="display:flex;"><span>//在h2中
+</span></span><span style="display:flex;"><span>./receive.py
+</span></span><span style="display:flex;"><span>//在h1中
+</span></span><span style="display:flex;"><span>./send.py fe80::1234 fe80::5678 &#34;Hello p4!&#34;
+</span></span></code></pre></div><p>结果如下：</p>
 <p><img src="http://shanks.link/img/p4/1329608-20190222153731450-2108534658.png" alt="img"></p>
 <hr>
 <h3 id="牢骚">牢骚</h3>

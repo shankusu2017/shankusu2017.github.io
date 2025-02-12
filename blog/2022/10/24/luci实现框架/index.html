@@ -292,7 +292,7 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">3879 字 ~8分钟</span>
+<span class="leancloud-visitors-count">3945 字 ~8分钟</span>
 </span>
       </div>
     </header>
@@ -305,12 +305,12 @@
 <p><img src="http://shanks.link/img/openwrt/2022-10-24152956.png" alt="Luci实现框架_LuCI_02"></p>
 <ol>
 <li>首次运行时，是以普通的file方式获得docroot/index.html，该文件中以meta的方式自动跳转到cgi的url，这是web服务器的一般做法。</li>
-<li>然后第一次执行luci，path_info='/'，会alise到'/admin'（'/&lsquo;会索引到 tree.rootnode，并执行其target方法，即alise('/admin&rsquo;)，即重新去索引adminnode，这在后面会详细描述），该节点需要认证，所以返回一个登录界面。</li>
-<li>第3次交互，过程同上一次的，只是这时已post来了登录信息，所以serv端会生成一个session值，然后执行'/admin&rsquo;的target（它的target为firstchild，即索引第一个子节点），最终返回/admin/status.html，同时会把session值以cookie的形式发给client。这就是从原始状态到得到显示页面的过程，之后主要就是点击页面上的连接，产生新的request。</li>
+<li>然后第一次执行luci，path_info=&rsquo;/&rsquo;，会alise到&rsquo;/admin&rsquo;（&rsquo;/&lsquo;会索引到 tree.rootnode，并执行其target方法，即alise(&rsquo;/admin&rsquo;)，即重新去索引adminnode，这在后面会详细描述），该节点需要认证，所以返回一个登录界面。</li>
+<li>第3次交互，过程同上一次的，只是这时已post来了登录信息，所以serv端会生成一个session值，然后执行&rsquo;/admin&rsquo;的target（它的target为firstchild，即索引第一个子节点），最终返回/admin/status.html，同时会把session值以cookie的形式发给client。这就是从原始状态到得到显示页面的过程，之后主要就是点击页面上的连接，产生新的request。</li>
 <li>每个链接的url中都会带有一个stok值（它是serv生成的，并放在html中的url里），并且每个新request都要带有session值，它和stok值一起供serv端联合认证。</li>
 </ol>
 <h2 id="2luci程序流程">2.luci程序流程</h2>
-<p>前面已经说明了，luci作为web服务器的cgi程序，是通过execl函数替换到进程空间的，并且详细说明了它与其它进程的交互方法。另外上一节给出了初始阶段http报文，可以看到从第2次交互开始，所有request都是cgi方式（除一些css、js等resource文件外），且执行的cgi程序都是luci，只是带的参数不同，且即使所带参数相同（如都是'/'），由于需要认证，执行的过程也是不同的。</p>
+<p>前面已经说明了，luci作为web服务器的cgi程序，是通过execl函数替换到进程空间的，并且详细说明了它与其它进程的交互方法。另外上一节给出了初始阶段http报文，可以看到从第2次交互开始，所有request都是cgi方式（除一些css、js等resource文件外），且执行的cgi程序都是luci，只是带的参数不同，且即使所带参数相同（如都是&rsquo;/&rsquo;），由于需要认证，执行的过程也是不同的。</p>
 <p>正是由于多种情况的存在，使得luci中需要多个判断分支，代码多少看起来有点乱，但openwrt还是把这些分支都糅合在了一个流程线中。下面首先给出整体流程，首先介绍一下lua语言中一个执行方式coroutine，它可以创造出另一个执行体，但却没有并行性，如下图所示，每一时刻只有一个执行体在执行，通过resume、yield来传递数据，且数据可以是任意类型，任意多个的。</p>
 <p><img src="http://shanks.link/img/openwrt/2022-10-24153055.png" alt="Luci实现框架_html_03"></p>
 <p>Luci正是利用了这种方式，它首先执行的是running()函数，其中create出另一个执行体httpdispatch，每次httpdispatch执行yield返回一些数据时，running()函数就读取这些数据，做相应处理，然后再次执行resume(httpdispath)，……如此直到httpdispatch执行完毕，如下图所示：</p>
@@ -332,7 +332,7 @@
 <p>这里要注意的是，每次dispatch()会根据path_info逐层索引，且每一层都把找到的节点信息放在一个变量track中，这样做使得上层node的信息会影响下层node，而下层node的信息又会覆盖上层node。比如{/admin/system}，最后的auto=false，target=aa，而由于admin有sysauth值，它会遗传给它的子节点，也即所有admin下的节点都需要认证。</p>
 <h3 id="22target简介">2.2target简介</h3>
 <p>对每个节点，最重要的属性当然是target，这也是dispatch()流程最后要执行的方法。target主要有：alise、firstchild、call、cbi、form、template。这几个总体上可以分成两类，前两种主要用于链接其它node，后一个则是主要的操作、以及页面生成。下面分别描述。</p>
-<p>**链接方法：**在介绍初始登录流程时，已经讲到了这种方法。比如初始登录时，url中的path_info仅为'/'，这应该会索引到rootnode节点。而该节点本身是没有内容显示的，所以它用alias(&lsquo;admin&rsquo;)方法，自动链接到admin节点。再比如，admin节点本身也没有内容显示，它用firstchild()方法，自动链接到它的第一个子节点/admin/status。</p>
+<p>**链接方法：**在介绍初始登录流程时，已经讲到了这种方法。比如初始登录时，url中的path_info仅为&rsquo;/&rsquo;，这应该会索引到rootnode节点。而该节点本身是没有内容显示的，所以它用alias(&lsquo;admin&rsquo;)方法，自动链接到admin节点。再比如，admin节点本身也没有内容显示，它用firstchild()方法，自动链接到它的第一个子节点/admin/status。</p>
 <p>**操作方法：**这种方法一般用于一个路径的叶节点leaf，它们会去执行相应的操作，如修改interface参数等，并且动态生成页面html文件，传递给client。这里实际上是利用了所谓的MVC架构，这在后面再描述，这里主要描述luci怎么把生成的html发送给client端。</p>
 <p>Call、cbi、form、template这几种方法，执行的原理各不相同，但最终都会生成完整的http-response报文（包括html文件），并调用luci.template.render()，luci.http.redirect()等函数，它们会调用几个特殊的函数，把报文内容返回给luci.running()流程。</p>
 <p><img src="http://shanks.link/img/openwrt/2022-10-24153146.png" alt="Luci实现框架_LuCI_06"></p>

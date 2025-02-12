@@ -303,46 +303,46 @@
 Table是Lua语言中举足轻重的组成部分，掌握和理解它具有战略意义，这也是实现Lua虚拟机的基础所在，本文首先介绍dummylua项目Table的数据结构，然后在概念上介绍一些基本的操作流程，如创建、resize、查询、插入和迭代等操作。</p>
 <h1 id="lua-table的基本数据结构">lua table的基本数据结构</h1>
 <p>现在我们来介绍一下table的基本数据结构，虽然我很反对在一开始就贴代码，但是对于数据结构而言，展示必要的代码反而有助于我们的理解，因此还是决定先把lua table的数据结构代码贴出来，然后再逐步进行解析。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luaobject.h
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">union</span> lua_Value {
-    <span style="color:#00f">struct</span> GCObject* gc;
-    <span style="color:#00f">void</span>* p;
-    <span style="color:#00f">int</span> b;
-    lua_Integer i;
-    lua_Number n;
-    lua_CFunction f;
-} Value;
-
-<span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> lua_TValue {
-    Value value_;
-    <span style="color:#00f">int</span> tt_;
-} TValue;
-
-<span style="color:#f00;font-style:italic">// lua Table
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">union</span> TKey {
-    <span style="color:#00f">struct</span> {
-        Value value_;
-        <span style="color:#00f">int</span> tt_;
-        <span style="color:#00f">int</span> next;
-    } nk;
-    TValue tvk;
-} TKey;
-
-<span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> Node {
-    TKey key;
-    TValue value;
-} Node;
-
-<span style="color:#00f">struct</span> Table {
-    CommonHeader;
-    TValue* array;
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> arraysize;
-    Node* node;
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> lsizenode; <span style="color:#f00;font-style:italic">// real hash size is 2 ^ lsizenode
-</span><span style="color:#f00;font-style:italic"></span>    Node* lastfree;
-    <span style="color:#00f">struct</span> GCObject* gclist;
-};
-</code></pre></div><p>暂时忽略掉gc部分，我们可以看到Table的主要组成部分由一个TValue类型的数组array，以及一个Node类型的数组node。我们的array数组，主要是存放key为整数类型，值为TValue类型的变量。而我们的node数组，主要用于存放key为任意lua类型的变量，实际上node数组是作为hash表使用的。TValue变量主要由表示类型的int类型变量tt_，和表示值的Value类型变量value_组成，而如上所示，Value是一个union类型，它可以表示任意一种lua类型。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luaobject.h
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">union</span> lua_Value {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> GCObject* gc;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">void</span>* p;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> b;
+</span></span><span style="display:flex;"><span>    lua_Integer i;
+</span></span><span style="display:flex;"><span>    lua_Number n;
+</span></span><span style="display:flex;"><span>    lua_CFunction f;
+</span></span><span style="display:flex;"><span>} Value;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> lua_TValue {
+</span></span><span style="display:flex;"><span>    Value value_;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> tt_;
+</span></span><span style="display:flex;"><span>} TValue;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// lua Table
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">union</span> TKey {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> {
+</span></span><span style="display:flex;"><span>        Value value_;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">int</span> tt_;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">int</span> next;
+</span></span><span style="display:flex;"><span>    } nk;
+</span></span><span style="display:flex;"><span>    TValue tvk;
+</span></span><span style="display:flex;"><span>} TKey;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> Node {
+</span></span><span style="display:flex;"><span>    TKey key;
+</span></span><span style="display:flex;"><span>    TValue value;
+</span></span><span style="display:flex;"><span>} Node;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> Table {
+</span></span><span style="display:flex;"><span>    CommonHeader;
+</span></span><span style="display:flex;"><span>    TValue* array;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> arraysize;
+</span></span><span style="display:flex;"><span>    Node* node;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> lsizenode; <span style="color:#f00;font-style:italic">// real hash size is 2 ^ lsizenode
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    Node* lastfree;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> GCObject* gclist;
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>暂时忽略掉gc部分，我们可以看到Table的主要组成部分由一个TValue类型的数组array，以及一个Node类型的数组node。我们的array数组，主要是存放key为整数类型，值为TValue类型的变量。而我们的node数组，主要用于存放key为任意lua类型的变量，实际上node数组是作为hash表使用的。TValue变量主要由表示类型的int类型变量tt_，和表示值的Value类型变量value_组成，而如上所示，Value是一个union类型，它可以表示任意一种lua类型。
 我们的Node主要由两个部分组成，一个是TKey类型表示key，一个是TValue类型表示value值，TKey和TValue不同之处在于，它有个部分包含了next域，这个域用于处理hash冲突的情况。Node变量的key和Node数组的下标有着密切的关系，在后面我将详细介绍，现在只需要知道Table主要由两个部分组成，一个数组和一个hash表。现在假设一个刚初始化好的Table变量，它如图1所示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part4/table_init_01.png" alt="img"></p>
 <p>图1展示了一个array的size为2，hash表大小为4的table实例，图中虚线方框部分不属于hash表的一部分，它是紧挨着hash表最后一个元素的一块内存，这块内存，并不允许直接通过lastfree指针对其进行修改，当我们的元素往hash表插入时发生了key冲突，那么要将冲突的其中一个元素转移到空余的node中，而这个空余的node，需要lastfree指针不断向左移动，直至找到第一个空余的node为止，然后将冲突中要被转移的元素存入这个node中。也就是说，未被使用的node只可能存在于lastfree指针的左边，lastfree指向的内存，以及右边的内存均已被使用，或者是不可修改的区域（虚线方框部分）。这种设计可以快速找到空闲的节点。
@@ -366,8 +366,8 @@ CommonHeader和gclist是gc相关的变量，table被创建时，每个变量都�
 上表展示了的类型，是TKey类型变量中，类型标识tt_的值，可以理解为是个enum变量（实际上是宏定义），用来标记value_是什么类型的。表的另一列，则展示了对应的hash函数，他们的目标都只有一个，将不同类型的变量，转成一个int型变量（计算出的uint值，最终也会被转成int类型来使用）。于是，我们可以把这一切抽象成如图7所示的关系：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part4/key2index_describe.png" alt="img">
 在完成了对key的hash运算以后，我们需要根据key的hash值寻找该key应该位于hash表中的哪个下标，而计算的公式则是：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">index = hash_value &amp; ((2 ^ lsizenode) - 1)
-</code></pre></div><p>为什么要采取这样的方式？首先我们上面章节已经提到lua table的hash表大小必须是2的n次幂，这样设计的目的是，hash表size - 1得到的值，低位bit位全是1，让我们看一下2 ^ lsizenode - 1的二进制表示的表：
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>index = hash_value &amp; ((2 ^ lsizenode) - 1)
+</span></span></code></pre></div><p>为什么要采取这样的方式？首先我们上面章节已经提到lua table的hash表大小必须是2的n次幂，这样设计的目的是，hash表size - 1得到的值，低位bit位全是1，让我们看一下2 ^ lsizenode - 1的二进制表示的表：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part4/20210408124927.png" alt="img">
 二进制低位全部是1，这样做的好处是，当我们的hash值超出hash表size边界的时候，会被自动回绕回去，而且效率非常高，我们来看一个例子，假设有一个字符串“table”，现在要将他和一个尺寸为8的hash表关联起来，则有：</p>
 <ul>
@@ -384,27 +384,27 @@ CommonHeader和gclist是gc相关的变量，table被创建时，每个变量都�
 <li>判断被查找元素的key值是否在数组范围内(即k &lt;= arraysize是否成立)</li>
 <li>若key值在Table的array范围内，则返回array[k - 1]，流程终止</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">if</span> (k - 1 &lt; arraysize) {
-    <span style="color:#00f">return</span> array[k - 1];
-}
-<span style="color:#f00;font-style:italic">// 进入hash表查找流程
-</span></code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">if</span> (k - 1 &lt; arraysize) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> array[k - 1];
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 进入hash表查找流程
+</span></span></span></code></pre></div><ul>
 <li>若key值不在Table的array范围内，计算key值在hash表中的位置，计算方式为index = k &amp; (2lsizenode-1)，然后以hash[index]节点为起点，查找key值与k相等的node，其伪代码如下所示：</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// 进入hash表查找流程
-</span><span style="color:#f00;font-style:italic">// k是被查询元素的key值
-</span><span style="color:#f00;font-style:italic"></span>Node* node = &amp;hash[index];
-<span style="color:#00f">for</span> (;;) {
-    <span style="color:#00f">if</span> (luaV_equalobject(node.key, k)) {
-        <span style="color:#00f">return</span> node.value_;
-    }
-
-    <span style="color:#00f">if</span> (node.next == 0) {
-        <span style="color:#00f">return</span> luaO_nilobject;
-    }
-    node = node + node.next;
-}
-</code></pre></div><p>我们可以看到，如果在遍历hash表的过程中，找不到key值与k相等的node时，会返回luaO_nilobject，返回这个值，意味着查询失败。以上是被查询元素的key值是int型的情况，当被查询的key值不是int型时，它将遵循如下流程：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 进入hash表查找流程
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// k是被查询元素的key值
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>Node* node = &amp;hash[index];
+</span></span><span style="display:flex;"><span><span style="color:#00f">for</span> (;;) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (luaV_equalobject(node.key, k)) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> node.value_;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (node.next == 0) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> luaO_nilobject;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    node = node + node.next;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们可以看到，如果在遍历hash表的过程中，找不到key值与k相等的node时，会返回luaO_nilobject，返回这个值，意味着查询失败。以上是被查询元素的key值是int型的情况，当被查询的key值不是int型时，它将遵循如下流程：</p>
 <ul>
 <li>计算被查询元素的key(记为k)的hash值，计为key_hash</li>
 <li>计算key在hash表中的位置，计算方式为index = key_hash &amp; (2lsizenode-1)，然后以hash[index]节点为起点，查询key值与k相等的node，伪代码和key值为int类型时，hash表查询的方式一致。
@@ -442,49 +442,49 @@ CommonHeader和gclist是gc相关的变量，table被创建时，每个变量都�
 <li>创建一个nums[32]的数组，nums[i]表示key值为int型，且key值在(2i-1, 2i]范围内(lua脚本里table的int型下标，如t[1]的key在(2-1, 20]这个区间)，并且value不为nil的元素个数，它本质是统计所有的int key，如果在一个一维数组中，各个元素的分布情况，它将作为后面确定arraysize的重要依据</li>
 <li>统计array在nums数组中，不同区间的分布情况，其伪代码为：</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">int</span> i = 0;
-<span style="color:#00f">int</span> j = 0;
-<span style="color:#00f">int</span> twotoi = 1;
-<span style="color:#00f">for</span> (; i &lt; 32; i ++, twotoi *= 2) {
-    <span style="color:#00f">for</span> (; j &lt; twotoi; j ++) {
-        <span style="color:#00f">if</span> (!is_nil(array[j])) {
-            nums[i] ++;
-        }
-    }
-}
-```c
-* 统计hash表元素在nums数组中，不同区间的分布情况，其伪代码为：
-```c
-<span style="color:#f00;font-style:italic">// ceillog2函数片段
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> i = 0;
-<span style="color:#00f">for</span> (; i &lt; 32; i ++) {
-    <span style="color:#00f">if</span> (pow(2, i) &gt;= hash.key) {
-        <span style="color:#00f">return</span> i;
-    }
-}
-<span style="color:#00f">return</span> i;
-<span style="color:#f00;font-style:italic">// -----------------------------
-</span><span style="color:#f00;font-style:italic">// 计算hash在nums中的分布函数片段
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> i = 0;
-<span style="color:#00f">for</span> (; i &lt; pow(2, lsizenode); i++) {
-    <span style="color:#00f">if</span> (is_int(hash[i].key) &amp;&amp; !is_nil(hash[i].value_)) {
-        <span style="color:#00f">int</span> k = ceillog2(hash[i].key); <span style="color:#f00;font-style:italic">// 
-</span><span style="color:#f00;font-style:italic"></span>        nums[k] ++;
-    }
-}
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> i = 0;
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> j = 0;
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> twotoi = 1;
+</span></span><span style="display:flex;"><span><span style="color:#00f">for</span> (; i &lt; 32; i ++, twotoi *= 2) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (; j &lt; twotoi; j ++) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (!is_nil(array[j])) {
+</span></span><span style="display:flex;"><span>            nums[i] ++;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>```c
+</span></span><span style="display:flex;"><span>* 统计hash表元素在nums数组中，不同区间的分布情况，其伪代码为：
+</span></span><span style="display:flex;"><span>```c
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// ceillog2函数片段
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> i = 0;
+</span></span><span style="display:flex;"><span><span style="color:#00f">for</span> (; i &lt; 32; i ++) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (pow(2, i) &gt;= hash.key) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> i;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#00f">return</span> i;
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// -----------------------------
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 计算hash在nums中的分布函数片段
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> i = 0;
+</span></span><span style="display:flex;"><span><span style="color:#00f">for</span> (; i &lt; pow(2, lsizenode); i++) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (is_int(hash[i].key) &amp;&amp; !is_nil(hash[i].value_)) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">int</span> k = ceillog2(hash[i].key); <span style="color:#f00;font-style:italic">// 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        nums[k] ++;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
 <li>判断新插入元素new_element的key值是否为int型，如果是则令nums[ceillog2(new_element.key)]++</li>
 <li>完成数组nums的统计之后，根据nums，计算新的arraysize，在arraysize范围内，值不为nil的元素要超过arraysize的一半，其计算公式为：</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">int</span> i = 0;
-<span style="color:#00f">int</span> asize = 0;
-<span style="color:#00f">for</span> (; i &lt; 32; i++) {
-    asize += nums[i];
-    <span style="color:#00f">if</span> (asize &gt; pow(2, i) / 2) {
-        arraysize = pow(2, i);
-    }
-}
-</code></pre></div><ul>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> i = 0;
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> asize = 0;
+</span></span><span style="display:flex;"><span><span style="color:#00f">for</span> (; i &lt; 32; i++) {
+</span></span><span style="display:flex;"><span>    asize += nums[i];
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (asize &gt; pow(2, i) / 2) {
+</span></span><span style="display:flex;"><span>        arraysize = pow(2, i);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
 <li>计算在arraysize范围内，有效的元素个数，记为array_used_num</li>
 <li>当arraysize比原来大时，扩展原来的array到新的尺寸，并将hash表中，key值&lt;=arraysize的元素转移到array中，并将hash表大小调整为ceillog2(total_element - array_used_num)，同时对每个node进行rehash重新定位位置</li>
 <li>当arraysize比原来小时，缩小原来的array到新的尺寸，并将array中，key值超过arraysize的元素转移到hash表中，此时hash表大小调整为ceillog2(total_element - array_used_num)，同时对每个node进行rehash计算，重新定位位置
@@ -493,8 +493,8 @@ CommonHeader和gclist是gc相关的变量，table被创建时，每个变量都�
 </ul>
 <h1 id="table的迭代">table的迭代</h1>
 <p>现在我们来看一下table的迭代机制，我们提供了luaH_next函数来进行迭代操作，这个函数的声明如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">int</span> <span style="color:#c34e00">luaH_next</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> Table* t, TValue* key);
-</code></pre></div><p>第一个参数是我们正在使用的lua虚拟机状态实例，第二个参数是表示我们要进行迭代的table，第三个参数传入的是一个key值。调用的结果是，将传入的key的下一个key和value压入栈中。当传入的key值是nil值时，将1和array数组的第一个值入栈。如图14所示，是传入key值为nil的情况：
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">luaH_next</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> Table* t, TValue* key);
+</span></span></code></pre></div><p>第一个参数是我们正在使用的lua虚拟机状态实例，第二个参数是表示我们要进行迭代的table，第三个参数传入的是一个key值。调用的结果是，将传入的key的下一个key和value压入栈中。当传入的key值是nil值时，将1和array数组的第一个值入栈。如图14所示，是传入key值为nil的情况：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part4/table_next_01.png" alt="img">
 当我们传入一个值不为nil，key为int类型，且在arraysize范围内的，并且不是array的最后一个元素的情况下，我们将会把当前array元素的下一个index和value值入栈，如图15所示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part4/table_next_02.png" alt="img">

@@ -303,9 +303,9 @@
 任何一门语言都要支持字符串，lua也一样，本章将从lua string的数据结构开始阐述，然后深入其他细节进行阐述，并试图揭露这些设计的历史背景和原因，由于本人能力有限，如有不当之处想要指明，或是想和我一起讨论，欢迎加Q群与我讨论(QQ185017593)，我是群主，欢迎大家的到来。</p>
 <h1 id="lua字符串结构">Lua字符串结构</h1>
 <p>在论述Lua字符串结构之前，首先我们要捋清楚c语言字符串和lua字符串的关系，我们都知道，lua代码是需要通过c来编译解析生成opcode，最后交给由c写的解释器负责执行这些指令，因此lua脚本首先要经过c的解析，才能转换成lua所能使用的内部结构，比如下面一段lua代码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-lua" data-lang="lua"><span style="color:#00f">local</span> str = <span style="color:#009c00">&#34;hello world&#34;</span>
-print(str)
-</code></pre></div><p>很直观，str是一个lua字符串，当lua解释器运行这个脚本时，需要创建一个”hello world”的字符串。然而实际上，这段脚本，lua解释器并非新建一个c的char<em>变量或者是char数组去存放并使用这个”hello world”，而是需要创建lua内部能够使用的字符串类型，其步骤是，”hello world”这个str首先只能被c读取，然后存入c的char</em>或char[SIZE]对应的buffer中，再以buffer为内容创建对应的lua字符串，以备其（指的是包含“hello world”的lua字符串）能够在虚拟机中被使用。对此，我们后续只需要关注，lua如何通过char*变量创建lua字符串即可，后文中，我们统一将lua字符串称为TString类型的字符串。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-lua" data-lang="lua"><span style="display:flex;"><span><span style="color:#00f">local</span> str = <span style="color:#009c00">&#34;hello world&#34;</span>
+</span></span><span style="display:flex;"><span>print(str)
+</span></span></code></pre></div><p>很直观，str是一个lua字符串，当lua解释器运行这个脚本时，需要创建一个”hello world”的字符串。然而实际上，这段脚本，lua解释器并非新建一个c的char<em>变量或者是char数组去存放并使用这个”hello world”，而是需要创建lua内部能够使用的字符串类型，其步骤是，”hello world”这个str首先只能被c读取，然后存入c的char</em>或char[SIZE]对应的buffer中，再以buffer为内容创建对应的lua字符串，以备其（指的是包含“hello world”的lua字符串）能够在虚拟机中被使用。对此，我们后续只需要关注，lua如何通过char*变量创建lua字符串即可，后文中，我们统一将lua字符串称为TString类型的字符串。</p>
 <p>从lua-5.2.1开始，字符串就分为长字符串和短字符串了[1]，其中短字符串会进行充分的hash运算，并且进行内部化处理，借以提高lua虚拟机对字符串操作的效率,和节约内存（尽可能少去malloc新内存）。而长字符串则不进行充分的hash运算，且不进行内部化，关于为何要这样做，后续小节我会详细进行讨论。dummylua也是遵循这种区分长短字符串的方式进行设计和实现的。
 在开始深入探讨其他部分之前，我先来介绍一下dummylua字符串的结构，我并不想在一开始就贴上大段的代码，这里只展示一个概念图，因为大段的代码只会过早暴露太多的设计细节，使得我们讨论的问题变得索然无味，现在我们来看看图1的结构：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part3/string_struct01.png" alt="img">
@@ -317,47 +317,47 @@ lua在c语言层面，对字符串求size，本质是需要求出String Header�
 <p>上一节我介绍了TString的概念结构，本节要探讨的是lua字符串的hash运算。lua的hash运算，主要针对body部分，header并不参与hash计算。计算完的hash值将被记录在String Header内，如图3所示：
 <img src="http://shanks.link/img/%E6%9E%84%E5%BB%BALua%E8%A7%A3%E9%87%8A%E5%99%A8Part3/string_struct03.png" alt="img">
 我们都知道，hash运算的目的，是为每一个字符串或文档内容生成相同长度不同值的字符串或者是数值，输入的文件内容，字符串只要有细微的差别，都能做到hash值的极大不同，hash code通常是用来识别不同文档或字符串用的。关于hash更多的介绍，与在网络安全领域的应用，可以参考我另一篇blog，<a href="https://manistein.github.io/blog/post/network/%E7%BD%91%E7%BB%9C%E5%AE%89%E5%85%A8%E5%88%9D%E6%8E%A2/">《网络安全初探》</a>，这里只讨论hash算法本身，lua-5.3的hash运算如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> <span style="color:#c34e00">luaS_hash</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h) {
-    h = h ^ l;
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> step = (l &gt;&gt; 5) + 1;
-    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> i = 0; i &lt; l; i = i + step) {
-        h ^= (h &lt;&lt; 5) + (h &gt;&gt; 2) + cast(lu_byte, str[i]);
-    }
-    <span style="color:#00f">return</span> h;
-}
-</code></pre></div><p>上面的参数中，str表示String Body部分，l表示他的长度，而h则是外部传入的一个参与hash运算的种子，这个种子在lua虚拟机创建时就确定了，创建的那一刻具有随机性，创建后不再改变，其代码如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">static</span> <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> <span style="color:#c34e00">makeseed</span>(<span style="color:#00f">struct</span> lua_State* L) {
-    <span style="color:#00f">char</span> buff[4 * <span style="color:#00f">sizeof</span>(size_t)];
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h = time(NULL);
-    <span style="color:#00f">int</span> p = 0;
-
-    addbuff(buff, L, p);
-    addbuff(buff, &amp;h, p);
-    addbuff(buff, luaO_nilobject, p);
-    addbuff(buff, &amp;lua_newstate, p);
-
-    <span style="color:#00f">return</span> luaS_hash(L, buff, p, h);
-}
-</code></pre></div><p>可以看到，这个种子，是由lua_State实例的地址，当前时间值，luaO_nilobject变量的地址和lua_newstate函数地址决定的，具有极强的随机性，外界无法捉摸。现在我们返回luaS_hash来观察其hash运算。首先该函数对传入的hash种子，对字符串的长度进行了xor运算。然后是小于32字节的每个字符都会参与hash运算，大于等于32字节的，则会至少跳过一个字节的方式进行hash运算，其计算方式也很简单(l &raquo; 5) + 1。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> <span style="color:#c34e00">luaS_hash</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h) {
+</span></span><span style="display:flex;"><span>    h = h ^ l;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> step = (l &gt;&gt; 5) + 1;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> i = 0; i &lt; l; i = i + step) {
+</span></span><span style="display:flex;"><span>        h ^= (h &lt;&lt; 5) + (h &gt;&gt; 2) + cast(lu_byte, str[i]);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> h;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>上面的参数中，str表示String Body部分，l表示他的长度，而h则是外部传入的一个参与hash运算的种子，这个种子在lua虚拟机创建时就确定了，创建的那一刻具有随机性，创建后不再改变，其代码如下所示：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> <span style="color:#c34e00">makeseed</span>(<span style="color:#00f">struct</span> lua_State* L) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> buff[4 * <span style="color:#00f">sizeof</span>(size_t)];
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h = time(NULL);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> p = 0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    addbuff(buff, L, p);
+</span></span><span style="display:flex;"><span>    addbuff(buff, &amp;h, p);
+</span></span><span style="display:flex;"><span>    addbuff(buff, luaO_nilobject, p);
+</span></span><span style="display:flex;"><span>    addbuff(buff, &amp;lua_newstate, p);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> luaS_hash(L, buff, p, h);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>可以看到，这个种子，是由lua_State实例的地址，当前时间值，luaO_nilobject变量的地址和lua_newstate函数地址决定的，具有极强的随机性，外界无法捉摸。现在我们返回luaS_hash来观察其hash运算。首先该函数对传入的hash种子，对字符串的长度进行了xor运算。然后是小于32字节的每个字符都会参与hash运算，大于等于32字节的，则会至少跳过一个字节的方式进行hash运算，其计算方式也很简单(l &raquo; 5) + 1。
 至于hash算法为何喜欢使用xor来运算，这个和xor运算的性质有关系，它能够使二进制值0和1进行相对平均的分布，我们通过一个例子来对xor、and和or来进行简单的比较：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">A B AND
-0 0  0
-0 1  0
-1 0  0
-1 1  1
-
-A B OR
-0 0  0
-0 1  1
-1 0  1
-1 1  1
-
-A B XOR
-0 0  0
-0 1  1
-1 0  1
-1 1  0
-</code></pre></div><p>我们发现通过XOR运算，结果中0和1的数量是相当的，有研究表明，or运算会产生3/4的1，and会产生3/4的0，只有xor能做到均匀分布[2]，这个性质正好符合hash运算需要进行均匀散列运算的要求，因此它大量运用在hash算法里。我们计算完的hash值，最终会存入String Header的hash字段中。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>A B AND
+</span></span><span style="display:flex;"><span>0 0  0
+</span></span><span style="display:flex;"><span>0 1  0
+</span></span><span style="display:flex;"><span>1 0  0
+</span></span><span style="display:flex;"><span>1 1  1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>A B OR
+</span></span><span style="display:flex;"><span>0 0  0
+</span></span><span style="display:flex;"><span>0 1  1
+</span></span><span style="display:flex;"><span>1 0  1
+</span></span><span style="display:flex;"><span>1 1  1
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>A B XOR
+</span></span><span style="display:flex;"><span>0 0  0
+</span></span><span style="display:flex;"><span>0 1  1
+</span></span><span style="display:flex;"><span>1 0  1
+</span></span><span style="display:flex;"><span>1 1  0
+</span></span></code></pre></div><p>我们发现通过XOR运算，结果中0和1的数量是相当的，有研究表明，or运算会产生3/4的1，and会产生3/4的0，只有xor能做到均匀分布[2]，这个性质正好符合hash运算需要进行均匀散列运算的要求，因此它大量运用在hash算法里。我们计算完的hash值，最终会存入String Header的hash字段中。
 本节我们探讨了lua hash算法的实现细节，但留下了一个疑惑，就是为什么要生成一个hash种子？这个问题留在后面来解答。</p>
 <h1 id="短字符串与内部化">短字符串与内部化</h1>
 <p>文章一开始我们就在讨论字符串内部化了，但到底什么是字符串内部化？它的作用是什么？如何使用它？
@@ -385,29 +385,29 @@ A B XOR
 <p>和短字符串不同，lua的长字符串不会进行内部化，与全局字符串列表没有任何关系，因此对于长字符串，lua虚拟机是直接创建它的，因为和strt没有关联，所以在创建阶段，它甚至不需要进行hash值运算，这样的结果就是，对于长字符串而言，哪怕String Body完全一致，lua虚拟机也会为其创建独立的TString实例。长字符串的hash运算，并不是充分的hash运算，并且只有在需要的时候才进行，借以提高lua虚拟机的运行效率。</p>
 <h1 id="lua-520的hash-dos攻击">Lua-5.2.0的Hash Dos攻击</h1>
 <p>Lua为什么要将长字符串和短字符串区分开来，并且只对短字符串做内部化处理？其实在lua-5.2.0这个版本中，lua其实是不分长字符串和短字符串的，所有的字符串都会做内部化处理，并且留下了一个非常致命的Hash Dos攻击漏洞，并在社区上被提出来了[3]，在深入这个问题之前，我们不妨查看一下lua-5.2.0创建字符串的代码</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// lua-5.2.0 lstring.c
-</span><span style="color:#f00;font-style:italic"></span>TString *<span style="color:#c34e00">luaS_newlstr</span> (lua_State *L, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *str, size_t l) {
-   GCObject *o; 
-   <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h = cast(<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span>, l);  <span style="color:#f00;font-style:italic">/* seed */</span>
-   size_t step = (l&gt;&gt;5)+1;  <span style="color:#f00;font-style:italic">/* if string is too long, don&#39;t hash all its chars */</span>
-   size_t l1; 
-   <span style="color:#00f">for</span> (l1=l; l1&gt;=step; l1-=step)  <span style="color:#f00;font-style:italic">/* compute hash */</span>
-     h = h ^ ((h&lt;&lt;5)+(h&gt;&gt;2)+cast(<span style="color:#00f">unsigned</span> <span style="color:#00f">char</span>, str[l1-1]));
-   <span style="color:#00f">for</span> (o = G(L)-&gt;strt.hash[lmod(h, G(L)-&gt;strt.size)];
-        o != NULL;
-        o = gch(o)-&gt;next) {
-     TString *ts = rawgco2ts(o);
-     <span style="color:#00f">if</span> (h == ts-&gt;tsv.hash &amp;&amp;
-         ts-&gt;tsv.len == l &amp;&amp;
-         (memcmp(str, getstr(ts), l * <span style="color:#00f">sizeof</span>(<span style="color:#00f">char</span>)) == 0)) {
-       <span style="color:#00f">if</span> (isdead(G(L), o))  <span style="color:#f00;font-style:italic">/* string is dead (but was not collected yet)? */</span>
-         changewhite(o);  <span style="color:#f00;font-style:italic">/* resurrect it */</span>
-       <span style="color:#00f">return</span> ts; 
-     }   
-   }
-   <span style="color:#00f">return</span> newlstr(L, str, l, h);  <span style="color:#f00;font-style:italic">/* not found; create a new string */</span>
- }
-</code></pre></div><p>上面这段代码，我们可以了解到，在lua-5.2.0的版本创建字符串的几个特点：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// lua-5.2.0 lstring.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>TString *<span style="color:#c34e00">luaS_newlstr</span> (lua_State *L, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *str, size_t l) {
+</span></span><span style="display:flex;"><span>   GCObject *o; 
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h = cast(<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span>, l);  <span style="color:#f00;font-style:italic">/* seed */</span>
+</span></span><span style="display:flex;"><span>   size_t step = (l&gt;&gt;5)+1;  <span style="color:#f00;font-style:italic">/* if string is too long, don&#39;t hash all its chars */</span>
+</span></span><span style="display:flex;"><span>   size_t l1; 
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">for</span> (l1=l; l1&gt;=step; l1-=step)  <span style="color:#f00;font-style:italic">/* compute hash */</span>
+</span></span><span style="display:flex;"><span>     h = h ^ ((h&lt;&lt;5)+(h&gt;&gt;2)+cast(<span style="color:#00f">unsigned</span> <span style="color:#00f">char</span>, str[l1-1]));
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">for</span> (o = G(L)-&gt;strt.hash[lmod(h, G(L)-&gt;strt.size)];
+</span></span><span style="display:flex;"><span>        o != NULL;
+</span></span><span style="display:flex;"><span>        o = gch(o)-&gt;next) {
+</span></span><span style="display:flex;"><span>     TString *ts = rawgco2ts(o);
+</span></span><span style="display:flex;"><span>     <span style="color:#00f">if</span> (h == ts-&gt;tsv.hash &amp;&amp;
+</span></span><span style="display:flex;"><span>         ts-&gt;tsv.len == l &amp;&amp;
+</span></span><span style="display:flex;"><span>         (memcmp(str, getstr(ts), l * <span style="color:#00f">sizeof</span>(<span style="color:#00f">char</span>)) == 0)) {
+</span></span><span style="display:flex;"><span>       <span style="color:#00f">if</span> (isdead(G(L), o))  <span style="color:#f00;font-style:italic">/* string is dead (but was not collected yet)? */</span>
+</span></span><span style="display:flex;"><span>         changewhite(o);  <span style="color:#f00;font-style:italic">/* resurrect it */</span>
+</span></span><span style="display:flex;"><span>       <span style="color:#00f">return</span> ts; 
+</span></span><span style="display:flex;"><span>     }   
+</span></span><span style="display:flex;"><span>   }
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">return</span> newlstr(L, str, l, h);  <span style="color:#f00;font-style:italic">/* not found; create a new string */</span>
+</span></span><span style="display:flex;"><span> }
+</span></span></code></pre></div><p>上面这段代码，我们可以了解到，在lua-5.2.0的版本创建字符串的几个特点：</p>
 <ul>
 <li>字符串不论长短，一律实行内部化。</li>
 <li>小于32字节(2^5=32)的字符串将进行充分的hash运算，大于的则不充分。这点是由于内部化的目的是为了让相同内容的字符串共享一个副本，尽可能减少malloc和free的操作，既希望减少内存，又希望提升性能。但是长字符串的hash运算将会造成性能上的问题，因此这里采取了长字符串不充分hash的策略，字符串越长，hash越不充分。</li>
@@ -415,33 +415,33 @@ A B XOR
 <li>内部化的结果，就是需要频繁的查询，但是我们也看到了，经过hash运算后，我们能定位到一个具有相同内容的lua字符串，可能在strt hash表中的位置，并且将存在这个位置的TString链表取出，并遍历查找是否已经有内存实例存在。遍历查找的过程，先对比hash值，再对比长度，如果都匹配上了，需要对String Body和要新创建的字符串进行字符串匹配（这个过程很耗），之所以要进行hash值比较和长度比较，目的是尽可能避免直接进行字符串匹配，造成性能上的极大损耗。
 上述几点，则是lua-5.2.0关于lua字符串创建的几个特点所在，目前光看这几点，难以让我们对Hash Dos攻击产生直观的感受。我们不妨先来研究一下，客户端如何构造相同hash值的不同字符串。</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;string.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> <span style="color:#c34e00">hash</span>(<span style="color:#00f">int</span> l, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str) {
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h = (<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span>)l;  <span style="color:#f00;font-style:italic">/* seed */</span>
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> step = (l&gt;&gt;5)+1;  <span style="color:#f00;font-style:italic">/* if string is too long, don&#39;t hash all its chars */</span>
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l1; 
-    <span style="color:#00f">for</span> (l1=l; l1&gt;=step; l1-=step)  <span style="color:#f00;font-style:italic">/* compute hash */</span>
-        h = h ^ ((h&lt;&lt;5)+(h&gt;&gt;2)+(<span style="color:#00f">unsigned</span> <span style="color:#00f">char</span>)str[l1-1]);
-    
-    <span style="color:#00f">return</span> h;
-}
-
-<span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">void</span>) { 
-    <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str1 = <span style="color:#009c00">&#34;helloworld, hello world, hello world, hello world&#34;</span>;
-    <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str2 = <span style="color:#009c00">&#34;hxlLoMorld, hello world, hello world, hello world&#34;</span>;
-    <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str3 = <span style="color:#009c00">&#34;asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfa&#34;</span>;
-    printf(<span style="color:#009c00">&#34;str1 len = %ld, str2 len = %ld, str3 len = %ld</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, \
-        strlen(str1), strlen(str2), strlen(str3));
-    printf(<span style="color:#009c00">&#34;str1 hash = %u, str2 hash = %u, str3 hash = %u&#34;</span>,\
-        hash(strlen(str1), str1), hash(strlen(str2), str2), hash(strlen(str3), str3));
-    <span style="color:#00f">return</span> 0;
-}
-</code></pre></div><p>上述代码我截取了hash计算的部分，str1、str2和str3均是不同的字符串，而str1和str2则是高度相似，但是却不完全相同，通过提取出来hash算法，我们得到如下的结果：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">str1 len = 49, str2 len = 49, str3 len = 49
-str1 hash = 2931300550, str2 hash = 2931300550, str3 hash = 3850065186
-</code></pre></div><p>我们可以发现，str1和str2的hash值相同，长度相同，但是内容不同，由于lua-5.2.0的长字符串hash运算并不充分，使得我们有机会构造hash值相同、长度相同、但是值不同的字符串，如上所示的代码，由于字符串长49字节，偶数位字符并不参与hash运算，因此我们可以修改这些字符为其他字符，使其在保持hash值相同的情况下，改变内容。换句话说，只要我的字符足够长，我们完全有可能构建几百万甚至上千万个符合这种条件的不同字符串。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;string.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> <span style="color:#c34e00">hash</span>(<span style="color:#00f">int</span> l, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h = (<span style="color:#00f">unsigned</span> <span style="color:#00f">int</span>)l;  <span style="color:#f00;font-style:italic">/* seed */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> step = (l&gt;&gt;5)+1;  <span style="color:#f00;font-style:italic">/* if string is too long, don&#39;t hash all its chars */</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l1; 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (l1=l; l1&gt;=step; l1-=step)  <span style="color:#f00;font-style:italic">/* compute hash */</span>
+</span></span><span style="display:flex;"><span>        h = h ^ ((h&lt;&lt;5)+(h&gt;&gt;2)+(<span style="color:#00f">unsigned</span> <span style="color:#00f">char</span>)str[l1-1]);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> h;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">void</span>) { 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str1 = <span style="color:#009c00">&#34;helloworld, hello world, hello world, hello world&#34;</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str2 = <span style="color:#009c00">&#34;hxlLoMorld, hello world, hello world, hello world&#34;</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str3 = <span style="color:#009c00">&#34;asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfa&#34;</span>;
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;str1 len = %ld, str2 len = %ld, str3 len = %ld</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, \
+</span></span><span style="display:flex;"><span>        strlen(str1), strlen(str2), strlen(str3));
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;str1 hash = %u, str2 hash = %u, str3 hash = %u&#34;</span>,\
+</span></span><span style="display:flex;"><span>        hash(strlen(str1), str1), hash(strlen(str2), str2), hash(strlen(str3), str3));
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>上述代码我截取了hash计算的部分，str1、str2和str3均是不同的字符串，而str1和str2则是高度相似，但是却不完全相同，通过提取出来hash算法，我们得到如下的结果：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>str1 len = 49, str2 len = 49, str3 len = 49
+</span></span><span style="display:flex;"><span>str1 hash = 2931300550, str2 hash = 2931300550, str3 hash = 3850065186
+</span></span></code></pre></div><p>我们可以发现，str1和str2的hash值相同，长度相同，但是内容不同，由于lua-5.2.0的长字符串hash运算并不充分，使得我们有机会构造hash值相同、长度相同、但是值不同的字符串，如上所示的代码，由于字符串长49字节，偶数位字符并不参与hash运算，因此我们可以修改这些字符为其他字符，使其在保持hash值相同的情况下，改变内容。换句话说，只要我的字符足够长，我们完全有可能构建几百万甚至上千万个符合这种条件的不同字符串。</p>
 <p>现在问题变得非常有意思了，似乎距离我们的目标更为接近了，但是对于攻击而言，我们仍然缺乏直观的感受，我们需要更丰满的例子来阐述这个问题。现在假设我们有这样一个服务器程序：</p>
 <ul>
 <li>通过c层，监听连接，并接受来自客户端经过序列化的请求。</li>
@@ -449,38 +449,38 @@ str1 hash = 2931300550, str2 hash = 2931300550, str3 hash = 3850065186
 <li>c层回调函数，先对数据包进行反序列化，得到通用结构后，将参数压入lua栈中，然后调用lua层回调函数处理业务。
 这个c层的callback函数的，伪代码如下所示：</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">int</span> <span style="color:#c34e00">network_cb</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* package) {
-    <span style="color:#00f">struct</span> request req = pb.decode(package);
-    
-    luaL_pushstring(L, req.command_str);    <span style="color:#f00;font-style:italic">//将c字符串转成lua字符串，以便lua虚拟机能够正常运行
-</span><span style="color:#f00;font-style:italic"></span>    luaL_pushstring(L, req.json_param_str);
-    luaL_pcall(L, 2, 0); <span style="color:#f00;font-style:italic">// lua_State已经注册了一个lua层回调函数，c层先把命令字符串和参数字符串转成lua字符串后，交给lua层处理。
-</span><span style="color:#f00;font-style:italic"></span>
-    <span style="color:#00f">return</span> 0;
-}
-</code></pre></div><p>上述代码，假设lua_State的栈顶已经压入一个lua函数，用于处理请求逻辑，客户端发送的数据包，收齐之后会传给这个network_cb函数，并且在c层进行反序列化操作，然后将请求命令和参数压入栈中，让lua虚拟机处理。在这个层面，回调层并不关心req.command_str和req.json_param_str具体有什么内容，这里要做的事情就是将字符串传给lua层，让其处理，在将字符串压栈的过程中，也就是在调用luaL_pushstring函数时，lua框架会根据c字符串的内容，创建lua TString实例，并压如lua_State的栈顶。也就是说不论command_str或json_param_str是否合法，这一层都不会检查到，会直接创建出lua字符串交给lua虚拟机处理。如果我们使用的是lua-5.2.0，那么现在就给攻击者留下了可乘之机，攻击者完全可以将command_str或json_param_str设置为一个很长的字符串，并且可能构造出几万，十几万，几十万甚至几百万个hash值相同，长度相同但是内容不同的字符串，传过来，每个请求每个字符串都会进行一次内部化处理，由于这些海量的字符串的hash值相同，因此他们在全局字符串表strt的hash表中，只用到一个slot，并且全部在TString链表中线性排列，于是查询效率退化为O(n)，更严重的是，在字符串内部化的查找阶段（新的不合法的请求到来时，也会进行一次内部化处理），这些字符串的hash值相同，并且长度相同，根据它的对比规则，最终会落到比较字符串这种效率极低操作上，在海量不合法的字符串面前还要进行内部化操作，会极大损耗服务器的性能，甚至导致瘫痪，最终使得DOS攻击成功。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">network_cb</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* package) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> request req = pb.decode(package);
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    luaL_pushstring(L, req.command_str);    <span style="color:#f00;font-style:italic">//将c字符串转成lua字符串，以便lua虚拟机能够正常运行
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    luaL_pushstring(L, req.json_param_str);
+</span></span><span style="display:flex;"><span>    luaL_pcall(L, 2, 0); <span style="color:#f00;font-style:italic">// lua_State已经注册了一个lua层回调函数，c层先把命令字符串和参数字符串转成lua字符串后，交给lua层处理。
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>上述代码，假设lua_State的栈顶已经压入一个lua函数，用于处理请求逻辑，客户端发送的数据包，收齐之后会传给这个network_cb函数，并且在c层进行反序列化操作，然后将请求命令和参数压入栈中，让lua虚拟机处理。在这个层面，回调层并不关心req.command_str和req.json_param_str具体有什么内容，这里要做的事情就是将字符串传给lua层，让其处理，在将字符串压栈的过程中，也就是在调用luaL_pushstring函数时，lua框架会根据c字符串的内容，创建lua TString实例，并压如lua_State的栈顶。也就是说不论command_str或json_param_str是否合法，这一层都不会检查到，会直接创建出lua字符串交给lua虚拟机处理。如果我们使用的是lua-5.2.0，那么现在就给攻击者留下了可乘之机，攻击者完全可以将command_str或json_param_str设置为一个很长的字符串，并且可能构造出几万，十几万，几十万甚至几百万个hash值相同，长度相同但是内容不同的字符串，传过来，每个请求每个字符串都会进行一次内部化处理，由于这些海量的字符串的hash值相同，因此他们在全局字符串表strt的hash表中，只用到一个slot，并且全部在TString链表中线性排列，于是查询效率退化为O(n)，更严重的是，在字符串内部化的查找阶段（新的不合法的请求到来时，也会进行一次内部化处理），这些字符串的hash值相同，并且长度相同，根据它的对比规则，最终会落到比较字符串这种效率极低操作上，在海量不合法的字符串面前还要进行内部化操作，会极大损耗服务器的性能，甚至导致瘫痪，最终使得DOS攻击成功。</p>
 <p>为了解决这个问题，从lua-5.2.1开始，官方lua将字符串拆分成长字符串和短字符串，其中String Body大于40字节的是长字符串，长字符串不参与内部化处理；而小于等于40字节的则是短字符串，短字符串基本会充分进行hash运算，不同的字符串，基本会有不同的hash值，极小可能会发生hash冲突进而导致字符串插入链表，同时它也加入了随机生成的hash种子参与，客户端无法知道这个hash种子的具体数值，无法有效构建出正确的hash值验证攻击的有效性。这样执行上面代码时，如果command_str是长字符串，两次不同的请求，即便是command_str的内容相同，都会创建两个独立的lua TString实例，这样虽然在内存上的使用更多了，但是也更安全了，算是彻底解决了Hash Dos攻击的问题了。</p>
 <p>本节我通过lua-5.2.0中一种可能的Hash Dos攻击的途径，解释了为什么现在版本的lua需要区分长字符串和短字符串，并且只对短字符串进行内部化处理的原因，到目前位置，所有概念上的前置知识已经全部介绍完毕了，下一节我将介绍lua TString的代码实现。</p>
 <h1 id="程序实现">程序实现</h1>
 <p>终于进入到程序实现的环节，我们先介绍lua字符串TString的数据结构：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luaobject.c
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> TString {
-    CommonHeader;
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> hash;          <span style="color:#f00;font-style:italic">// string hash value
-</span><span style="color:#f00;font-style:italic"></span>
-    <span style="color:#f00;font-style:italic">// if TString is long string type, then extra = 1 means it has been hash, 
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// extra = 0 means it has not hash yet. if TString is short string type,
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// then extra = 0 means it can be reclaim by gc, or if extra is not 0,
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// gc can not reclaim it.
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">short</span> extra;       
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">short</span> shrlen;
-    <span style="color:#00f">union</span> {
-        <span style="color:#00f">struct</span> TString* hnext; <span style="color:#f00;font-style:italic">// only for short string, if two different string encounter hash collision, then chain them
-</span><span style="color:#f00;font-style:italic"></span>        size_t lnglen;
-    } u;
-    <span style="color:#00f">char</span> data[0];
-} TString;
-</code></pre></div><p>该数据结构展示了TString的全貌，现在我来对每一个字段作解读：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luaobject.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> TString {
+</span></span><span style="display:flex;"><span>    CommonHeader;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> hash;          <span style="color:#f00;font-style:italic">// string hash value
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// if TString is long string type, then extra = 1 means it has been hash, 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// extra = 0 means it has not hash yet. if TString is short string type,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// then extra = 0 means it can be reclaim by gc, or if extra is not 0,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// gc can not reclaim it.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">short</span> extra;       
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">short</span> shrlen;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">union</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">struct</span> TString* hnext; <span style="color:#f00;font-style:italic">// only for short string, if two different string encounter hash collision, then chain them
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        size_t lnglen;
+</span></span><span style="display:flex;"><span>    } u;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> data[0];
+</span></span><span style="display:flex;"><span>} TString;
+</span></span></code></pre></div><p>该数据结构展示了TString的全貌，现在我来对每一个字段作解读：</p>
 <ul>
 <li>
 <p>CommonHeader：这是所有GC对象的公共头部，包含指向下一个GC对象实例地址的GCObject* next指针，表示类型的int型变量tt_，以及表示标记状态的marked变量。如果你没有看过GC部分或者已经印象模糊，可以回顾上一章的关于GC部分的内容。</p>
@@ -509,98 +509,98 @@ str1 hash = 2931300550, str2 hash = 2931300550, str3 hash = 3850065186
 <p>在了解了TString的数据结构后，接下来来介绍全局字符串列表的数据结构和初始化流程，全局字符串列表的数据结构如下所示：</p>
 </li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luastate.h
-</span><span style="color:#f00;font-style:italic">// only for short string
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> stringtable {
-    <span style="color:#00f">struct</span> TString** hash;
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> nuse;
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> size;
-};
-</code></pre></div><p>这是实际上是一个TString*类型的一维数组，其中nuse表示当前有多少个经过内部化处理的短字符串，而size表示这个stringtable结构内部的hash数组的大小有多大。上述内容非常容易理解，接下来我们来看看，这个全局字符串列表存在哪个位置，以及它的初始化流程是怎样的，事实上，我们的global_State包含了一个stringtable类型的变量，它叫做strt变量：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luastate.h
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> global_State {
-    <span style="color:#00f">struct</span> lua_State* mainthread;
-    lua_Alloc frealloc;
-    <span style="color:#00f">void</span>* ud; 
-    lua_CFunction panic;
-
-    <span style="color:#00f">struct</span> stringtable strt;
-    TString* strcache[STRCACHE_M][STRCACHE_N];
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> seed;              <span style="color:#f00;font-style:italic">// hash seed, just for string hash
-</span><span style="color:#f00;font-style:italic"></span>    TString* memerrmsg;
-    TValue l_registry;
-
-    <span style="color:#f00;font-style:italic">//gc fields
-</span><span style="color:#f00;font-style:italic"></span>    lu_byte gcstate;
-    lu_byte currentwhite;
-    <span style="color:#00f">struct</span> GCObject* allgc;         <span style="color:#f00;font-style:italic">// gc root set
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">struct</span> GCObject** sweepgc;
-    <span style="color:#00f">struct</span> GCObject* gray;
-    <span style="color:#00f">struct</span> GCObject* grayagain;
-    <span style="color:#00f">struct</span> GCObject* fixgc;         <span style="color:#f00;font-style:italic">// objects can not collect by gc
-</span><span style="color:#f00;font-style:italic"></span>    lu_mem totalbytes;
-    l_mem GCdebt;                   <span style="color:#f00;font-style:italic">// GCdebt will be negative
-</span><span style="color:#f00;font-style:italic"></span>    lu_mem GCmemtrav;               <span style="color:#f00;font-style:italic">// per gc step traverse memory bytes 
-</span><span style="color:#f00;font-style:italic"></span>    lu_mem GCestimate;              <span style="color:#f00;font-style:italic">// after finish a gc cycle,it records total memory bytes (totalbytes + GCdebt)
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> GCstepmul;
-} global_State;
-</code></pre></div><p>当我们的lua虚拟机被创建时，会对这个stringtable变量strt进行初始化操作：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luastring.c
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">void</span> <span style="color:#c34e00">luaS_init</span>(<span style="color:#00f">struct</span> lua_State* L) {
-    <span style="color:#00f">struct</span> global_State* g = G(L);
-    g-&gt;strt.nuse = 0;
-    g-&gt;strt.size = 0;
-    g-&gt;strt.hash = NULL;
-    luaS_resize(L, MINSTRTABLESIZE);
-    g-&gt;memerrmsg = luaS_newlstr(L, MEMERRMSG, strlen(MEMERRMSG)); 
-    luaC_fix(L, obj2gco(g-&gt;memerrmsg));
-
-    <span style="color:#f00;font-style:italic">// strcache table can not hold the string objects which will be sweep soon
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> i = 0; i &lt; STRCACHE_M; i ++) {
-        <span style="color:#00f">for</span> (<span style="color:#00f">int</span> j = 0; j &lt; STRCACHE_N; j ++)
-            g-&gt;strcache[i][j] = g-&gt;memerrmsg;
-    }
-}
-</code></pre></div><p>这个初始化操作，主要做了几件事情，第一件是初始化stringtable类型变量strt，并且通过luaS_resize函数为其分配最小内存，MINSTRINGTABLESIZE，这个变量在dummylua中被设置为128，也就是说strt的最小hash表长度为128。另外还创建了一个不可被gc回收的字符串memerrmsg，最后初始化了一个长短字符串都可以共用的字符串缓存strcache（这个稍后讨论）。我们可以注意到，这里调整strt大小的函数是luaS_resize，它的实现如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luastring.c
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#f00;font-style:italic">// attention please, luaS_resize is use for resize stringtable type,
-</span><span style="color:#f00;font-style:italic">// which is only use by short string. The second argument usually must 
-</span><span style="color:#f00;font-style:italic">// be 2 ^ n
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">luaS_resize</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> nsize) {
-    <span style="color:#00f">struct</span> global_State* g = G(L);
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> osize = g-&gt;strt.size;
-    <span style="color:#00f">if</span> (nsize &gt; osize) {
-        luaM_reallocvector(L, g-&gt;strt.hash, osize, nsize, TString*);
-        <span style="color:#00f">for</span> (<span style="color:#00f">int</span> i = osize; i &lt; nsize; i ++) {
-            g-&gt;strt.hash[i] = NULL;
-        }
-    }
-
-    <span style="color:#f00;font-style:italic">// all TString value will be rehash by nsize
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> i = 0; i &lt; g-&gt;strt.size; i ++) {
-       <span style="color:#00f">struct</span> TString* ts = g-&gt;strt.hash[i];
-       g-&gt;strt.hash[i] = NULL;
-
-       <span style="color:#00f">while</span>(ts) {
-            <span style="color:#00f">struct</span> TString* old_next = ts-&gt;u.hnext;
-            <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> hash = lmod(ts-&gt;hash, nsize);
-            ts-&gt;u.hnext = g-&gt;strt.hash[hash];
-            g-&gt;strt.hash[hash] = ts;
-            ts = old_next;
-       }
-    }
-
-    <span style="color:#f00;font-style:italic">// shrink string hash table 
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> (nsize &lt; osize) {
-        lua_assert(g-&gt;strt.hash[nsize] == NULL &amp;&amp; g-&gt;strt.hash[osize - 1] == NULL);
-        luaM_reallocvector(L, g-&gt;strt.hash, osize, nsize, TString*);
-    }
-    g-&gt;strt.size = nsize;
-
-    <span style="color:#00f">return</span> g-&gt;strt.size;
-}
-</code></pre></div><p>我们可以看到，要进行大小调整，需要传入一个nsize值，而这个nsize值必须是2的n次幂。它内部的处理也非常有意思，处理流程如下所示：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luastate.h
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// only for short string
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> stringtable {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> TString** hash;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> nuse;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> size;
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>这是实际上是一个TString*类型的一维数组，其中nuse表示当前有多少个经过内部化处理的短字符串，而size表示这个stringtable结构内部的hash数组的大小有多大。上述内容非常容易理解，接下来我们来看看，这个全局字符串列表存在哪个位置，以及它的初始化流程是怎样的，事实上，我们的global_State包含了一个stringtable类型的变量，它叫做strt变量：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luastate.h
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> <span style="color:#00f">struct</span> global_State {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> lua_State* mainthread;
+</span></span><span style="display:flex;"><span>    lua_Alloc frealloc;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">void</span>* ud; 
+</span></span><span style="display:flex;"><span>    lua_CFunction panic;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> stringtable strt;
+</span></span><span style="display:flex;"><span>    TString* strcache[STRCACHE_M][STRCACHE_N];
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> seed;              <span style="color:#f00;font-style:italic">// hash seed, just for string hash
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    TString* memerrmsg;
+</span></span><span style="display:flex;"><span>    TValue l_registry;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//gc fields
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    lu_byte gcstate;
+</span></span><span style="display:flex;"><span>    lu_byte currentwhite;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> GCObject* allgc;         <span style="color:#f00;font-style:italic">// gc root set
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">struct</span> GCObject** sweepgc;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> GCObject* gray;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> GCObject* grayagain;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> GCObject* fixgc;         <span style="color:#f00;font-style:italic">// objects can not collect by gc
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    lu_mem totalbytes;
+</span></span><span style="display:flex;"><span>    l_mem GCdebt;                   <span style="color:#f00;font-style:italic">// GCdebt will be negative
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    lu_mem GCmemtrav;               <span style="color:#f00;font-style:italic">// per gc step traverse memory bytes 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    lu_mem GCestimate;              <span style="color:#f00;font-style:italic">// after finish a gc cycle,it records total memory bytes (totalbytes + GCdebt)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">int</span> GCstepmul;
+</span></span><span style="display:flex;"><span>} global_State;
+</span></span></code></pre></div><p>当我们的lua虚拟机被创建时，会对这个stringtable变量strt进行初始化操作：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luastring.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">void</span> <span style="color:#c34e00">luaS_init</span>(<span style="color:#00f">struct</span> lua_State* L) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> global_State* g = G(L);
+</span></span><span style="display:flex;"><span>    g-&gt;strt.nuse = 0;
+</span></span><span style="display:flex;"><span>    g-&gt;strt.size = 0;
+</span></span><span style="display:flex;"><span>    g-&gt;strt.hash = NULL;
+</span></span><span style="display:flex;"><span>    luaS_resize(L, MINSTRTABLESIZE);
+</span></span><span style="display:flex;"><span>    g-&gt;memerrmsg = luaS_newlstr(L, MEMERRMSG, strlen(MEMERRMSG)); 
+</span></span><span style="display:flex;"><span>    luaC_fix(L, obj2gco(g-&gt;memerrmsg));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// strcache table can not hold the string objects which will be sweep soon
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> i = 0; i &lt; STRCACHE_M; i ++) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> (<span style="color:#00f">int</span> j = 0; j &lt; STRCACHE_N; j ++)
+</span></span><span style="display:flex;"><span>            g-&gt;strcache[i][j] = g-&gt;memerrmsg;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这个初始化操作，主要做了几件事情，第一件是初始化stringtable类型变量strt，并且通过luaS_resize函数为其分配最小内存，MINSTRINGTABLESIZE，这个变量在dummylua中被设置为128，也就是说strt的最小hash表长度为128。另外还创建了一个不可被gc回收的字符串memerrmsg，最后初始化了一个长短字符串都可以共用的字符串缓存strcache（这个稍后讨论）。我们可以注意到，这里调整strt大小的函数是luaS_resize，它的实现如下所示：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luastring.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// attention please, luaS_resize is use for resize stringtable type,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// which is only use by short string. The second argument usually must 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// be 2 ^ n
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">luaS_resize</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> nsize) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> global_State* g = G(L);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> osize = g-&gt;strt.size;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (nsize &gt; osize) {
+</span></span><span style="display:flex;"><span>        luaM_reallocvector(L, g-&gt;strt.hash, osize, nsize, TString*);
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> (<span style="color:#00f">int</span> i = osize; i &lt; nsize; i ++) {
+</span></span><span style="display:flex;"><span>            g-&gt;strt.hash[i] = NULL;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// all TString value will be rehash by nsize
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> i = 0; i &lt; g-&gt;strt.size; i ++) {
+</span></span><span style="display:flex;"><span>       <span style="color:#00f">struct</span> TString* ts = g-&gt;strt.hash[i];
+</span></span><span style="display:flex;"><span>       g-&gt;strt.hash[i] = NULL;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>       <span style="color:#00f">while</span>(ts) {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* old_next = ts-&gt;u.hnext;
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> hash = lmod(ts-&gt;hash, nsize);
+</span></span><span style="display:flex;"><span>            ts-&gt;u.hnext = g-&gt;strt.hash[hash];
+</span></span><span style="display:flex;"><span>            g-&gt;strt.hash[hash] = ts;
+</span></span><span style="display:flex;"><span>            ts = old_next;
+</span></span><span style="display:flex;"><span>       }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// shrink string hash table 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> (nsize &lt; osize) {
+</span></span><span style="display:flex;"><span>        lua_assert(g-&gt;strt.hash[nsize] == NULL &amp;&amp; g-&gt;strt.hash[osize - 1] == NULL);
+</span></span><span style="display:flex;"><span>        luaM_reallocvector(L, g-&gt;strt.hash, osize, nsize, TString*);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    g-&gt;strt.size = nsize;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> g-&gt;strt.size;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们可以看到，要进行大小调整，需要传入一个nsize值，而这个nsize值必须是2的n次幂。它内部的处理也非常有意思，处理流程如下所示：</p>
 <ul>
 <li>
 <p>当新建尺寸nsize大于原来strt hash表的大小时，首先需要开辟一个nsize大小的TString*数组，然后原有的TString变量会重新定位到新的hash表中的slot中（slot_idx=luastring-&gt;hash &amp; nsize - 1）。</p>
@@ -611,179 +611,179 @@ str1 hash = 2931300550, str2 hash = 2931300550, str3 hash = 3850065186
 <p>在完成了全局字符串表创建和初始化流程以后，我们现在将目光关注于如何创建一个字符串实例，这里我们先不考虑长字符串和短字符串的的情况，而关注与一个luastring实例是如何被创建的，这个流程对长短字符串都适用。</p>
 </li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luastring.c
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> <span style="color:#00f">struct</span> TString* <span style="color:#c34e00">createstrobj</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">int</span> tag, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> hash) {
-    size_t total_size = sizelstring(l);
-
-    <span style="color:#00f">struct</span> GCObject* o = luaC_newobj(L, tag, total_size);
-    <span style="color:#00f">struct</span> TString* ts = gco2ts(o);
-    memcpy(getstr(ts), str, l * <span style="color:#00f">sizeof</span>(<span style="color:#00f">char</span>));
-    getstr(ts)[l] = <span style="color:#009c00">&#39;\0&#39;</span>;
-    ts-&gt;extra = 0;
-
-    <span style="color:#00f">if</span> (tag == LUA_SHRSTR) {
-        ts-&gt;shrlen = cast(lu_byte, l);
-        ts-&gt;hash = hash;
-        ts-&gt;u.hnext = NULL;
-    }
-    <span style="color:#00f">else</span> <span style="color:#00f">if</span> (tag == LUA_LNGSTR) {
-        ts-&gt;hash = 0;
-        ts-&gt;u.lnglen = l;
-    }
-    <span style="color:#00f">else</span> {
-        lua_assert(0);
-    }
-    
-    <span style="color:#00f">return</span> ts;
-}
-</code></pre></div><p>我们的lua字符串实例，是需要被gc托管的对象，因此它是一个gcobject，要创建一个gcobject，我们必须知道TString实例的具体大小，它的大小就是String Header的字节加上String Body字节的总大小，它由sizelstring函数来计算。String Body的结尾需要加上特殊字符‘\0’，这样做的目的是能够和c语言的字符串兼容，使之在c层操作更为方便，接下里则是针对不同的TString类型，作不同的初始化操作。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luastring.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> <span style="color:#00f">struct</span> TString* <span style="color:#c34e00">createstrobj</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">int</span> tag, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> hash) {
+</span></span><span style="display:flex;"><span>    size_t total_size = sizelstring(l);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> GCObject* o = luaC_newobj(L, tag, total_size);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> TString* ts = gco2ts(o);
+</span></span><span style="display:flex;"><span>    memcpy(getstr(ts), str, l * <span style="color:#00f">sizeof</span>(<span style="color:#00f">char</span>));
+</span></span><span style="display:flex;"><span>    getstr(ts)[l] = <span style="color:#009c00">&#39;\0&#39;</span>;
+</span></span><span style="display:flex;"><span>    ts-&gt;extra = 0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (tag == LUA_SHRSTR) {
+</span></span><span style="display:flex;"><span>        ts-&gt;shrlen = cast(lu_byte, l);
+</span></span><span style="display:flex;"><span>        ts-&gt;hash = hash;
+</span></span><span style="display:flex;"><span>        ts-&gt;u.hnext = NULL;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span> <span style="color:#00f">if</span> (tag == LUA_LNGSTR) {
+</span></span><span style="display:flex;"><span>        ts-&gt;hash = 0;
+</span></span><span style="display:flex;"><span>        ts-&gt;u.lnglen = l;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        lua_assert(0);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> ts;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们的lua字符串实例，是需要被gc托管的对象，因此它是一个gcobject，要创建一个gcobject，我们必须知道TString实例的具体大小，它的大小就是String Header的字节加上String Body字节的总大小，它由sizelstring函数来计算。String Body的结尾需要加上特殊字符‘\0’，这样做的目的是能够和c语言的字符串兼容，使之在c层操作更为方便，接下里则是针对不同的TString类型，作不同的初始化操作。</p>
 <p>lua字符串被创建前，我们还需要判断字符串是长字符串还是短字符串，不同类型的字符串，会做不同的处理，比如短字符串会进行内部化操作，而长字符串则是直接创建lua字符串实例。对于短字符串而言，在开始内部化处理之前，还需要进行hash值计算，由于文章的前半部分已经介绍了，这里就不再赘述，我们先看看我们常用的lua字符串创建函数：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luastring.c
-</span><span style="color:#f00;font-style:italic">// only short strings can be interal
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> <span style="color:#00f">struct</span> TString* <span style="color:#c34e00">internalstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l) {
-    <span style="color:#00f">struct</span> global_State* g = G(L);
-    <span style="color:#00f">struct</span> stringtable* tb = &amp;g-&gt;strt;
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h = luaS_hash(L, str, l, g-&gt;seed); 
-    <span style="color:#00f">struct</span> TString** list = &amp;tb-&gt;hash[lmod(h, tb-&gt;size)];
-
-    <span style="color:#00f">for</span> (<span style="color:#00f">struct</span> TString* ts = *list; ts; ts = ts-&gt;u.hnext) {
-        <span style="color:#00f">if</span> (ts-&gt;shrlen == l &amp;&amp; (memcmp(getstr(ts), str, l * <span style="color:#00f">sizeof</span>(<span style="color:#00f">char</span>)) == 0)) {
-            <span style="color:#00f">if</span> (isdead(g, ts)) {
-                changewhite(ts);
-            }
-            <span style="color:#00f">return</span> ts;
-        }
-    }
-
-    <span style="color:#00f">if</span> (tb-&gt;nuse &gt;= tb-&gt;size &amp;&amp; tb-&gt;size &lt; INT_MAX / 2) {
-        luaS_resize(L, tb-&gt;size * 2);
-        list = &amp;tb-&gt;hash[lmod(h, tb-&gt;size)];
-    }
-
-    <span style="color:#00f">struct</span> TString* ts = createstrobj(L, str, LUA_SHRSTR, l, h);
-    ts-&gt;u.hnext = *list;
-    *list = ts;
-    tb-&gt;nuse++;
-
-    <span style="color:#00f">return</span> ts;
-}
-
-<span style="color:#00f">struct</span> TString* <span style="color:#c34e00">luaS_createlongstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, size_t l) {
-    <span style="color:#00f">return</span> createstrobj(L, str, LUA_LNGSTR, l, G(L)-&gt;seed);
-}
-
-<span style="color:#00f">struct</span> TString* <span style="color:#c34e00">luaS_newlstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l) {
-    <span style="color:#00f">if</span> (l &lt;= MAXSHORTSTR) {
-        <span style="color:#00f">return</span> internalstr(L, str, l); 
-    }
-    <span style="color:#00f">else</span> {
-        <span style="color:#00f">return</span> luaS_createlongstr(L, str, l); 
-    }
-}
-</code></pre></div><p>我们可以看到，luaS_createlongstr函数，会先判断，要创建的字符串是长字符串还是短字符串，如果是短字符串则进行内部化处理，如果是长字符串，则直接创建TString实例。字符串内部化的逻辑处理也很简单：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luastring.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// only short strings can be interal
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> <span style="color:#00f">struct</span> TString* <span style="color:#c34e00">internalstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> global_State* g = G(L);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> stringtable* tb = &amp;g-&gt;strt;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> h = luaS_hash(L, str, l, g-&gt;seed); 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> TString** list = &amp;tb-&gt;hash[lmod(h, tb-&gt;size)];
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (<span style="color:#00f">struct</span> TString* ts = *list; ts; ts = ts-&gt;u.hnext) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (ts-&gt;shrlen == l &amp;&amp; (memcmp(getstr(ts), str, l * <span style="color:#00f">sizeof</span>(<span style="color:#00f">char</span>)) == 0)) {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> (isdead(g, ts)) {
+</span></span><span style="display:flex;"><span>                changewhite(ts);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> ts;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (tb-&gt;nuse &gt;= tb-&gt;size &amp;&amp; tb-&gt;size &lt; INT_MAX / 2) {
+</span></span><span style="display:flex;"><span>        luaS_resize(L, tb-&gt;size * 2);
+</span></span><span style="display:flex;"><span>        list = &amp;tb-&gt;hash[lmod(h, tb-&gt;size)];
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> TString* ts = createstrobj(L, str, LUA_SHRSTR, l, h);
+</span></span><span style="display:flex;"><span>    ts-&gt;u.hnext = *list;
+</span></span><span style="display:flex;"><span>    *list = ts;
+</span></span><span style="display:flex;"><span>    tb-&gt;nuse++;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> ts;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> TString* <span style="color:#c34e00">luaS_createlongstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, size_t l) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> createstrobj(L, str, LUA_LNGSTR, l, G(L)-&gt;seed);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> TString* <span style="color:#c34e00">luaS_newlstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (l &lt;= MAXSHORTSTR) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> internalstr(L, str, l); 
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> luaS_createlongstr(L, str, l); 
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们可以看到，luaS_createlongstr函数，会先判断，要创建的字符串是长字符串还是短字符串，如果是短字符串则进行内部化处理，如果是长字符串，则直接创建TString实例。字符串内部化的逻辑处理也很简单：</p>
 <ul>
 <li>首先计算要创建的字符串的hash值</li>
 <li>根据hash值，计算该字符串应该被放在strt-&gt;hash表中的哪个位置(slot_idx = hash &amp; strt-&gt;size - 1)</li>
 <li>取出该位置的TString*链表，逐个实例进行比较，如果找到同内容的TString实例，则不创建新的TString实例，将该指针返回；如果找不到，则创建新的TString实例，并插入链表头部（如之前展示的gif图所示）
 接下来我们来看看字符串比较的逻辑：</li>
 </ul>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luastring.c
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">luaS_eqshrstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> TString* a, <span style="color:#00f">struct</span> TString* b) {
-    <span style="color:#00f">return</span> (a == b) || (a-&gt;shrlen == b-&gt;shrlen &amp;&amp; strcmp(getstr(a), getstr(b)) == 0);
-}
-
-<span style="color:#00f">int</span> <span style="color:#c34e00">luaS_eqlngstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> TString* a, <span style="color:#00f">struct</span> TString* b) {
-    <span style="color:#00f">return</span> (a == b) || (a-&gt;u.lnglen == b-&gt;u.lnglen &amp;&amp; strcmp(getstr(a), getstr(b)) == 0);
-}
-</code></pre></div><p>不论是长字符串还是短字符串，他们的比较方式都一致，首先比较字符串实例的地址，地址相同自然相等。长度不同自然不相等，当地址不同，长度不同时，才会触发字符串比较的逻辑，这里的getstr函数，会将String Body的地址返回，方便我们使用TString对象的字符串值部分。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luastring.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">luaS_eqshrstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> TString* a, <span style="color:#00f">struct</span> TString* b) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> (a == b) || (a-&gt;shrlen == b-&gt;shrlen &amp;&amp; strcmp(getstr(a), getstr(b)) == 0);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">luaS_eqlngstr</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> TString* a, <span style="color:#00f">struct</span> TString* b) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> (a == b) || (a-&gt;u.lnglen == b-&gt;u.lnglen &amp;&amp; strcmp(getstr(a), getstr(b)) == 0);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>不论是长字符串还是短字符串，他们的比较方式都一致，首先比较字符串实例的地址，地址相同自然相等。长度不同自然不相等，当地址不同，长度不同时，才会触发字符串比较的逻辑，这里的getstr函数，会将String Body的地址返回，方便我们使用TString对象的字符串值部分。</p>
 <p>也许细心的读者会发现，在global_State的结构中，还有一个strcache的二维数组，该数组将作为字符串缓存存在。我们创建lua字符串还有另一个函数，则是luaS_new函数，它的定义如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luastring.c
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> TString* <span style="color:#c34e00">luaS_new</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l) {
-    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> hash = point2uint(str); 
-    <span style="color:#00f">int</span> i = hash % STRCACHE_M;
-    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> j = 0; j &lt; STRCACHE_N; j ++) {
-        <span style="color:#00f">struct</span> TString* ts = G(L)-&gt;strcache[i][j];
-        <span style="color:#00f">if</span> (strcmp(getstr(ts), str) == 0) {
-            <span style="color:#00f">return</span> ts;
-        }
-    }
-
-    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> j = STRCACHE_N - 1; j &gt; 0; j--) {
-        G(L)-&gt;strcache[i][j] = G(L)-&gt;strcache[i][j - 1];
-    }
-
-    G(L)-&gt;strcache[i][0] = luaS_newlstr(L, str, l);
-    <span style="color:#00f">return</span> G(L)-&gt;strcache[i][0];
-}
-</code></pre></div><p>这个函数首先会对c层字符串str的地址进行hash运算，然后通过取膜规则，在strcache查找指定的TString实例，如果找到就返回，如果找不到，则丢弃一个，且创建一个新的TString实例并写入strcache中，这种方式对已经保存在c层且需要频繁转换为TString的c层字符串非常有效率上的帮助。strcache内的字符串缓存保存一个gc周期，gc进入sweep阶段前清空。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luastring.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> TString* <span style="color:#c34e00">luaS_new</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">const</span> <span style="color:#00f">char</span>* str, <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> l) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">unsigned</span> <span style="color:#00f">int</span> hash = point2uint(str); 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> i = hash % STRCACHE_M;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> j = 0; j &lt; STRCACHE_N; j ++) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">struct</span> TString* ts = G(L)-&gt;strcache[i][j];
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (strcmp(getstr(ts), str) == 0) {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> ts;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (<span style="color:#00f">int</span> j = STRCACHE_N - 1; j &gt; 0; j--) {
+</span></span><span style="display:flex;"><span>        G(L)-&gt;strcache[i][j] = G(L)-&gt;strcache[i][j - 1];
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    G(L)-&gt;strcache[i][0] = luaS_newlstr(L, str, l);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> G(L)-&gt;strcache[i][0];
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这个函数首先会对c层字符串str的地址进行hash运算，然后通过取膜规则，在strcache查找指定的TString实例，如果找到就返回，如果找不到，则丢弃一个，且创建一个新的TString实例并写入strcache中，这种方式对已经保存在c层且需要频繁转换为TString的c层字符串非常有效率上的帮助。strcache内的字符串缓存保存一个gc周期，gc进入sweep阶段前清空。</p>
 <p>我们最后需要讨论的部分，就是将现有的TString模块整合到gc机制中，本章将不会对gc作深入的探讨，如果读者想深入研究可以看我的上一篇blog，《Garbage Collection基础架构》，本章只关注TString如何整合到现有的GC机制中。阅读过我上篇blog的读者应该可以回想起，dummylua的gc机制，目前包含几个阶段，分别是restart、propagate、atomic和sweep这几个阶段，restart是gc开始前的准备阶段，propagate则是传播、扫描阶段，atomic则是一次性传播、扫描阶段，sweep则是清理阶段。在propagate阶段，对TString实例进行传播扫描时，由于TString不可能包含子节点，因此可以在propagate阶段直接标记为黑色，其逻辑如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luagc.c
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">void</span> <span style="color:#c34e00">reallymarkobject</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> GCObject* gco) {
-    <span style="color:#00f">struct</span> global_State* g = G(L);
-    white2gray(gco);
-
-    <span style="color:#00f">switch</span>(gco-&gt;tt_) {
-        <span style="color:#00f">case</span> LUA_TTHREAD:{
-            linkgclist(gco2th(gco), g-&gt;gray);            
-        } <span style="color:#00f">break</span>;
-        <span style="color:#00f">case</span> LUA_TTABLE:{
-            linkgclist(gco2tbl(gco), g-&gt;gray);
-        } <span style="color:#00f">break</span>;
-        <span style="color:#00f">case</span> LUA_SHRSTR:{ 
-            gray2black(gco);
-            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
-            g-&gt;GCmemtrav += sizelstring(ts-&gt;shrlen);
-        } <span style="color:#00f">break</span>;
-        <span style="color:#00f">case</span> LUA_LNGSTR: {
-            gray2black(gco);
-            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
-            g-&gt;GCmemtrav += sizelstring(ts-&gt;u.lnglen);
-        } <span style="color:#00f">break</span>;
-        <span style="color:#00f">default</span>:<span style="color:#00f">break</span>;
-    }
-}
-</code></pre></div><p>这里这样做的好处就是，TString实例不放入gray列表，再去做无谓的扫描，从而一定程度提升性能。除了在传播、扫描时，被标记的阶段需要做处理，我们还需要在atomic阶段结束时，将strcache清空，以避免在sweep阶段，将字符串实例删除后，在strcache留下野指针。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luagc.c
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">atomic</span>(<span style="color:#00f">struct</span> lua_State* L) {
-    <span style="color:#00f">struct</span> global_State* g = G(L);
-    g-&gt;gray = g-&gt;grayagain;
-    g-&gt;grayagain = NULL;
-
-    g-&gt;gcstate = GCSinsideatomic;
-    propagateall(L);
-    g-&gt;currentwhite = cast(lu_byte, otherwhite(g));
-
-    luaS_clearcache(L);
-}
-</code></pre></div><p>这里的luaS_clearcache做的就是情况缓存的操作。在gc的sweep阶段，回收短字符串时，还要记得将strt内对应的短字符串指针清空，避免留下野指针：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// luagc.c
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> lu_mem <span style="color:#c34e00">freeobj</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> GCObject* gco) {
-    <span style="color:#00f">switch</span>(gco-&gt;tt_) {
-        <span style="color:#00f">case</span> LUA_SHRSTR: {
-            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
-            luaS_remove(L, ts);
-            lu_mem sz = sizelstring(ts-&gt;shrlen);
-            luaM_free(L, ts, sz); 
-            <span style="color:#00f">return</span> sz; 
-        } <span style="color:#00f">break</span>;
-        <span style="color:#00f">case</span> LUA_LNGSTR: {
-            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
-            lu_mem sz = sizelstring(ts-&gt;u.lnglen);
-            luaM_free(L, ts, sz);
-        } <span style="color:#00f">break</span>;
-        <span style="color:#00f">case</span> LUA_TTABLE: {
-            <span style="color:#00f">struct</span> Table* tbl = gco2tbl(gco);
-            lu_mem sz = <span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> Table) + tbl-&gt;arraysize * <span style="color:#00f">sizeof</span>(TValue) + twoto(tbl-&gt;lsizenode) * <span style="color:#00f">sizeof</span>(Node);
-            luaH_free(L, tbl);
-            <span style="color:#00f">return</span> sz;
-        } <span style="color:#00f">break</span>;
-        <span style="color:#00f">default</span>:{
-            lua_assert(0);
-        } <span style="color:#00f">break</span>;
-    }
-    <span style="color:#00f">return</span> 0;
-}
-</code></pre></div><p>如果你对这个部分感到疑惑，我建议先回顾一下本系列的gc部分。到目前为止，有关TString的内容就全部结束了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">void</span> <span style="color:#c34e00">reallymarkobject</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> GCObject* gco) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> global_State* g = G(L);
+</span></span><span style="display:flex;"><span>    white2gray(gco);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">switch</span>(gco-&gt;tt_) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_TTHREAD:{
+</span></span><span style="display:flex;"><span>            linkgclist(gco2th(gco), g-&gt;gray);            
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_TTABLE:{
+</span></span><span style="display:flex;"><span>            linkgclist(gco2tbl(gco), g-&gt;gray);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_SHRSTR:{ 
+</span></span><span style="display:flex;"><span>            gray2black(gco);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
+</span></span><span style="display:flex;"><span>            g-&gt;GCmemtrav += sizelstring(ts-&gt;shrlen);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_LNGSTR: {
+</span></span><span style="display:flex;"><span>            gray2black(gco);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
+</span></span><span style="display:flex;"><span>            g-&gt;GCmemtrav += sizelstring(ts-&gt;u.lnglen);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">default</span>:<span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这里这样做的好处就是，TString实例不放入gray列表，再去做无谓的扫描，从而一定程度提升性能。除了在传播、扫描时，被标记的阶段需要做处理，我们还需要在atomic阶段结束时，将strcache清空，以避免在sweep阶段，将字符串实例删除后，在strcache留下野指针。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">atomic</span>(<span style="color:#00f">struct</span> lua_State* L) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> global_State* g = G(L);
+</span></span><span style="display:flex;"><span>    g-&gt;gray = g-&gt;grayagain;
+</span></span><span style="display:flex;"><span>    g-&gt;grayagain = NULL;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    g-&gt;gcstate = GCSinsideatomic;
+</span></span><span style="display:flex;"><span>    propagateall(L);
+</span></span><span style="display:flex;"><span>    g-&gt;currentwhite = cast(lu_byte, otherwhite(g));
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    luaS_clearcache(L);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这里的luaS_clearcache做的就是情况缓存的操作。在gc的sweep阶段，回收短字符串时，还要记得将strt内对应的短字符串指针清空，避免留下野指针：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// luagc.c
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">static</span> lu_mem <span style="color:#c34e00">freeobj</span>(<span style="color:#00f">struct</span> lua_State* L, <span style="color:#00f">struct</span> GCObject* gco) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">switch</span>(gco-&gt;tt_) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_SHRSTR: {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
+</span></span><span style="display:flex;"><span>            luaS_remove(L, ts);
+</span></span><span style="display:flex;"><span>            lu_mem sz = sizelstring(ts-&gt;shrlen);
+</span></span><span style="display:flex;"><span>            luaM_free(L, ts, sz); 
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> sz; 
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_LNGSTR: {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> TString* ts = gco2ts(gco);
+</span></span><span style="display:flex;"><span>            lu_mem sz = sizelstring(ts-&gt;u.lnglen);
+</span></span><span style="display:flex;"><span>            luaM_free(L, ts, sz);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> LUA_TTABLE: {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> Table* tbl = gco2tbl(gco);
+</span></span><span style="display:flex;"><span>            lu_mem sz = <span style="color:#00f">sizeof</span>(<span style="color:#00f">struct</span> Table) + tbl-&gt;arraysize * <span style="color:#00f">sizeof</span>(TValue) + twoto(tbl-&gt;lsizenode) * <span style="color:#00f">sizeof</span>(Node);
+</span></span><span style="display:flex;"><span>            luaH_free(L, tbl);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> sz;
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">default</span>:{
+</span></span><span style="display:flex;"><span>            lua_assert(0);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>如果你对这个部分感到疑惑，我建议先回顾一下本系列的gc部分。到目前为止，有关TString的内容就全部结束了。</p>
 <h1 id="总结">总结</h1>
 <p>TString模块，早在去年12月份就完成开发测试了，不过一直迟迟没能抽出时间来写blog，如今我也花费了不算小的篇幅来阐述dummylua项目字符串相关的内容，这个部分对于阅读官方源码字符串部分，同样具有借鉴意义。虽然和其他部分相比，这篇并不算特别复杂，但是也耗费了我整整3天满打满算的时间，原创不易，希望大家转载能够注明出处。下一篇将进入到lua Table的的设计实现的论述上，敬请期待。</p>
 <p>Reference

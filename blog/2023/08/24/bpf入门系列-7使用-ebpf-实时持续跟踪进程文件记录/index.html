@@ -300,33 +300,33 @@
     <p><a href="https://www.ebpf.top/">深入浅出 eBPF</a></p>
 <p>本文主要用于演示基于 ebpf 技术来实现对于系统调用跟踪和特定条件过滤，实现基于 <a href="https://github.com/iovisor/bcc/">BCC</a> 的 Python 前端绑定，过程中对于代码的实现进行了详细的解释，可以作为学习 ebpf 技术解决实际问题的参考样例。</p>
 <h2 id="1-样例代码">1. 样例代码</h2>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt; </span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;unistd.h&gt; </span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>() {   
-    FILE *fp;   <span style="color:#00f">char</span> buff[255];    
-    printf(<span style="color:#009c00">&#34;Pid %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, getpid());    
-    fp = fopen(<span style="color:#009c00">&#34;./hello.c&#34;</span>, <span style="color:#009c00">&#34;r&#34;</span>);   
-    fscanf(fp, <span style="color:#009c00">&#34;%s&#34;</span>, buff);   
-    printf(<span style="color:#009c00">&#34;Read:  [%s]</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, buff );    
-    getchar();   
-    fclose(fp);    
-    <span style="color:#00f">return</span> 0; 
-} 
-</code></pre></div><p>fopen 函数是 <a href="https://www.gnu.org/software/libc/sources.html">glibc</a> 库中的函数，可在 github 上找到 <a href="https://github.com/bminor/glibc">mirror</a> 地址，最终是通过系统调用 <code>open</code> 来实现内核中打开文件的功能。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt; </span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;unistd.h&gt; </span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>() {   
+</span></span><span style="display:flex;"><span>    FILE *fp;   <span style="color:#00f">char</span> buff[255];    
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;Pid %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, getpid());    
+</span></span><span style="display:flex;"><span>    fp = fopen(<span style="color:#009c00">&#34;./hello.c&#34;</span>, <span style="color:#009c00">&#34;r&#34;</span>);   
+</span></span><span style="display:flex;"><span>    fscanf(fp, <span style="color:#009c00">&#34;%s&#34;</span>, buff);   
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;Read:  [%s]</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, buff );    
+</span></span><span style="display:flex;"><span>    getchar();   
+</span></span><span style="display:flex;"><span>    fclose(fp);    
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0; 
+</span></span><span style="display:flex;"><span>} 
+</span></span></code></pre></div><p>fopen 函数是 <a href="https://www.gnu.org/software/libc/sources.html">glibc</a> 库中的函数，可在 github 上找到 <a href="https://github.com/bminor/glibc">mirror</a> 地址，最终是通过系统调用 <code>open</code> 来实现内核中打开文件的功能。</p>
 <h2 id="2-proc-目录下的-fd">2. /proc 目录下的 fd</h2>
 <p>在 <code>hello</code> 在运行状态时，通过查看 <code>/proc/pid/fd</code> 可以获取到文件当前打开的文件句柄：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#f00;font-style:italic"># ls -hl /proc/`pidof hello`/fd total 0 lrwx------ 1 root root 64 May 30 16:31 0 -&gt; /dev/pts/0 lrwx------ 1 root root 64 May 30 16:31 1 -&gt; /dev/pts/0 lrwx------ 1 root root 64 May 30 16:31 2 -&gt; /dev/pts/0 lr-x------ 1 root root 64 May 30 16:31 3 -&gt; /root/sys_call/hello.c </span>
-</code></pre></div><p>如果将 <code>getchar</code> 调整到 <code>fclose</code> 的下方：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>()  {    
-    <span style="color:#f00;font-style:italic">// ...    
-</span><span style="color:#f00;font-style:italic"></span>    fclose(fp);  
-    <span style="color:#f00;font-style:italic">// 先关闭文件句柄    
-</span><span style="color:#f00;font-style:italic"></span>    getchar();    
-    <span style="color:#00f">return</span> 0;  
-} 
-</code></pre></div><p>我们再去查看 <code>/proc</code> 目录下进程对应的 <code>fd</code>则无法展示出已经关闭的文件相关信息。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#f00;font-style:italic"># ls -hl /proc/`pidof hello`/fd total 0 lrwx------ 1 root root 64 May 30 16:34 0 -&gt; /dev/pts/0 lrwx------ 1 root root 64 May 30 16:34 1 -&gt; /dev/pts/0 lrwx------ 1 root root 64 May 30 16:34 2 -&gt; /dev/pts/0 </span>
-</code></pre></div><blockquote>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># ls -hl /proc/`pidof hello`/fd total 0 lrwx------ 1 root root 64 May 30 16:31 0 -&gt; /dev/pts/0 lrwx------ 1 root root 64 May 30 16:31 1 -&gt; /dev/pts/0 lrwx------ 1 root root 64 May 30 16:31 2 -&gt; /dev/pts/0 lr-x------ 1 root root 64 May 30 16:31 3 -&gt; /root/sys_call/hello.c </span>
+</span></span></code></pre></div><p>如果将 <code>getchar</code> 调整到 <code>fclose</code> 的下方：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>()  {    
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// ...    
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    fclose(fp);  
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 先关闭文件句柄    
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    getchar();    
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;  
+</span></span><span style="display:flex;"><span>} 
+</span></span></code></pre></div><p>我们再去查看 <code>/proc</code> 目录下进程对应的 <code>fd</code>则无法展示出已经关闭的文件相关信息。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># ls -hl /proc/`pidof hello`/fd total 0 lrwx------ 1 root root 64 May 30 16:34 0 -&gt; /dev/pts/0 lrwx------ 1 root root 64 May 30 16:34 1 -&gt; /dev/pts/0 lrwx------ 1 root root 64 May 30 16:34 2 -&gt; /dev/pts/0 </span>
+</span></span></code></pre></div><blockquote>
 <p>Linux 提供的 <code>lsof</code> 工具的实现原理也是遍历进程对应的 <code>/proc/pid/fd</code> 文件实现的。</p>
 </blockquote>
 <p>这是因为 <code>/proc/pid/fd</code> 给我们展示的是查看目录时的文件打开的最终快照。如果我们对于某组特定进程持续跟踪文件打开的记录和结果，特别是进程频繁创建销毁的场景下，通过 <code>/proc</code> 文件进行查看的方式则不能够满足诉求，这时我们需要一种新的实现方式，能够帮我们实现以下功能：</p>
@@ -346,10 +346,10 @@
 <p>eBPF 对于系统调用的底层支持采用的是 kprobe 机制，kprobe 是针对内核函数跟踪的一种机制。由于原始的 eBPF 编程是基于 Linux C 语言的，入门的门槛比较高，开源项目 <a href="https://github.com/iovisor/bcc/">BCC</a> 提供了更高的抽象，<a href="https://github.com/iovisor/bcc/">BCC</a> 支持 Python、Lua 和 C++ 等高级语言，这大大降低了编程的门槛。本样例我们使用采用 Python 语言编写（基于 BCC）。代码运行前，需要提前安装 BCC 项目，安装方式参见 <a href="https://github.com/iovisor/bcc/blob/master/INSTALL.md">INSTALL.md</a>。</p>
 <h3 id="33-open-系统调用跟踪">3.3 open 系统调用跟踪</h3>
 <p>open_ebpf.py 程序基于 eBPF 开源项目 BCC 中的 Python 框架搭建，运行时会将系统中所有程序调用 open 函数的记录打印出来。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f00;font-style:italic">#!/usr/bin/python from bcc import BPF prog = &#34;&#34;&#34; int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;    u32 uid = bpf_get_current_uid_gid();     bpf_trace_printk(&#34;%d [%s]\\n&#34;, pid, filename);    return 0; } &#34;&#34;&#34; b = BPF(text=prog) b.attach_kprobe(event=b.get_syscall_fnname(&#34;open&#34;), fn_name=&#34;trace_syscall_open&#34;) try:    b.trace_print() except KeyboardInterrupt:    exit() </span>
-</code></pre></div><p>程序运行结果如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#f00;font-style:italic"># ./open_ebpf.py       AliYunDun-1732  [012] d... 11761.163446: : 1732 [/var/log/secure] CmsGoAgent.linu-931   [010] d... 11761.259430: : 722 [/proc/loadavg] </span>
-</code></pre></div><p>代码详解：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#!/usr/bin/python from bcc import BPF prog = &#34;&#34;&#34; int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;    u32 uid = bpf_get_current_uid_gid();     bpf_trace_printk(&#34;%d [%s]\\n&#34;, pid, filename);    return 0; } &#34;&#34;&#34; b = BPF(text=prog) b.attach_kprobe(event=b.get_syscall_fnname(&#34;open&#34;), fn_name=&#34;trace_syscall_open&#34;) try:    b.trace_print() except KeyboardInterrupt:    exit() </span>
+</span></span></code></pre></div><p>程序运行结果如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># ./open_ebpf.py       AliYunDun-1732  [012] d... 11761.163446: : 1732 [/var/log/secure] CmsGoAgent.linu-931   [010] d... 11761.259430: : 722 [/proc/loadavg] </span>
+</span></span></code></pre></div><p>代码详解：</p>
 <ul>
 <li>
 <p><code>from bcc import BPF</code> 该行为从 bcc 的 Python 库导入 BPF 包；</p>
@@ -361,9 +361,8 @@
 <p><code>trace_syscall_open</code> 函数原型为 <code>sys_open</code> 函数在内核中的定义原型，其中第一个参数<code>struct pt_regs *ctx</code> 为 BPF 程序需要添加的上下文变量，后续参数参见 <a href="https://elixir.bootlin.com/linux/v5.4/source/include/linux/syscalls.h#L1033"><code>sys_open</code></a>。</p>
 </li>
 <li>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  asmlinkage long sys_open(const char __user *filename, int flags, umode_t mode); 
-</code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">
-</code></pre></div></li>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  asmlinkage long sys_open(const char __user *filename, int flags, umode_t mode); 
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"></code></pre></div></li>
 <li></li>
 </ul>
 </li>
@@ -386,16 +385,16 @@
 </ul>
 <blockquote>
 <p>另外还有一种简便的使用方式，声明函数的时候使用特定的前缀和函数名，此种约定就可以省略 <code>b.attach_kprobe</code> 显示的使用，例如：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">prog = <span style="color:#009c00">&#34;&#34;&#34; int syscall_open(struct pt_regs *ctx, const char __user *filename,int flags) { // ... } &#34;&#34;&#34;</span> <span style="color:#f00;font-style:italic">// 上述按照特定格式约定了，此处的 attach_kprobe 就不再需要调用 // b.attach_kprobe(event=b.get_syscall_fnname(&#34;open&#34;), fn_name=&#34;trace_syscall_open&#34;) 
-</span></code></pre></div><p>函数名的组成为 ”类型“ + 内核函数的方式，<code>syscall</code>，表示类型是 <code>syscall</code>，跟踪的函数是 <code>open</code>，需要注意的是 <code>syscall</code> 与 <code>open</code> 之间为<strong>两个连续的下划线</strong>。相对应的类型还有 <code>kprobe/kretprobe</code> 等。详情参见<a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#8-system-call-tracepoints">这里</a>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>prog = <span style="color:#009c00">&#34;&#34;&#34; int syscall_open(struct pt_regs *ctx, const char __user *filename,int flags) { // ... } &#34;&#34;&#34;</span> <span style="color:#f00;font-style:italic">// 上述按照特定格式约定了，此处的 attach_kprobe 就不再需要调用 // b.attach_kprobe(event=b.get_syscall_fnname(&#34;open&#34;), fn_name=&#34;trace_syscall_open&#34;) 
+</span></span></span></code></pre></div><p>函数名的组成为 ”类型“ + 内核函数的方式，<code>syscall</code>，表示类型是 <code>syscall</code>，跟踪的函数是 <code>open</code>，需要注意的是 <code>syscall</code> 与 <code>open</code> 之间为<strong>两个连续的下划线</strong>。相对应的类型还有 <code>kprobe/kretprobe</code> 等。详情参见<a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#8-system-call-tracepoints">这里</a>。</p>
 </blockquote>
 <h3 id="34-支持-pid-过滤版本">3.4 支持 PID 过滤版本</h3>
 <p>为了方便统计特定进程的文件打开情况，我们还需要增强为支持按照 PID 过滤的功能。</p>
 <p>open_pid_ebpf.py 在上述版本的基础上增加了命令行输入 PID 和底层 eBPF 程序支持 PID 过滤的功能。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f00;font-style:italic">#!/usr/bin/python from bcc import BPF import argparse  # +add prog = &#34;&#34;&#34; int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;    u32 uid = bpf_get_current_uid_gid();     PID_FILTER  // + add PID FILTER        bpf_trace_printk(&#34;%d [%s]\\n&#34;, pid, filename);    return 0; } &#34;&#34;&#34; examples = &#34;&#34;&#34;examples:    ./open_pid_ebpf -p 181    # only trace PID 181 &#34;&#34;&#34; parser = argparse.ArgumentParser(    description=&#34;Trace open() syscalls&#34;,    formatter_class=argparse.RawDescriptionHelpFormatter,    epilog=examples) parser.add_argument(&#34;-p&#34;, &#34;--pid&#34;,    help=&#34;trace this PID only&#34;) args = parser.parse_args() if args.pid:    prog = prog.replace(&#39;PID_FILTER&#39;,        &#39;if (pid != %s) { return 0; }&#39; % args.pid) else:    prog = prog.replace(&#39;PID_TID_FILTER&#39;, &#39;&#39;) b = BPF(text=prog) b.attach_kprobe(event=b.get_syscall_fnname(&#34;open&#34;), fn_name=&#34;trace_syscall_open&#34;) try:    b.trace_print() except KeyboardInterrupt:    exit() </span>
-</code></pre></div><p>运行结果如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#f00;font-style:italic"># ./open_pid.py -p 4214  # hello pid           hello-4214  [003] d... 11693.160177: : 4214 [./hello.c] </span>
-</code></pre></div><h3 id="35-后续程序增强">3.5 后续程序增强</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#!/usr/bin/python from bcc import BPF import argparse  # +add prog = &#34;&#34;&#34; int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;    u32 uid = bpf_get_current_uid_gid();     PID_FILTER  // + add PID FILTER        bpf_trace_printk(&#34;%d [%s]\\n&#34;, pid, filename);    return 0; } &#34;&#34;&#34; examples = &#34;&#34;&#34;examples:    ./open_pid_ebpf -p 181    # only trace PID 181 &#34;&#34;&#34; parser = argparse.ArgumentParser(    description=&#34;Trace open() syscalls&#34;,    formatter_class=argparse.RawDescriptionHelpFormatter,    epilog=examples) parser.add_argument(&#34;-p&#34;, &#34;--pid&#34;,    help=&#34;trace this PID only&#34;) args = parser.parse_args() if args.pid:    prog = prog.replace(&#39;PID_FILTER&#39;,        &#39;if (pid != %s) { return 0; }&#39; % args.pid) else:    prog = prog.replace(&#39;PID_TID_FILTER&#39;, &#39;&#39;) b = BPF(text=prog) b.attach_kprobe(event=b.get_syscall_fnname(&#34;open&#34;), fn_name=&#34;trace_syscall_open&#34;) try:    b.trace_print() except KeyboardInterrupt:    exit() </span>
+</span></span></code></pre></div><p>运行结果如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># ./open_pid.py -p 4214  # hello pid           hello-4214  [003] d... 11693.160177: : 4214 [./hello.c] </span>
+</span></span></code></pre></div><h3 id="35-后续程序增强">3.5 后续程序增强</h3>
 <ul>
 <li>目前只是使用 <code>bpf_trace_printk</code> 进行了打印，生产中的跟踪程序应采用 <code>BPF_PERF_OUTPUT</code> 的方式。</li>
 <li>当前只是支持了 PID 过滤，可以提供更加丰富的过滤条件，比如支持 TID，filename和 cmd 等多维度。</li>
@@ -407,8 +406,8 @@
 </blockquote>
 <p>此处我们只是为了展示如何使用 eBPF 进行功能开发，实现了对于 <code>open</code> 系统调用跟踪和基于 PID de 过滤，麻雀虽小五脏俱全，我们可以很容易基于此样例进行扩展，实现我们个性化定制的跟踪。</p>
 <p>实际上 BCC 中已经包含了大多数场景下使用的工具，例如实现功能更加丰富的 <a href="https://github.com/iovisor/bcc/blob/master/tools/opensnoop.py">opensnoop.py</a>，能够满足对于文件访问跟踪的大多数场景。<code>opensnoop </code>的样例如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">./opensnoop           <span style="color:#f00;font-style:italic"># trace all open() syscalls    ./opensnoop -T        # include timestamps    ./opensnoop -U        # include UID    ./opensnoop -x        # only show failed opens    ./opensnoop -p 181    # only trace PID 181    ./opensnoop -t 123    # only trace TID 123    ./opensnoop -u 1000   # only trace UID 1000    ./opensnoop -d 10     # trace for 10 seconds only    ./opensnoop -n main   # only print process names containing &#34;main&#34;    ./opensnoop -e        # show extended fields    ./opensnoop -f O_WRONLY -f O_RDWR  # only print calls for writing    ./opensnoop --cgroupmap mappath  # only trace cgroups in this BPF map    ./opensnoop --mntnsmap mappath   # only trace mount namespaces in the map </span>
-</code></pre></div><h2 id="4-参考">4. 参考</h2>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span>./opensnoop           <span style="color:#f00;font-style:italic"># trace all open() syscalls    ./opensnoop -T        # include timestamps    ./opensnoop -U        # include UID    ./opensnoop -x        # only show failed opens    ./opensnoop -p 181    # only trace PID 181    ./opensnoop -t 123    # only trace TID 123    ./opensnoop -u 1000   # only trace UID 1000    ./opensnoop -d 10     # trace for 10 seconds only    ./opensnoop -n main   # only print process names containing &#34;main&#34;    ./opensnoop -e        # show extended fields    ./opensnoop -f O_WRONLY -f O_RDWR  # only print calls for writing    ./opensnoop --cgroupmap mappath  # only trace cgroups in this BPF map    ./opensnoop --mntnsmap mappath   # only trace mount namespaces in the map </span>
+</span></span></code></pre></div><h2 id="4-参考">4. 参考</h2>
 <ul>
 <li>
 <p><a href="https://www.geeksforgeeks.org/proc-file-system-linux/">proc file system in Linux</a></p>

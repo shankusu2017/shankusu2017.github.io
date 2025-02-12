@@ -335,123 +335,122 @@
 <p>依据 Bcc Tools tcpconnlat，配合 ebpf_exporter 的改写如下（ebpf_exporter 例子中没有网络延时相关的）</p>
 </li>
 <li>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">  programs:
-    <span style="color:#f00;font-style:italic"># See:
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic"># * https:</span><span style="color:#f00;font-style:italic">//github.com/iovisor/bcc/blob/master/tools/tcpconnect.py
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic"># * https:</span><span style="color:#f00;font-style:italic">//github.com/iovisor/bcc/blob/master/tools/tcpconnlat_example.txt
-</span><span style="color:#f00;font-style:italic"></span>    - name: tcpconnlat
-      metrics:
-        counters:
-          - name: tcpconnlat_ipv4
-            help: tcp4 connection latency(ms)
-            table: ipv4_events
-            labels:
-              - name: pid
-                size: 4
-                decoders:
-                  - name: uint
-              - name: sst_addr
-                size: 4
-                decoders:
-                  - name: inet_ip
-              - name: dst_addr
-                size: 4
-                decoders:
-                  - name: inet_ip
-              - name: lst_port
-                size: 2
-                decoders:
-                  - name: uint
-              - name: dst_port
-                size: 2
-                decoders:
-                  - name: uint
-              - name: proc_name
-                size: 16
-                decoders:
-                  - name: string
-      kprobes:
-        tcp_rcv_state_process: trace_tcp_rcv_state_process
-        tcp_v4_connect: trace_connect
-      code: |
-        <span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;uapi/linux/ptrace.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;net/sock.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;net/tcp_states.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;bcc/proto.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>
-        <span style="color:#00f">struct</span> info_t {
-            u64 ts;
-            u32 pid;
-            <span style="color:#00f">char</span> task[TASK_COMM_LEN];
-        };
-        BPF_HASH(start, <span style="color:#00f">struct</span> sock *, <span style="color:#00f">struct</span> info_t);
-
-        <span style="color:#f00;font-style:italic">// separate data structs for ipv4
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">struct</span> ipv4_data_t {
-            u32 pid;
-            u32 saddr;
-            u32 daddr;
-            u16 lport;
-            u16 dport;
-            <span style="color:#00f">char</span> task[TASK_COMM_LEN];
-        };
-        BPF_HASH(ipv4_events, <span style="color:#00f">struct</span> ipv4_data_t);
-
-        <span style="color:#00f">int</span> <span style="color:#c34e00">trace_connect</span>(<span style="color:#00f">struct</span> pt_regs *ctx, <span style="color:#00f">struct</span> sock *sk)
-        {
-            u32 pid = bpf_get_current_pid_tgid();
-            <span style="color:#00f">struct</span> info_t info = {.pid = pid};
-            info.ts = bpf_ktime_get_ns();
-            bpf_get_current_comm(&amp;info.task, <span style="color:#00f">sizeof</span>(info.task));
-            start.update(&amp;sk, &amp;info);
-            <span style="color:#00f">return</span> 0;
-        };
-
-        <span style="color:#f00;font-style:italic">// See tcp_v4_do_rcv(). So TCP_ESTBALISHED and TCP_LISTEN
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// are fast path and processed elsewhere, and leftovers are processed by
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// tcp_rcv_state_process(). We can trace this for handshake completion.
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// This should all be switched to static tracepoints when available.
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">int</span> <span style="color:#c34e00">trace_tcp_rcv_state_process</span>(<span style="color:#00f">struct</span> pt_regs *ctx, <span style="color:#00f">struct</span> sock *skp)
-        {
-            <span style="color:#f00;font-style:italic">// will be in TCP_SYN_SENT for handshake
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (skp-&gt;__sk_common.skc_state != TCP_SYN_SENT)
-                <span style="color:#00f">return</span> 0;
-            <span style="color:#f00;font-style:italic">// check start and calculate delta
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">struct</span> info_t *infop = start.lookup(&amp;skp);
-            <span style="color:#00f">if</span> (infop == 0) {
-                <span style="color:#00f">return</span> 0;   <span style="color:#f00;font-style:italic">// missed entry or filtered
-</span><span style="color:#f00;font-style:italic"></span>            }
-            u64 ts = infop-&gt;ts;
-            u64 now = bpf_ktime_get_ns();
-            u64 delta_us = (now - ts) / 1000ul;
-            u64 delta_ms = delta_us / 1000;
-        <span style="color:#f00;font-style:italic">#ifdef MIN_LATENCY
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> ( delta_us &lt; DURATION_US ) {
-                <span style="color:#00f">return</span> 0; <span style="color:#f00;font-style:italic">// connect latency is below latency filter minimum
-</span><span style="color:#f00;font-style:italic"></span>            }
-        <span style="color:#f00;font-style:italic">#endif
-</span><span style="color:#f00;font-style:italic"></span>
-            <span style="color:#f00;font-style:italic">// pull in details
-</span><span style="color:#f00;font-style:italic"></span>            u16 family = 0, lport = 0, dport = 0;
-            family = skp-&gt;__sk_common.skc_family;
-            lport = skp-&gt;__sk_common.skc_num;
-            dport = skp-&gt;__sk_common.skc_dport;
-
-            <span style="color:#f00;font-style:italic">// emit to appropriate data path
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (family == AF_INET) {
-                <span style="color:#00f">struct</span> ipv4_data_t data4 = {.pid = infop-&gt;pid};
-                data4.saddr = skp-&gt;__sk_common.skc_rcv_saddr;
-                data4.daddr = skp-&gt;__sk_common.skc_daddr;
-                data4.lport = lport;
-                data4.dport = ntohs(dport);
-                __builtin_memcpy(&amp;data4.task, infop-&gt;task, <span style="color:#00f">sizeof</span>(data4.task));
-                ipv4_events.increment(data4, delta_ms);
-            }
-            start.delete(&amp;skp);
-            <span style="color:#00f">return</span> 0;
-        }      
-</code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">
-</code></pre></div></li>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>  programs:
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic"># See:
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic"># * https:</span><span style="color:#f00;font-style:italic">//github.com/iovisor/bcc/blob/master/tools/tcpconnect.py
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic"># * https:</span><span style="color:#f00;font-style:italic">//github.com/iovisor/bcc/blob/master/tools/tcpconnlat_example.txt
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    - name: tcpconnlat
+</span></span><span style="display:flex;"><span>      metrics:
+</span></span><span style="display:flex;"><span>        counters:
+</span></span><span style="display:flex;"><span>          - name: tcpconnlat_ipv4
+</span></span><span style="display:flex;"><span>            help: tcp4 connection latency(ms)
+</span></span><span style="display:flex;"><span>            table: ipv4_events
+</span></span><span style="display:flex;"><span>            labels:
+</span></span><span style="display:flex;"><span>              - name: pid
+</span></span><span style="display:flex;"><span>                size: 4
+</span></span><span style="display:flex;"><span>                decoders:
+</span></span><span style="display:flex;"><span>                  - name: uint
+</span></span><span style="display:flex;"><span>              - name: sst_addr
+</span></span><span style="display:flex;"><span>                size: 4
+</span></span><span style="display:flex;"><span>                decoders:
+</span></span><span style="display:flex;"><span>                  - name: inet_ip
+</span></span><span style="display:flex;"><span>              - name: dst_addr
+</span></span><span style="display:flex;"><span>                size: 4
+</span></span><span style="display:flex;"><span>                decoders:
+</span></span><span style="display:flex;"><span>                  - name: inet_ip
+</span></span><span style="display:flex;"><span>              - name: lst_port
+</span></span><span style="display:flex;"><span>                size: 2
+</span></span><span style="display:flex;"><span>                decoders:
+</span></span><span style="display:flex;"><span>                  - name: uint
+</span></span><span style="display:flex;"><span>              - name: dst_port
+</span></span><span style="display:flex;"><span>                size: 2
+</span></span><span style="display:flex;"><span>                decoders:
+</span></span><span style="display:flex;"><span>                  - name: uint
+</span></span><span style="display:flex;"><span>              - name: proc_name
+</span></span><span style="display:flex;"><span>                size: 16
+</span></span><span style="display:flex;"><span>                decoders:
+</span></span><span style="display:flex;"><span>                  - name: string
+</span></span><span style="display:flex;"><span>      kprobes:
+</span></span><span style="display:flex;"><span>        tcp_rcv_state_process: trace_tcp_rcv_state_process
+</span></span><span style="display:flex;"><span>        tcp_v4_connect: trace_connect
+</span></span><span style="display:flex;"><span>      code: |
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;uapi/linux/ptrace.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;net/sock.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;net/tcp_states.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;bcc/proto.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">struct</span> info_t {
+</span></span><span style="display:flex;"><span>            u64 ts;
+</span></span><span style="display:flex;"><span>            u32 pid;
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">char</span> task[TASK_COMM_LEN];
+</span></span><span style="display:flex;"><span>        };
+</span></span><span style="display:flex;"><span>        BPF_HASH(start, <span style="color:#00f">struct</span> sock *, <span style="color:#00f">struct</span> info_t);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// separate data structs for ipv4
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">struct</span> ipv4_data_t {
+</span></span><span style="display:flex;"><span>            u32 pid;
+</span></span><span style="display:flex;"><span>            u32 saddr;
+</span></span><span style="display:flex;"><span>            u32 daddr;
+</span></span><span style="display:flex;"><span>            u16 lport;
+</span></span><span style="display:flex;"><span>            u16 dport;
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">char</span> task[TASK_COMM_LEN];
+</span></span><span style="display:flex;"><span>        };
+</span></span><span style="display:flex;"><span>        BPF_HASH(ipv4_events, <span style="color:#00f">struct</span> ipv4_data_t);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">int</span> <span style="color:#c34e00">trace_connect</span>(<span style="color:#00f">struct</span> pt_regs *ctx, <span style="color:#00f">struct</span> sock *sk)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            u32 pid = bpf_get_current_pid_tgid();
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">struct</span> info_t info = {.pid = pid};
+</span></span><span style="display:flex;"><span>            info.ts = bpf_ktime_get_ns();
+</span></span><span style="display:flex;"><span>            bpf_get_current_comm(&amp;info.task, <span style="color:#00f">sizeof</span>(info.task));
+</span></span><span style="display:flex;"><span>            start.update(&amp;sk, &amp;info);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>        };
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// See tcp_v4_do_rcv(). So TCP_ESTBALISHED and TCP_LISTEN
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// are fast path and processed elsewhere, and leftovers are processed by
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// tcp_rcv_state_process(). We can trace this for handshake completion.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// This should all be switched to static tracepoints when available.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">int</span> <span style="color:#c34e00">trace_tcp_rcv_state_process</span>(<span style="color:#00f">struct</span> pt_regs *ctx, <span style="color:#00f">struct</span> sock *skp)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// will be in TCP_SYN_SENT for handshake
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (skp-&gt;__sk_common.skc_state != TCP_SYN_SENT)
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// check start and calculate delta
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">struct</span> info_t *infop = start.lookup(&amp;skp);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> (infop == 0) {
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">return</span> 0;   <span style="color:#f00;font-style:italic">// missed entry or filtered
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            }
+</span></span><span style="display:flex;"><span>            u64 ts = infop-&gt;ts;
+</span></span><span style="display:flex;"><span>            u64 now = bpf_ktime_get_ns();
+</span></span><span style="display:flex;"><span>            u64 delta_us = (now - ts) / 1000ul;
+</span></span><span style="display:flex;"><span>            u64 delta_ms = delta_us / 1000;
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">#ifdef MIN_LATENCY
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> ( delta_us &lt; DURATION_US ) {
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">return</span> 0; <span style="color:#f00;font-style:italic">// connect latency is below latency filter minimum
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            }
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">#endif
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// pull in details
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            u16 family = 0, lport = 0, dport = 0;
+</span></span><span style="display:flex;"><span>            family = skp-&gt;__sk_common.skc_family;
+</span></span><span style="display:flex;"><span>            lport = skp-&gt;__sk_common.skc_num;
+</span></span><span style="display:flex;"><span>            dport = skp-&gt;__sk_common.skc_dport;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// emit to appropriate data path
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">if</span> (family == AF_INET) {
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">struct</span> ipv4_data_t data4 = {.pid = infop-&gt;pid};
+</span></span><span style="display:flex;"><span>                data4.saddr = skp-&gt;__sk_common.skc_rcv_saddr;
+</span></span><span style="display:flex;"><span>                data4.daddr = skp-&gt;__sk_common.skc_daddr;
+</span></span><span style="display:flex;"><span>                data4.lport = lport;
+</span></span><span style="display:flex;"><span>                data4.dport = ntohs(dport);
+</span></span><span style="display:flex;"><span>                __builtin_memcpy(&amp;data4.task, infop-&gt;task, <span style="color:#00f">sizeof</span>(data4.task));
+</span></span><span style="display:flex;"><span>                ipv4_events.increment(data4, delta_ms);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            start.delete(&amp;skp);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>        }      
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"></code></pre></div></li>
 <li></li>
 </ul>
 <p>基于上面一轮干下来，基本上哪里慢，为什么慢，怎么慢也就差不多定位了。剩下么，该干嘛干嘛。记得调用链还是非常有用的哦，配合网络监测 + 调用链，问题自然而然的就暴露啦（当然调用链接入姿势是另外一个问题啦）</p>

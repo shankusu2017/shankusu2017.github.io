@@ -323,13 +323,13 @@
 <p>​		OpenVPN协议的封装格式如下图所示：</p>
 <p><img src="http://www.uml.org.cn/xjs/images/2013122751.jpg" alt="img"></p>
 <p>​		注意，正是OVPN头封装了OpenVPN的握手协议和记录协议，它起到了复用和解复用的功能，按信道划分，OpenVPN的信道有两类，一类是控制信道，另一类是数据信道，其中的操作码在该层协议上有“地址”的含义，正是操作码区分了控制信道和数据信道-换句话说就是控制协议和记录协议，其中控制协议分为握手协议和密钥协议，类似IP协议的IP地址，TCP/UDP的端口。操作码的含义如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">P_CONTROL_HARD_RESET_CLIENT_V1：Key method 1, initial key from client, forget previous state.    P_CONTROL_HARD_RESET_SERVER_V1：Key method 2, initial key from server, forget previous state. P_CONTROL_SOFT_RESET_V1：New key
-P_CONTROL_V1：Control channel packet (usually TLS ciphertext).
-P_ACK_V1：Acknowledgement <span style="color:#00f">for</span> P_CONTROL packets received.
-P_DATA_V1：Data channel packet containing actual tunnel data ciphertext.
-P_CONTROL_HARD_RESET_CLIENT_V2：Key method 2, initial key from client, forget previous state.
-P_CONTROL_HARD_RESET_SERVER_V2：Key method 2, initial key from server, forget previous state.
-</code></pre></div><p>​		我们可以将上述的每一个操作码看做是一个子协议。KEY ID的作用很有意思，它表示一个key集合，OpenVPN中一共有3个key集合，想了解其中要旨需要再稍等片刻。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>P_CONTROL_HARD_RESET_CLIENT_V1：Key method 1, initial key from client, forget previous state.    P_CONTROL_HARD_RESET_SERVER_V1：Key method 2, initial key from server, forget previous state. P_CONTROL_SOFT_RESET_V1：New key
+</span></span><span style="display:flex;"><span>P_CONTROL_V1：Control channel packet (usually TLS ciphertext).
+</span></span><span style="display:flex;"><span>P_ACK_V1：Acknowledgement <span style="color:#00f">for</span> P_CONTROL packets received.
+</span></span><span style="display:flex;"><span>P_DATA_V1：Data channel packet containing actual tunnel data ciphertext.
+</span></span><span style="display:flex;"><span>P_CONTROL_HARD_RESET_CLIENT_V2：Key method 2, initial key from client, forget previous state.
+</span></span><span style="display:flex;"><span>P_CONTROL_HARD_RESET_SERVER_V2：Key method 2, initial key from server, forget previous state.
+</span></span></code></pre></div><p>​		我们可以将上述的每一个操作码看做是一个子协议。KEY ID的作用很有意思，它表示一个key集合，OpenVPN中一共有3个key集合，想了解其中要旨需要再稍等片刻。</p>
 <h4 id="openvpn记录协议">OpenVPN记录协议</h4>
 <h6 id="openvpn记录格式如下图所示">OpenVPN记录格式如下图所示：</h6>
 <p><img src="http://www.uml.org.cn/xjs/images/2013122752.jpg" alt="img"></p>
@@ -365,72 +365,72 @@ P_CONTROL_HARD_RESET_SERVER_V2：Key method 2, initial key from server, forget p
 <p>​		OpenVPN连接的建立大致分为4个阶段，每一个阶段完成不同的事情，如下图所示：<img src="http://www.uml.org.cn/xjs/images/2013122758.jpg" alt="img"></p>
 <h3 id="openvpn实现略">OpenVPN实现略！</h3>
 <p>​		最终，还是贴上OpenVPN源码中关于协议实现的注释：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">OpenVPN Protocol, taken from ssl.h in OpenVPN source code. 
-TCP/UDP Packet:  This represents the top-level encapsulation. 
-TCP/UDP packet format: 
-Packet length (16 bits, <span style="color:#00f">unsigned</span>) -- TCP only, always sent as plaintext.  Since TCP is a stream protocol,  the packet length words define the packetization of  the stream. 
-
-Packet opcode/key_id (8 bits) -- TLS only, not used in pre-shared secret mode. packet message type, a P_* constant (high 5 bits) 
-key_id (low 3 bits, see key_id in <span style="color:#00f">struct</span> tls_session below <span style="color:#00f">for</span> comment).   The key_id refers to an already negotiated TLS session.  OpenVPN seamlessly renegotiates the TLS session by using a new key_id <span style="color:#00f">for</span> the new session.   Overlap (controlled by user definable parameters) between old and new TLS sessions is allowed,  providing a seamless transition during tunnel operation. 
-
-Payload (n bytes), which may be a P_CONTROL, P_ACK, or P_DATA message. 
-Message types: 
-	P_CONTROL_HARD_RESET_CLIENT_V1 -- Key method 1, initial key from client, forget previous state. 
-	P_CONTROL_HARD_RESET_SERVER_V1 -- Key method 2, initial key from server, forget previous state. 
-	P_CONTROL_SOFT_RESET_V1 -- New key,  with a graceful transition from old to new key in the sense that a transition window exists where both the old or new key_id can be used.  OpenVPN uses two different forms of key_id.  The first form is 64 bits and is used <span style="color:#00f">for</span> all P_CONTROL messages.  P_DATA messages on the other hand use a shortened key_id of 3 bits <span style="color:#00f">for</span> efficiency reasons since the vast majority of OpenVPN packets in an active tunnel will be P_DATA messages.  The 64 bit form is referred to as a session_id,  <span style="color:#00f">while</span> the 3 bit form is referred to as a key_id. 
-
-P_CONTROL_V1 -- Control channel packet (usually TLS ciphertext). 
-P_ACK_V1 -- Acknowledgement <span style="color:#00f">for</span> P_CONTROL packets received. 
-P_DATA_V1 -- Data channel packet containing actual tunnel data ciphertext. 
-P_CONTROL_HARD_RESET_CLIENT_V2 -- Key method 2, initial key from client, forget previous state. 
-P_CONTROL_HARD_RESET_SERVER_V2 -- Key method 2, initial key from server, forget previous state. 
-P_CONTROL* and P_ACK Payload: The P_CONTROL message type indicates a TLS ciphertext packet which has been encapsulated inside of a reliability layer.   The reliability layer is implemented as a straightforward ACK and retransmit model. 
-  
-P_CONTROL message format: 
-local session_id (random 64 bit value to identify TLS session).  
-HMAC signature of entire encapsulation header <span style="color:#00f">for</span> integrity check <span style="color:#00f">if</span> --tls-auth is specified (usually 16 or 20 bytes). 
-packet-id <span style="color:#00f">for</span> replay protection (4 or 8 bytes, includes sequence number and optional time_t timestamp). 
-P_ACK packet_id array length (1 byte). 
-P_ACK packet-id array (<span style="color:#00f">if</span> length &gt; 0). 
-P_ACK remote session_id (<span style="color:#00f">if</span> length &gt; 0). 
-message packet-id (4 bytes). 
-TLS payload ciphertext (n bytes) (only <span style="color:#00f">for</span> P_CONTROL). 
-  
-Once the TLS session has been initialized and authenticated, the TLS channel is used to exchange random key material <span style="color:#00f">for</span> bidirectional cipher and HMAC keys which will  be used to secure actual tunnel packets.  OpenVPN currently implements two key methods.  
-  Key method 1 directly  derives keys using random bits obtained from the RAND_bytes OpenSSL function.  
-  Key method 2 mixes random  key material from both sides of the connection using the TLS PRF mixing function.   Key method 2 is the preferred method and is the <span style="color:#00f">default</span> <span style="color:#00f">for</span> OpenVPN 2.0. 
-
-TLS plaintext content:
-	TLS plaintext packet (<span style="color:#00f">if</span> key_method == 1): 
-	Cipher key length in bytes (1 byte). 
-	Cipher key (n bytes). HMAC key length in bytes (1 byte). 
-	HMAC key (n bytes). 
-	Options string (n bytes, null terminated, client/server options string should match). 
-
-TLS plaintext packet (<span style="color:#00f">if</span> key_method == 2): 
-	Literal 0 (4 bytes). 
-	key_method type (1 byte). 
-	key_source structure (pre_master only defined <span style="color:#00f">for</span> client -&gt; server). 
-	options_string_length, including null (2 bytes). 
-	Options string (n bytes, null terminated, client/server options string must match). 
-	[The username/password data below is optional, record can end at this point.] username_string_length, including null (2 bytes). 
-	Username string (n bytes, null terminated). 
-	password_string_length, including null (2 bytes). 
-	Password string (n bytes, null terminated). 
-  
-		The P_DATA payload represents encrypted, encapsulated tunnel packets which tend to be either IP packets or Ethernet frames. This is essentially the <span style="color:#009c00">&#34;payload&#34;</span> of the VPN. 
-
-P_DATA message content:
-	HMAC of ciphertext IV + ciphertext (<span style="color:#00f">if</span> not disabled by --auth none). Ciphertext IV (size is cipher-dependent, <span style="color:#00f">if</span> not disabled by --no-iv). Tunnel packet ciphertext. 
-
-P_DATA plaintext: 
-packet_id (4 or 8 bytes, <span style="color:#00f">if</span> not disabled by --no-replay). In SSL/TLS mode, 4 bytes are used because the implementation can force a TLS renegotation  before 2^32 packets are sent. In pre-shared key mode, 8 bytes are used (sequence number and time_t value) to  allow <span style="color:#00f">long</span>-term key usage without packet_id collisions. User plaintext (n bytes). 
-
-Notes: 
-(1) ACK messages can be encoded in either the dedicated P_ACK record or they can be prepended to a P_CONTROL message. 
-(2) P_DATA and P_CONTROL/P_ACK use independent packet-id sequences because P_DATA is an unreliable channel <span style="color:#00f">while</span> P_CONTROL/P_ACK is a reliable channel.  Each use their own independent HMAC keys. 
-(3) Note that when --tls-auth is used, all message types are protected with an HMAC signature,  even the initial packets of the TLS handshake.   This makes it easy <span style="color:#00f">for</span> OpenVPN to throw away bogus packets quickly,  without wasting resources on attempting a TLS handshake which will
-</code></pre></div>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>OpenVPN Protocol, taken from ssl.h in OpenVPN source code. 
+</span></span><span style="display:flex;"><span>TCP/UDP Packet:  This represents the top-level encapsulation. 
+</span></span><span style="display:flex;"><span>TCP/UDP packet format: 
+</span></span><span style="display:flex;"><span>Packet length (16 bits, <span style="color:#00f">unsigned</span>) -- TCP only, always sent as plaintext.  Since TCP is a stream protocol,  the packet length words define the packetization of  the stream. 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Packet opcode/key_id (8 bits) -- TLS only, not used in pre-shared secret mode. packet message type, a P_* constant (high 5 bits) 
+</span></span><span style="display:flex;"><span>key_id (low 3 bits, see key_id in <span style="color:#00f">struct</span> tls_session below <span style="color:#00f">for</span> comment).   The key_id refers to an already negotiated TLS session.  OpenVPN seamlessly renegotiates the TLS session by using a new key_id <span style="color:#00f">for</span> the new session.   Overlap (controlled by user definable parameters) between old and new TLS sessions is allowed,  providing a seamless transition during tunnel operation. 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Payload (n bytes), which may be a P_CONTROL, P_ACK, or P_DATA message. 
+</span></span><span style="display:flex;"><span>Message types: 
+</span></span><span style="display:flex;"><span>	P_CONTROL_HARD_RESET_CLIENT_V1 -- Key method 1, initial key from client, forget previous state. 
+</span></span><span style="display:flex;"><span>	P_CONTROL_HARD_RESET_SERVER_V1 -- Key method 2, initial key from server, forget previous state. 
+</span></span><span style="display:flex;"><span>	P_CONTROL_SOFT_RESET_V1 -- New key,  with a graceful transition from old to new key in the sense that a transition window exists where both the old or new key_id can be used.  OpenVPN uses two different forms of key_id.  The first form is 64 bits and is used <span style="color:#00f">for</span> all P_CONTROL messages.  P_DATA messages on the other hand use a shortened key_id of 3 bits <span style="color:#00f">for</span> efficiency reasons since the vast majority of OpenVPN packets in an active tunnel will be P_DATA messages.  The 64 bit form is referred to as a session_id,  <span style="color:#00f">while</span> the 3 bit form is referred to as a key_id. 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>P_CONTROL_V1 -- Control channel packet (usually TLS ciphertext). 
+</span></span><span style="display:flex;"><span>P_ACK_V1 -- Acknowledgement <span style="color:#00f">for</span> P_CONTROL packets received. 
+</span></span><span style="display:flex;"><span>P_DATA_V1 -- Data channel packet containing actual tunnel data ciphertext. 
+</span></span><span style="display:flex;"><span>P_CONTROL_HARD_RESET_CLIENT_V2 -- Key method 2, initial key from client, forget previous state. 
+</span></span><span style="display:flex;"><span>P_CONTROL_HARD_RESET_SERVER_V2 -- Key method 2, initial key from server, forget previous state. 
+</span></span><span style="display:flex;"><span>P_CONTROL* and P_ACK Payload: The P_CONTROL message type indicates a TLS ciphertext packet which has been encapsulated inside of a reliability layer.   The reliability layer is implemented as a straightforward ACK and retransmit model. 
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>P_CONTROL message format: 
+</span></span><span style="display:flex;"><span>local session_id (random 64 bit value to identify TLS session).  
+</span></span><span style="display:flex;"><span>HMAC signature of entire encapsulation header <span style="color:#00f">for</span> integrity check <span style="color:#00f">if</span> --tls-auth is specified (usually 16 or 20 bytes). 
+</span></span><span style="display:flex;"><span>packet-id <span style="color:#00f">for</span> replay protection (4 or 8 bytes, includes sequence number and optional time_t timestamp). 
+</span></span><span style="display:flex;"><span>P_ACK packet_id array length (1 byte). 
+</span></span><span style="display:flex;"><span>P_ACK packet-id array (<span style="color:#00f">if</span> length &gt; 0). 
+</span></span><span style="display:flex;"><span>P_ACK remote session_id (<span style="color:#00f">if</span> length &gt; 0). 
+</span></span><span style="display:flex;"><span>message packet-id (4 bytes). 
+</span></span><span style="display:flex;"><span>TLS payload ciphertext (n bytes) (only <span style="color:#00f">for</span> P_CONTROL). 
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>Once the TLS session has been initialized and authenticated, the TLS channel is used to exchange random key material <span style="color:#00f">for</span> bidirectional cipher and HMAC keys which will  be used to secure actual tunnel packets.  OpenVPN currently implements two key methods.  
+</span></span><span style="display:flex;"><span>  Key method 1 directly  derives keys using random bits obtained from the RAND_bytes OpenSSL function.  
+</span></span><span style="display:flex;"><span>  Key method 2 mixes random  key material from both sides of the connection using the TLS PRF mixing function.   Key method 2 is the preferred method and is the <span style="color:#00f">default</span> <span style="color:#00f">for</span> OpenVPN 2.0. 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>TLS plaintext content:
+</span></span><span style="display:flex;"><span>	TLS plaintext packet (<span style="color:#00f">if</span> key_method == 1): 
+</span></span><span style="display:flex;"><span>	Cipher key length in bytes (1 byte). 
+</span></span><span style="display:flex;"><span>	Cipher key (n bytes). HMAC key length in bytes (1 byte). 
+</span></span><span style="display:flex;"><span>	HMAC key (n bytes). 
+</span></span><span style="display:flex;"><span>	Options string (n bytes, null terminated, client/server options string should match). 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>TLS plaintext packet (<span style="color:#00f">if</span> key_method == 2): 
+</span></span><span style="display:flex;"><span>	Literal 0 (4 bytes). 
+</span></span><span style="display:flex;"><span>	key_method type (1 byte). 
+</span></span><span style="display:flex;"><span>	key_source structure (pre_master only defined <span style="color:#00f">for</span> client -&gt; server). 
+</span></span><span style="display:flex;"><span>	options_string_length, including null (2 bytes). 
+</span></span><span style="display:flex;"><span>	Options string (n bytes, null terminated, client/server options string must match). 
+</span></span><span style="display:flex;"><span>	[The username/password data below is optional, record can end at this point.] username_string_length, including null (2 bytes). 
+</span></span><span style="display:flex;"><span>	Username string (n bytes, null terminated). 
+</span></span><span style="display:flex;"><span>	password_string_length, including null (2 bytes). 
+</span></span><span style="display:flex;"><span>	Password string (n bytes, null terminated). 
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>		The P_DATA payload represents encrypted, encapsulated tunnel packets which tend to be either IP packets or Ethernet frames. This is essentially the <span style="color:#009c00">&#34;payload&#34;</span> of the VPN. 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>P_DATA message content:
+</span></span><span style="display:flex;"><span>	HMAC of ciphertext IV + ciphertext (<span style="color:#00f">if</span> not disabled by --auth none). Ciphertext IV (size is cipher-dependent, <span style="color:#00f">if</span> not disabled by --no-iv). Tunnel packet ciphertext. 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>P_DATA plaintext: 
+</span></span><span style="display:flex;"><span>packet_id (4 or 8 bytes, <span style="color:#00f">if</span> not disabled by --no-replay). In SSL/TLS mode, 4 bytes are used because the implementation can force a TLS renegotation  before 2^32 packets are sent. In pre-shared key mode, 8 bytes are used (sequence number and time_t value) to  allow <span style="color:#00f">long</span>-term key usage without packet_id collisions. User plaintext (n bytes). 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>Notes: 
+</span></span><span style="display:flex;"><span>(1) ACK messages can be encoded in either the dedicated P_ACK record or they can be prepended to a P_CONTROL message. 
+</span></span><span style="display:flex;"><span>(2) P_DATA and P_CONTROL/P_ACK use independent packet-id sequences because P_DATA is an unreliable channel <span style="color:#00f">while</span> P_CONTROL/P_ACK is a reliable channel.  Each use their own independent HMAC keys. 
+</span></span><span style="display:flex;"><span>(3) Note that when --tls-auth is used, all message types are protected with an HMAC signature,  even the initial packets of the TLS handshake.   This makes it easy <span style="color:#00f">for</span> OpenVPN to throw away bogus packets quickly,  without wasting resources on attempting a TLS handshake which will
+</span></span></code></pre></div>
     </div>
     <footer class="post-footer">
      

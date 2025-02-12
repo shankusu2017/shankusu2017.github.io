@@ -348,97 +348,97 @@
 <h2 id="使用-tracepoint-实现">使用 tracepoint 实现</h2>
 <p><code>open</code> 系统调用具有两个 <code>syscalls</code> 类型的静态跟踪点，分别是 <code>syscalls:sys_enter_open</code> 和 <code>syscalls:sys_exit_open</code>，前者是进入函数，后者是从函数返回，功能基本等同于 <code>kprobe/kretprobe</code>。其中 <code>syscalls</code> 表示子系统模块， <code>sys_enter_open</code> 表示跟踪点名称。</p>
 <p><code>tracepoint</code> 的完整列表可以使用 <code>perf</code> 工具的 <code>perf list</code> 命令查看，当然如果知道 <code>tracepoint</code> 的子系统，也可以进行过滤，比如 <code>perf list 'syscalls:*'</code> 命令只用于显示 <code>syscalls</code> 相关的 <code>tracepoints</code> 。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f00;font-style:italic"># perf list|grep open</span>
-  syscalls:sys_enter_open                            [Tracepoint event]
-  syscalls:sys_exit_open                             [Tracepoint event]
-</code></pre></div><p>为了在 eBPF 程序中使用，我们还需要知道 <code>tracepoint</code> 相关参数的格式，<code>syscalls:sys_enter_open</code> 格式定义在 <code>/sys/kernel/debug/tracing/events/syscalls/sys_enter_open/format</code> 文件中。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">$cat /sys/kernel/debug/tracing/events/syscalls/sys_enter_open/format
-name: sys_enter_open
-ID: 497
-format:
-	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
-	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
-	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
-	field:int common_pid;	offset:4;	size:4;	signed:1;
-
-	field:int nr;	offset:8;	size:4;	signed:1;
-	field:const char * filename;	offset:16;	size:8;	signed:0;
-	field:int flags;	offset:24;	size:8;	signed:0;
-	field:umode_t mode;	offset:32;	size:8;	signed:0;
-
-print fmt: &#34;filename: 0x%08lx, flags: 0x%08lx, mode: 0x%08lx&#34;, ((unsigned long)(REC-&gt;filename)), ((unsigned long)(REC-&gt;flags)), ((unsigned long)(REC-&gt;mode))
-</code></pre></div><h3 id="tracepoint_probe-宏">TRACEPOINT_PROBE 宏</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># perf list|grep open</span>
+</span></span><span style="display:flex;"><span>  syscalls:sys_enter_open                            [Tracepoint event]
+</span></span><span style="display:flex;"><span>  syscalls:sys_exit_open                             [Tracepoint event]
+</span></span></code></pre></div><p>为了在 eBPF 程序中使用，我们还需要知道 <code>tracepoint</code> 相关参数的格式，<code>syscalls:sys_enter_open</code> 格式定义在 <code>/sys/kernel/debug/tracing/events/syscalls/sys_enter_open/format</code> 文件中。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>$cat /sys/kernel/debug/tracing/events/syscalls/sys_enter_open/format
+</span></span><span style="display:flex;"><span>name: sys_enter_open
+</span></span><span style="display:flex;"><span>ID: 497
+</span></span><span style="display:flex;"><span>format:
+</span></span><span style="display:flex;"><span>	field:unsigned short common_type;	offset:0;	size:2;	signed:0;
+</span></span><span style="display:flex;"><span>	field:unsigned char common_flags;	offset:2;	size:1;	signed:0;
+</span></span><span style="display:flex;"><span>	field:unsigned char common_preempt_count;	offset:3;	size:1;	signed:0;
+</span></span><span style="display:flex;"><span>	field:int common_pid;	offset:4;	size:4;	signed:1;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	field:int nr;	offset:8;	size:4;	signed:1;
+</span></span><span style="display:flex;"><span>	field:const char * filename;	offset:16;	size:8;	signed:0;
+</span></span><span style="display:flex;"><span>	field:int flags;	offset:24;	size:8;	signed:0;
+</span></span><span style="display:flex;"><span>	field:umode_t mode;	offset:32;	size:8;	signed:0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>print fmt: &#34;filename: 0x%08lx, flags: 0x%08lx, mode: 0x%08lx&#34;, ((unsigned long)(REC-&gt;filename)), ((unsigned long)(REC-&gt;flags)), ((unsigned long)(REC-&gt;mode))
+</span></span></code></pre></div><h3 id="tracepoint_probe-宏">TRACEPOINT_PROBE 宏</h3>
 <p>对于 <code>tracepoint</code> 的跟踪，在 <code>BCC</code> 中可以使用 <code>TRACEPOINT_PROBE</code> 宏进行定义。宏的格式如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">TRACEPOINT_PROBE(category, event)
-</code></pre></div><p>其中 <code>category</code> 就是子系统，<code>event</code> 代表事件名。对于 <code>syscalls:sys_enter_open</code> 则为：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">TRACEPOINT_PROBE(syscalls,sys_enter_open)
-</code></pre></div><blockquote>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>TRACEPOINT_PROBE(category, event)
+</span></span></code></pre></div><p>其中 <code>category</code> 就是子系统，<code>event</code> 代表事件名。对于 <code>syscalls:sys_enter_open</code> 则为：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>TRACEPOINT_PROBE(syscalls,sys_enter_open)
+</span></span></code></pre></div><blockquote>
 <p>注意子模块中的 <code>syscalls</code> 的名字最后包含 <code>s</code>。</p>
 </blockquote>
 <p><code>tracepoint</code> 中的所有参数都会包含在一个固定名称的 <code>args</code> 的结构体中。格式在上面我们已经进行了输出（<code>/sys/kernel/debug/tracing/events/category/event/format</code>）。<code>args</code> 结构体还可以作为内核函数中传递 <code>ctx</code> 参数的替代，比如使用 <code>perf_submit </code>的第一个参数。</p>
 <p>对于 <code>args</code> 参数的详细定义，我们将在后续章节进行展开讨论。</p>
 <h3 id="tracepoint-版本">tracepoint 版本</h3>
 <p>基础知识已经完成了铺垫，这里我们就将 <a href="https://www.ebpf.top/post/ebpf_trace_file_open_perf_output/"><code>perf_event 版本</code></a> 代码进行少许调整，我们主要是将 BPF 程序中的 <code>trace_syscall_open</code> 函数进行替换即可。替换后的代码如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">TRACEPOINT_PROBE(syscalls,sys_enter_open){
-    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
-    struct event_data_t evt = {};
-
-    evt.pid = pid;
-    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)args-&gt;filename);
-
-    open_events.perf_submit((struct pt_regs *)args, &amp;evt, sizeof(evt));
-    <span style="color:#00f">return</span> 0;
-}
-</code></pre></div><p>需要注意的是，<code>TRACEPOINT_PROBE</code> 定义的过程中未出现 <code>args</code> 相关的定义，但是我们可以直接使用，这是因为 BCC 协助我们完成了这步工作。另外 <code>args</code> 可以充当函数 <code>ctx</code> 也进行了展示，<code>open_events.perf_submit((struct pt_regs *)args, &amp;evt, sizeof(evt));</code>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span>TRACEPOINT_PROBE(syscalls,sys_enter_open){
+</span></span><span style="display:flex;"><span>    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+</span></span><span style="display:flex;"><span>    struct event_data_t evt = {};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    evt.pid = pid;
+</span></span><span style="display:flex;"><span>    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)args-&gt;filename);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    open_events.perf_submit((struct pt_regs *)args, &amp;evt, sizeof(evt));
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>需要注意的是，<code>TRACEPOINT_PROBE</code> 定义的过程中未出现 <code>args</code> 相关的定义，但是我们可以直接使用，这是因为 BCC 协助我们完成了这步工作。另外 <code>args</code> 可以充当函数 <code>ctx</code> 也进行了展示，<code>open_events.perf_submit((struct pt_regs *)args, &amp;evt, sizeof(evt));</code>。</p>
 <p>此外，由于 <code>TRACEPOINT_PROBE</code> 完成了 BPF 程序中主动注册的过程，因此原来版本中的 <code>b.attach_kprobe(event=b.get_syscall_fnname(&quot;open&quot;), fn_name=&quot;trace_syscall_open&quot;)</code> 也不再需要。调整后的完整代码如下，在线版本参考<a href="https://github.com/DavadDi/bpf_study/blob/master/ebpf_bcc_trace_open_ex/tp_open_perf_output.py">这里</a>：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f00;font-style:italic">#!/usr/bin/python</span>
-<span style="color:#00f">from</span> bcc <span style="color:#00f">import</span> BPF
-
-prog = <span style="color:#009c00">&#34;&#34;&#34;
-</span><span style="color:#009c00">#include &lt;uapi/linux/limits.h&gt; // for  NAME_MAX
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">struct event_data_t {
-</span><span style="color:#009c00">    u32 pid;
-</span><span style="color:#009c00">    char fname[NAME_MAX];  // max of filename
-</span><span style="color:#009c00">};
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">BPF_PERF_OUTPUT(open_events);
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">// 1. 原来的函数 trace_syscall_open 被 TRACEPOINT_PROBE 所替代
-</span><span style="color:#009c00">TRACEPOINT_PROBE(syscalls,sys_enter_open){  
-</span><span style="color:#009c00">    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
-</span><span style="color:#009c00">    struct event_data_t evt = </span><span style="color:#009c00">{}</span><span style="color:#009c00">;
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">    evt.pid = pid;
-</span><span style="color:#009c00">    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)args-&gt;filename);
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">    open_events.perf_submit((struct pt_regs *)args, &amp;evt, sizeof(evt));
-</span><span style="color:#009c00">    return 0;
-</span><span style="color:#009c00">}
-</span><span style="color:#009c00">&#34;&#34;&#34;</span>
-
-b = BPF(text=prog)
-
-<span style="color:#f00;font-style:italic"># 2. 不需要在显示调用注册，该行被删除</span>
-<span style="color:#f00;font-style:italic"># b.attach_kprobe(event=b.get_syscall_fnname(&#34;open&#34;), fn_name=&#34;trace_syscall_open&#34;)</span>
-
-<span style="color:#f00;font-style:italic"># process event</span>
-<span style="color:#00f">def</span> <span style="color:#c34e00">print_event</span>(cpu, data, size):
-  event = b[<span style="color:#009c00">&#34;open_events&#34;</span>].event(data)
-  print(<span style="color:#009c00">&#34;Rcv Event </span><span style="color:#009c00">%d</span><span style="color:#009c00">, </span><span style="color:#009c00">%s</span><span style="color:#009c00">&#34;</span>%(event.pid, event.fname))
-
-<span style="color:#f00;font-style:italic"># loop with callback to print_event</span>
-b[<span style="color:#009c00">&#34;open_events&#34;</span>].open_perf_buffer(print_event)
-<span style="color:#00f">while</span> <span style="color:#00f">True</span>:
-    <span style="color:#00f">try</span>:
-        b.perf_buffer_poll()
-    <span style="color:#00f">except</span> KeyboardInterrupt:
-        exit()
-</code></pre></div><h3 id="args-参数揭秘"><code>args</code> 参数揭秘</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#!/usr/bin/python</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">from</span> bcc <span style="color:#00f">import</span> BPF
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>prog = <span style="color:#009c00">&#34;&#34;&#34;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">#include &lt;uapi/linux/limits.h&gt; // for  NAME_MAX
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">struct event_data_t {
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u32 pid;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    char fname[NAME_MAX];  // max of filename
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">};
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">BPF_PERF_OUTPUT(open_events);
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">// 1. 原来的函数 trace_syscall_open 被 TRACEPOINT_PROBE 所替代
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">TRACEPOINT_PROBE(syscalls,sys_enter_open){  
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    struct event_data_t evt = </span><span style="color:#009c00">{}</span><span style="color:#009c00">;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    evt.pid = pid;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)args-&gt;filename);
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    open_events.perf_submit((struct pt_regs *)args, &amp;evt, sizeof(evt));
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    return 0;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">}
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">&#34;&#34;&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>b = BPF(text=prog)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># 2. 不需要在显示调用注册，该行被删除</span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># b.attach_kprobe(event=b.get_syscall_fnname(&#34;open&#34;), fn_name=&#34;trace_syscall_open&#34;)</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># process event</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">def</span> <span style="color:#c34e00">print_event</span>(cpu, data, size):
+</span></span><span style="display:flex;"><span>  event = b[<span style="color:#009c00">&#34;open_events&#34;</span>].event(data)
+</span></span><span style="display:flex;"><span>  print(<span style="color:#009c00">&#34;Rcv Event </span><span style="color:#009c00">%d</span><span style="color:#009c00">, </span><span style="color:#009c00">%s</span><span style="color:#009c00">&#34;</span>%(event.pid, event.fname))
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># loop with callback to print_event</span>
+</span></span><span style="display:flex;"><span>b[<span style="color:#009c00">&#34;open_events&#34;</span>].open_perf_buffer(print_event)
+</span></span><span style="display:flex;"><span><span style="color:#00f">while</span> <span style="color:#00f">True</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">try</span>:
+</span></span><span style="display:flex;"><span>        b.perf_buffer_poll()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">except</span> KeyboardInterrupt:
+</span></span><span style="display:flex;"><span>        exit()
+</span></span></code></pre></div><h3 id="args-参数揭秘"><code>args</code> 参数揭秘</h3>
 <p>对于 <code>TRACEPOINT_PROBE</code> 中出现的 <code>args</code> 我们还是抱有一种好奇的心理，这到底是怎么样的一个结构体定义呢？</p>
 <p>在 Python 代码中的 <code>BPF</code> 对象（<code>b = BPF(text=prog)</code>） 中包含了一定的调试的功能，我们可以通过调试功能来一览 <code>args</code> 的面目。<code>BPF</code> 对象的完整语法如下，参见<a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#1-bpf">这里</a>。：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">BPF({text=BPF_program | src_file=filename} [, usdt_contexts=[USDT_object, ...]] [, cflags=[arg1, ...]] [, debug=int])
-</code></pre></div><p>创建 BPF 对象。它是定义 BPF 程序的主要对象，并与它的输出进行交互。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>BPF({text=BPF_program | src_file=filename} [, usdt_contexts=[USDT_object, ...]] [, cflags=[arg1, ...]] [, debug=int])
+</span></span></code></pre></div><p>创建 BPF 对象。它是定义 BPF 程序的主要对象，并与它的输出进行交互。</p>
 <p>必须提供 <code>text</code> 或 <code>src_file</code> 中的一个（不是两个）。</p>
 <p><code>cflags</code> 指定要传递给编译器的额外参数，例如 <code>-DMACRO_NAME=value</code> 或 <code>-I/include/path</code>。参数以数组形式传递，每个元素都是一个附加参数。注意，字符串不会被分割成空白，所以每个参数必须是数组中的不同元素，例如：<code>[&quot;-include&quot;, &quot;header.h&quot;]</code>。</p>
 <p><code>debug</code> 标志控制调试输出，可以通过或操作进行组合。</p>
@@ -452,40 +452,40 @@ b[<span style="color:#009c00">&#34;open_events&#34;</span>].open_perf_buffer(pri
 </ul>
 <p>这里我们为 <code>debug</code> 参数传入 <code>DEBUG_PREPROCESSOR</code> 则可以得到预处理后的完成 BPF 代码。</p>
 <p>主要调整如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">from bcc import DEBUG_PREPROCESSOR  # 变量定义在 bcc 模块中，引入对应的变量
-
-b = BPF(text=prog, debug=DEBUG_PREPROCESSOR) # 会打印出预处理的结果
-</code></pre></div><p>再次运行程序程序，则可以看到程序运行结果的首部打印出了预编译后的 BPF 程序，这里我们看到了这个神秘的 <code>args</code> 结构题变量的定义，类型为 <code>struct tracepoint__syscalls__sys_enter_open</code>，其中第一个字段为 <code>u64 __do_not_use__;</code>，该字段为 ctx 的保留位置，这也是 <code>args</code> 可以作为 <code>ctx</code> 替代参数的原因。完整预处理结果如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f00;font-style:italic">#include &lt;uapi/linux/limits.h&gt; // for  NAME_MAX</span>
-
-struct event_data_t {
-    u32 pid;
-    char fname[NAME_MAX];  // max of filename
-};
-
-BPF_PERF_OUTPUT(open_events);
-
-struct tracepoint__syscalls__sys_enter_open {
-	u64 __do_not_use__; // <span style="color:#00f">for</span> ctx
-	int nr;
-	const char * filename;
-	s64 flags;
-	umode_t mode;
-};
-
-__attribute__((section(<span style="color:#009c00">&#34;.bpf.fn.tracepoint__syscalls__sys_enter_open&#34;</span>)))
-TRACEPOINT_PROBE(syscalls,sys_enter_open){
-
-    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
-    struct event_data_t evt = {};
-
-    evt.pid = pid;
-    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)args-&gt;filename);
-
-    bpf_perf_event_output((struct pt_regs *)args, bpf_pseudo_fd(1, -1), CUR_CPU_IDENTIFIER, &amp;evt, sizeof(evt));
-    <span style="color:#00f">return</span> 0;
-}
-</code></pre></div><p>C 语言版本的 tracepoint 样例参见<a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#3-attach_tracepoint">这里</a>，可以参考上述代码自己定义 <code>args</code> 对应的 <code>struct</code> 结构体。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>from bcc import DEBUG_PREPROCESSOR  # 变量定义在 bcc 模块中，引入对应的变量
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>b = BPF(text=prog, debug=DEBUG_PREPROCESSOR) # 会打印出预处理的结果
+</span></span></code></pre></div><p>再次运行程序程序，则可以看到程序运行结果的首部打印出了预编译后的 BPF 程序，这里我们看到了这个神秘的 <code>args</code> 结构题变量的定义，类型为 <code>struct tracepoint__syscalls__sys_enter_open</code>，其中第一个字段为 <code>u64 __do_not_use__;</code>，该字段为 ctx 的保留位置，这也是 <code>args</code> 可以作为 <code>ctx</code> 替代参数的原因。完整预处理结果如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include &lt;uapi/linux/limits.h&gt; // for  NAME_MAX</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>struct event_data_t {
+</span></span><span style="display:flex;"><span>    u32 pid;
+</span></span><span style="display:flex;"><span>    char fname[NAME_MAX];  // max of filename
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>BPF_PERF_OUTPUT(open_events);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>struct tracepoint__syscalls__sys_enter_open {
+</span></span><span style="display:flex;"><span>	u64 __do_not_use__; // <span style="color:#00f">for</span> ctx
+</span></span><span style="display:flex;"><span>	int nr;
+</span></span><span style="display:flex;"><span>	const char * filename;
+</span></span><span style="display:flex;"><span>	s64 flags;
+</span></span><span style="display:flex;"><span>	umode_t mode;
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>__attribute__((section(<span style="color:#009c00">&#34;.bpf.fn.tracepoint__syscalls__sys_enter_open&#34;</span>)))
+</span></span><span style="display:flex;"><span>TRACEPOINT_PROBE(syscalls,sys_enter_open){
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+</span></span><span style="display:flex;"><span>    struct event_data_t evt = {};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    evt.pid = pid;
+</span></span><span style="display:flex;"><span>    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)args-&gt;filename);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    bpf_perf_event_output((struct pt_regs *)args, bpf_pseudo_fd(1, -1), CUR_CPU_IDENTIFIER, &amp;evt, sizeof(evt));
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>C 语言版本的 tracepoint 样例参见<a href="https://github.com/iovisor/bcc/blob/master/docs/reference_guide.md#3-attach_tracepoint">这里</a>，可以参考上述代码自己定义 <code>args</code> 对应的 <code>struct</code> 结构体。</p>
 <h2 id="3-参考">3. 参考</h2>
 <ul>
 <li>

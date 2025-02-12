@@ -316,123 +316,123 @@
 <p><strong>线程之间共享信号处理函数</strong></p>
 <p>在Linux内核实现中， 同一个线程组里的所有线程都共享一个struct sighand结构体。 该结构体中存在一个action数组， 数组共64项， 每一个成员都是k_sigaction结构体类型， 一个k_sigaction结构体对应一个信号的信号处理函数。
 相关数据结构定义如下（这与架构相关， 这里给出的是x86_64位下的定义） ：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">struct</span> sigaction {__sighandler_t sa_handler;
-	<span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> sa_flags;
-	__sigrestore_t sa_restorer;
-	sigset_t sa_mask;
-};
-
-<span style="color:#00f">struct</span> k_sigaction {
-	<span style="color:#00f">struct</span> sigaction sa;
-};
-
-<span style="color:#00f">struct</span> sighand_struct {
-	atomic_t count;
-	<span style="color:#00f">struct</span> k_sigaction action[_NSIG];
-	spinlock_t siglock;
-	wait_queue_head_t signalfd_wqh;
-};
-
-<span style="color:#00f">struct</span> task_struct{
-	<span style="color:#f00;font-style:italic">//...
-</span><span style="color:#f00;font-style:italic"></span>	<span style="color:#00f">struct</span> sighand_struct *sighand;
-	<span style="color:#f00;font-style:italic">//...
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>多线程的进程中， 信号处理函数相关的数据结构如图所示。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> sigaction {__sighandler_t sa_handler;
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> sa_flags;
+</span></span><span style="display:flex;"><span>	__sigrestore_t sa_restorer;
+</span></span><span style="display:flex;"><span>	sigset_t sa_mask;
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> k_sigaction {
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> sigaction sa;
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> sighand_struct {
+</span></span><span style="display:flex;"><span>	atomic_t count;
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> k_sigaction action[_NSIG];
+</span></span><span style="display:flex;"><span>	spinlock_t siglock;
+</span></span><span style="display:flex;"><span>	wait_queue_head_t signalfd_wqh;
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> task_struct{
+</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">//...
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>	<span style="color:#00f">struct</span> sighand_struct *sighand;
+</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">//...
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p>多线程的进程中， 信号处理函数相关的数据结构如图所示。
 内核中k_sigaction结构体的定义和glibc中sigaction函数中用到的struct sigaction结构体的定义几乎是一样的。 通过sigaction函数安装信号处理函数， 最终会影响到进程描述符中的sighand指针指向的sighand_struct结构体对应位置上的action成员变量。
 在创建线程时， 最终会执行内核的do_fork函数， 由do_fork函数走进copy_sighand来实现线程组内信号处理函数的共享。 创建线程时， CLONE_SIGHAND标志位是置位的。 创建线程组的主线程时， 内核会分配sighand_struct结构体； 创建线程组内的其他线程时， 并不会另起炉灶， 而是共享主线程的sighand_struct结构体， 只须增加引用计数而已。
 <img src="http://shanks.link/img/linux/2018120114522184.png?type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQwNzMyMzUw,size_16,color_FFFFFF,t_70" alt="img"></p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">static</span> <span style="color:#00f">int</span> <span style="color:#c34e00">copy_sighand</span>(<span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> clone_flags, <span style="color:#00f">struct</span> task_struct *tsk)
-{
-	<span style="color:#00f">struct</span> sighand_struct *sig;
-    
-	<span style="color:#00f">if</span> (clone_flags &amp; CLONE_SIGHAND) {
-		<span style="color:#f00;font-style:italic">//如果发现是线程， 则直接将引用计数++， 无须分配
-</span><span style="color:#f00;font-style:italic"></span>		sighand_struct结构
-		atomic_inc(&amp;current-&gt;sighand-&gt;count);
-		<span style="color:#00f">return</span> 0;
-	}
-
-	sig = kmem_cache_alloc(sighand_cachep, GFP_KERNEL);
-	rcu_assign_pointer(tsk-&gt;sighand, sig);
-
-	<span style="color:#00f">if</span> (!sig)
-		<span style="color:#00f">return</span> -ENOMEM;
-
-	atomic_set(&amp;sig-&gt;count, 1);
-	memcpy(sig-&gt;action, current-&gt;sighand-&gt;action, <span style="color:#00f">sizeof</span>(sig-&gt;action));
-	<span style="color:#00f">return</span> 0;
-}
-</code></pre></div><h4 id="-线程有独立的阻塞信号掩码信号集">*** 线程有独立的阻塞信号掩码（信号集）***</h4>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">int</span> <span style="color:#c34e00">copy_sighand</span>(<span style="color:#00f">unsigned</span> <span style="color:#00f">long</span> clone_flags, <span style="color:#00f">struct</span> task_struct *tsk)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> sighand_struct *sig;
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> (clone_flags &amp; CLONE_SIGHAND) {
+</span></span><span style="display:flex;"><span>		<span style="color:#f00;font-style:italic">//如果发现是线程， 则直接将引用计数++， 无须分配
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>		sighand_struct结构
+</span></span><span style="display:flex;"><span>		atomic_inc(&amp;current-&gt;sighand-&gt;count);
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	sig = kmem_cache_alloc(sighand_cachep, GFP_KERNEL);
+</span></span><span style="display:flex;"><span>	rcu_assign_pointer(tsk-&gt;sighand, sig);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> (!sig)
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> -ENOMEM;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	atomic_set(&amp;sig-&gt;count, 1);
+</span></span><span style="display:flex;"><span>	memcpy(sig-&gt;action, current-&gt;sighand-&gt;action, <span style="color:#00f">sizeof</span>(sig-&gt;action));
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h4 id="-线程有独立的阻塞信号掩码信号集">*** 线程有独立的阻塞信号掩码（信号集）***</h4>
 <p>每个线程都拥有独立的阻塞信号掩码。 在介绍这条性质之前， 首先需要介绍什么是阻塞信号掩码。</p>
 <p>就像我们开重要会议时要关闭手机一样， 进程在执行某些重要操作时， 不希望内核递送某些信号， 阻塞信号掩码就是用来实现该功能的。</p>
 <p>如果进程将某信号添加进了阻塞信号掩码， 纵然内核收到了该信号， 甚至该信号在挂起队列中已经存在了相当长的时间， 内核也不会将信号递送给进程， 直到进程解除对该信号的阻塞为止。</p>
 <p>开会时关闭手机是一种比较极端的例子。 更合理的做法是暂时屏蔽部分人的电话。 对于某些重要的电话， 比如儿子老师的电话、 父母的电话或老板的电话， 是不希望被屏蔽的。 信号也是如此。 进程在执行某些操作的时候， 可能只需要屏蔽一部分信号， 而不是所有信号。</p>
 <p>为了实现掩码的功能， Linux提供了一种新的数据结构： 信号集。 多个信号组成的集合被称为信号集， 其数据类型为sigset_t。 在Linux的实现中， sigset_t的类型是位掩码， <strong>每一个比特代表一个信号。</strong>
 Linux提供了两个函数来初始化信号集， 如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span><span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">sigemptyset</span>(sigset_t *set);
-<span style="color:#00f">int</span> <span style="color:#c34e00">sigfillset</span>(sigset_t *set);
-</code></pre></div><p>sigemptyset函数用来初始化一个空的未包含任何信号的信号集， 而sigfillset函数则会初始化一个包含所有信号的信号集。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span><span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">sigemptyset</span>(sigset_t *set);
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">sigfillset</span>(sigset_t *set);
+</span></span></code></pre></div><p>sigemptyset函数用来初始化一个空的未包含任何信号的信号集， 而sigfillset函数则会初始化一个包含所有信号的信号集。</p>
 <p><em><strong>*注意*</strong></em></p>
 <p>必须要调用这两个初始化函数中的一个来初始化信号集， 对于声明了sigset_t类型的变量， 不能一厢情愿地假设它是空集合，也不能调用memset函数， 或者用赋值为0的方式来初始化。
 初始化信号之后， Linux提供了sigaddset函数向信号集中添加一个信号， 同时还提供了sigdelset函数在信号集中移除一个信号：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">int</span> <span style="color:#c34e00">sigaddset</span>(sigset_t *set, <span style="color:#00f">int</span> signum);
-<span style="color:#00f">int</span> sigdelset(sigset_t *set, <span style="color:#00f">int</span> signum)
-</code></pre></div><p>为了判断某一个信号是否属于信号集， Linux提供了sigismember函数：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp"><span style="color:#00f">int</span> <span style="color:#c34e00">sigismember</span>(<span style="color:#00f">const</span> sigset_t *set, <span style="color:#00f">int</span> signum);
-</code></pre></div><p>如果signum属于信号集， 则返回1， 否则返回0。 出错的时候， 返回-1。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">sigaddset</span>(sigset_t *set, <span style="color:#00f">int</span> signum);
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> sigdelset(sigset_t *set, <span style="color:#00f">int</span> signum)
+</span></span></code></pre></div><p>为了判断某一个信号是否属于信号集， Linux提供了sigismember函数：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">sigismember</span>(<span style="color:#00f">const</span> sigset_t *set, <span style="color:#00f">int</span> signum);
+</span></span></code></pre></div><p>如果signum属于信号集， 则返回1， 否则返回0。 出错的时候， 返回-1。</p>
 <p>有了信号集， 就可以使用信号集来设置进程的<strong>阻塞信号掩码了</strong>。 Linux提供了sigprocmask函数来做这件事情：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">sigprocmask</span>(<span style="color:#00f">int</span> how, <span style="color:#00f">const</span> sigset_t *set, sigset_t *oldset);
-</code></pre></div><p>sigprocmask根据how的值， 提供了三种用于改变进程的阻塞信号掩码的方式， 见表6-14。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">sigprocmask</span>(<span style="color:#00f">int</span> how, <span style="color:#00f">const</span> sigset_t *set, sigset_t *oldset);
+</span></span></code></pre></div><p>sigprocmask根据how的值， 提供了三种用于改变进程的阻塞信号掩码的方式， 见表6-14。
 <img src="http://shanks.link/img/linux/20181201150341738.png?type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQwNzMyMzUw,size_16,color_FFFFFF,t_70" alt="img"></p>
 <p><strong>注意</strong></p>
 <p>我们知道SIGKILL信号和SIGSTOP信号不能阻塞， 可是如果调用sigprocmask函数时， 将SIGKILL信号和SIGSTOP信号添加进阻
 塞信号集中， 会怎么样？
 答案是不怎么样。 sigprocmask函数不会报错， 但是也不会将SIGKILL和SIGSTOP真的添加进阻塞信号集中。
 对应的rt_sigprocmask系统调用会执行如下语句， 剔除掉集合中的SIGKILL和SIGSTOP：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp">sigdelsetmask(&amp;new_set, sigmask(SIGKILL)|sigmask(SIGSTOP));
-</code></pre></div><p>对于多线程的进程而言， 每一个线程都有自己的阻塞信号集：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp"><span style="color:#00f">struct</span> <span style="color:#007575">task_struct</span>{
-    sigset_t blocked;
-}
-</code></pre></div><p>sigprocmask函数改变的是<strong>调用线程的阻塞信号掩码， 而不是整个进程</strong>。 sigprocmask出现得比较早， 它出现在线程尚未引入Linux的时代。 在单线程的时代， 进程的阻塞信号掩码和线程的阻塞掩码是一回事， 但是引入多线程之后， sigprocmask的语义就变成了设置调用线程的阻塞信号掩码。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span>sigdelsetmask(&amp;new_set, sigmask(SIGKILL)|sigmask(SIGSTOP));
+</span></span></code></pre></div><p>对于多线程的进程而言， 每一个线程都有自己的阻塞信号集：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#00f">struct</span> <span style="color:#007575">task_struct</span>{
+</span></span><span style="display:flex;"><span>    sigset_t blocked;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>sigprocmask函数改变的是<strong>调用线程的阻塞信号掩码， 而不是整个进程</strong>。 sigprocmask出现得比较早， 它出现在线程尚未引入Linux的时代。 在单线程的时代， 进程的阻塞信号掩码和线程的阻塞掩码是一回事， 但是引入多线程之后， sigprocmask的语义就变成了设置调用线程的阻塞信号掩码。
 为了更显式地设置线程的阻塞信号掩码， 线程库提供了pthread_sigmask函数来设置线程的阻塞信号掩码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">pthread_sigmask</span>(<span style="color:#00f">int</span> how, <span style="color:#00f">const</span> sigset_t *set, sigset_t *oldset);
-</code></pre></div><p>事实上pthread_sigmask函数和sigprocmask函数的行为是一样的。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">pthread_sigmask</span>(<span style="color:#00f">int</span> how, <span style="color:#00f">const</span> sigset_t *set, sigset_t *oldset);
+</span></span></code></pre></div><p>事实上pthread_sigmask函数和sigprocmask函数的行为是一样的。</p>
 <h4 id="私有挂起信号和共享挂起信号"><strong>私有挂起信号和共享挂起信号</strong></h4>
 <p>POSIX标准中有如下要求： 对于多线程的进程， kill和sigqueue发送的信号必须面对所有的线程， 而不是某个线程， 内核是如何做到的呢？而系统调用tkill和tgkill发送的信号， 又必须递送给进程下某个特定的线程。 内核又是如何做到的呢？
 前面简单提到过内核维护有挂起队列， 尚未递送进程的信号可以挂入挂起队列中。 有意思的是， 内核的进程描述符task_struct之中， 维护了两套sigpending， 代码如下所示：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp"><span style="color:#00f">struct</span> <span style="color:#007575">task_struct</span>{
-	<span style="color:#f00;font-style:italic">//...
-</span><span style="color:#f00;font-style:italic"></span>	<span style="color:#00f">struct</span> <span style="color:#007575">signal_struct</span> *signal;
-	<span style="color:#00f">struct</span> <span style="color:#007575">sighand_struct</span> *sighand;
-	<span style="color:#00f">struct</span> <span style="color:#007575">sigpending</span> pending;
-	<span style="color:#f00;font-style:italic">//...
-</span><span style="color:#f00;font-style:italic"></span>}
-
-<span style="color:#00f">struct</span> <span style="color:#007575">signal_struct</span> {
-	<span style="color:#f00;font-style:italic">//...
-</span><span style="color:#f00;font-style:italic"></span>	<span style="color:#00f">struct</span> <span style="color:#007575">sigpending</span> shared_pending;
-	<span style="color:#f00;font-style:italic">//...
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p><img src="http://shanks.link/img/linux/20181201151015546.png?type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQwNzMyMzUw,size_16,color_FFFFFF,t_70" alt="img"></p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#00f">struct</span> <span style="color:#007575">task_struct</span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">//...
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>	<span style="color:#00f">struct</span> <span style="color:#007575">signal_struct</span> *signal;
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> <span style="color:#007575">sighand_struct</span> *sighand;
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">struct</span> <span style="color:#007575">sigpending</span> pending;
+</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">//...
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> <span style="color:#007575">signal_struct</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">//...
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>	<span style="color:#00f">struct</span> <span style="color:#007575">sigpending</span> shared_pending;
+</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">//...
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p><img src="http://shanks.link/img/linux/20181201151015546.png?type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQwNzMyMzUw,size_16,color_FFFFFF,t_70" alt="img"></p>
 <p>内核就是靠这两个挂起队列实现了POSIX标准的要求。 在Linux实现中， 线程作为独立的调度实体也有自己的进程描述符。 Linux下既可以向进程发送信号， 也可以向进程中的特定线程发送信号。 因此进程描述符中需要有两套sigpending结构。 其中task_struct结构体中的pending， 记录的是发送给线程的未决信号； 而通过signal指针指向signal_struct结构体的shared_pending， 记录的是发送给进程的未决信号。 每个线程都有自己的私有挂起队列（pending） ， 但是进程里的所有线程都会共享一个公有的挂起队列（shared_pending） 。</p>
 <p>图6-4描述的是通过kill、 sigqueue、 tkill和tgkill发送信号后， 内核的相关处理流程。
 <img src="http://shanks.link/img/linux/20181201151114501.png?type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQwNzMyMzUw,size_16,color_FFFFFF,t_70" alt="img"></p>
 <p>从图6-4中可以看出， 向进程发送信号也好， 向线程发送信号也罢， 最终都殊途同归， 在do_send_sig_info函数处会师。 尽管会师在一处， 却还是存在不同。 不同的地方在于， 到底将信号放入哪个挂起队列。
 在__send_signal函数中， 通过group入参的值来判断需要将信号放入哪个挂起队列（如果需要进队列的话） 。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp"><span style="color:#00f">static</span> <span style="color:#00f">int</span> <span style="color:#c34e00">__send_signal</span>(<span style="color:#00f">int</span> sig, <span style="color:#00f">struct</span> <span style="color:#007575">siginfo</span> *info, <span style="color:#00f">struct</span> <span style="color:#007575">task_struct</span> *t,
-
-<span style="color:#00f">int</span> group, <span style="color:#00f">int</span> from_ancestor_ns)
-{
-    <span style="color:#f00;font-style:italic">//...
-</span><span style="color:#f00;font-style:italic"></span>    pending = group ? &amp;t-&gt;signal-&gt;shared_pending : &amp;t-&gt;pending;
-    <span style="color:#f00;font-style:italic">//...
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>如果用户调用的是kill或sigqueue， 那么group就是1； 如果用户调用的是tkill或tgkill， 那么group参数就是0。 内核就是以此来区分该信号是发给进程的还是发给某个特定线程的， 如表6-15所示。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">int</span> <span style="color:#c34e00">__send_signal</span>(<span style="color:#00f">int</span> sig, <span style="color:#00f">struct</span> <span style="color:#007575">siginfo</span> *info, <span style="color:#00f">struct</span> <span style="color:#007575">task_struct</span> *t,
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> group, <span style="color:#00f">int</span> from_ancestor_ns)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//...
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    pending = group ? &amp;t-&gt;signal-&gt;shared_pending : &amp;t-&gt;pending;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//...
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p>如果用户调用的是kill或sigqueue， 那么group就是1； 如果用户调用的是tkill或tgkill， 那么group参数就是0。 内核就是以此来区分该信号是发给进程的还是发给某个特定线程的， 如表6-15所示。
 <img src="http://shanks.link/img/linux/2018120115124980.png" alt="img"></p>
 <p>上述情景并不难理解。 多线程的进程就像是一个班级， 进程下的每一个线程就像是班级的成员。 kill和sigqueue函数发送的信号是给进程
 的， 就像是优秀班集体的荣誉是颁发给整个班级的； tkill和tgkill发送的信号是给特定线程的， 就像是三好学生的荣誉是颁发给学生个的。</p>
@@ -441,47 +441,47 @@ Linux提供了两个函数来初始化信号集， 如下：</p>
 <p>答案是不一定。 尽管如此， Linux还是采取了尽力而为的策略， 尽量地尊重函数调用者的意愿， 如果进程的主线程方便的话， 则优先选择主线程来处理信号； 如果主线程确实不方便， 那就有可能由线程组里的其他线程来负责处理信号。</p>
 <p>用户在调用kill/sigqueue函数之后， 内核最终会走到__send_signal函数。 在该函数的最后， 由complete_signal函数负责寻找合适的线程来处理该信号。 因为主线程的线程ID等于进程ID， 所以该函数会优先查询进程的主线程是否方便处理信号。 如果主线程不方便， 则会遍历线程组中的
 其他线程。 如果找到了方便处理信号的线程， 就调用signal_wake_up函数， 唤醒该线程去处理信号。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp">signal_wake_up(t, sig == SIGKILL);
-</code></pre></div><p>如果线程组内全都不方便处理信号， complete函数也就当即返回了。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span>signal_wake_up(t, sig == SIGKILL);
+</span></span></code></pre></div><p>如果线程组内全都不方便处理信号， complete函数也就当即返回了。
 如何判断方便不方便？ 内核通过wants_signal函数来判断某个调度实体是否方便处理某信号：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp"><span style="color:#00f">static</span> <span style="color:#00f">inline</span> <span style="color:#00f">int</span> <span style="color:#c34e00">wants_signal</span>(<span style="color:#00f">int</span> sig, <span style="color:#00f">struct</span> <span style="color:#007575">task_struct</span> *p)
-{
-	<span style="color:#00f">if</span> (sigismember(&amp;p-&gt;blocked, sig))  <span style="color:#f00;font-style:italic">/*位于阻塞信号集， 不方便*/</span>
-		<span style="color:#00f">return</span> 0;
-
-	<span style="color:#00f">if</span> (p-&gt;flags &amp; PF_EXITING)          <span style="color:#f00;font-style:italic">/*正在退出， 不方便*/</span>
-		<span style="color:#00f">return</span> 0;
-
-	<span style="color:#00f">if</span> (sig == SIGKILL)                <span style="color:#f00;font-style:italic">/*SIGKILL信号， 必须处理*/</span>
-		<span style="color:#00f">return</span> 1;
-
-	<span style="color:#00f">if</span> (task_is_stopped_or_traced(p))  <span style="color:#f00;font-style:italic">/*被调试或被暂停， 不方便*/</span>
-		<span style="color:#00f">return</span> 0;
-
-	<span style="color:#00f">return</span> task_curr(p) || !signal_pending(p);
-}
-</code></pre></div><p>glibc提供了一个API来获取当前线程的阻塞挂起信号， 如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">sigpending</span>(sigset_t *set);
-</code></pre></div><p>该函数很容易产生误解， 很多人认为该接口返回的是线程的挂起信号， 即还没有来得及处理的信号， 这种理解其实是错误的。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">inline</span> <span style="color:#00f">int</span> <span style="color:#c34e00">wants_signal</span>(<span style="color:#00f">int</span> sig, <span style="color:#00f">struct</span> <span style="color:#007575">task_struct</span> *p)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> (sigismember(&amp;p-&gt;blocked, sig))  <span style="color:#f00;font-style:italic">/*位于阻塞信号集， 不方便*/</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> (p-&gt;flags &amp; PF_EXITING)          <span style="color:#f00;font-style:italic">/*正在退出， 不方便*/</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> (sig == SIGKILL)                <span style="color:#f00;font-style:italic">/*SIGKILL信号， 必须处理*/</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> 1;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">if</span> (task_is_stopped_or_traced(p))  <span style="color:#f00;font-style:italic">/*被调试或被暂停， 不方便*/</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#00f">return</span> task_curr(p) || !signal_pending(p);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>glibc提供了一个API来获取当前线程的阻塞挂起信号， 如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">sigpending</span>(sigset_t *set);
+</span></span></code></pre></div><p>该函数很容易产生误解， 很多人认为该接口返回的是线程的挂起信号， 即还没有来得及处理的信号， 这种理解其实是错误的。
 严格来讲， 返回的信号集中的信号必须同时满足以下两个条件：</p>
 <ul>
 <li>处于挂起状态。</li>
 <li>信号属于线程的阻塞信号集。</li>
 </ul>
 <p>看下内核的do_sigpending函数的内容就不难理解sigpending函数的含义了：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">spin_lock_irq(&amp;current-&gt;sighand-&gt;siglock);
-
-sigorsets(&amp;pending, &amp;current-&gt;pending.signal,&amp;current-&gt;signal-&gt;shared_pending.signal);
-
-spin_unlock_irq(&amp;current-&gt;sighand-&gt;siglock);
-sigandsets(&amp;pending, &amp;current-&gt;blocked, &amp;pending);
-
-error = -EFAULT;
-
-<span style="color:#00f">if</span> (!copy_to_user(set, &amp;pending, sigsetsize))
-	error = 0;
-</code></pre></div><p>因此， 返回的挂起阻塞信号集合的计算方式是：
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>spin_lock_irq(&amp;current-&gt;sighand-&gt;siglock);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>sigorsets(&amp;pending, &amp;current-&gt;pending.signal,&amp;current-&gt;signal-&gt;shared_pending.signal);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>spin_unlock_irq(&amp;current-&gt;sighand-&gt;siglock);
+</span></span><span style="display:flex;"><span>sigandsets(&amp;pending, &amp;current-&gt;blocked, &amp;pending);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>error = -EFAULT;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> (!copy_to_user(set, &amp;pending, sigsetsize))
+</span></span><span style="display:flex;"><span>	error = 0;
+</span></span></code></pre></div><p>因此， 返回的挂起阻塞信号集合的计算方式是：
 1） 进程共享的挂起信号和线程私有的挂起信号取并集， 得到集合1。
 2） 对集合1和线程的阻塞信号集取交集， 以获得最终的结果。
 从此处可以看出， sigprocmask函数会影响到sigpendig函数的输出结果。</p>
@@ -501,9 +501,9 @@ pending上挂上一个SIGKILL信号以确保每个线程都会退出。 此处�
 <h4 id="设置线程的信号掩码"><strong>设置线程的信号掩码</strong></h4>
 <p>前面已提到过， 信号掩码是针对线程的， 每个线程都可以自行设置自己的信号掩码。 如果自己不设置， 就会继承创建者的信号掩码。
 NPTL实现了如下接口来设置线程的信号掩码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">pthread_sigmask</span>(<span style="color:#00f">int</span> how, <span style="color:#00f">const</span> sigset_t *new, sigset_t *old);
-</code></pre></div><p>how的值用来指定如何更改信号组：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;signal.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> <span style="color:#c34e00">pthread_sigmask</span>(<span style="color:#00f">int</span> how, <span style="color:#00f">const</span> sigset_t *new, sigset_t *old);
+</span></span></code></pre></div><p>how的值用来指定如何更改信号组：</p>
 <ul>
 <li>SIG_BLOCK向当前信号掩码中添加new， 其中new表示要阻塞的信号组。</li>
 <li>SIG_UNBLOCK从当前信号掩码中删除new， 其中new表示要取消阻塞的信号组。</li>
@@ -513,15 +513,15 @@ NPTL实现了如下接口来设置线程的信号掩码：</p>
 <p>说明 SIGCANCEL和SIGSETXID信号被用于NPTL实现， 因此用户不能也不应该改变这两个信号的行为方式。 好在用户不用操心这两个信号， sigprocmask函数和pthread_sigmask函数对这两者都做了特殊处理。</p>
 <h4 id="-向线程发送信号">** 向线程发送信号**</h4>
 <p>前面提到过向线程发送信号的系统调用tkill/tgkill， 无奈glibc并未将它们封装成可以直接调用的函数。 不过， 幸好提供了另外一个函数：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-cpp" data-lang="cpp"><span style="color:#00f">int</span> <span style="color:#c34e00">pthread_kill</span>(pthread_t <span style="color:#00f">thread</span>, <span style="color:#00f">int</span> sig);
-</code></pre></div><p>由于pthread_t类型的线程ID只在线程组内是唯一的， 其他进程完全可能存在线程ID相同的线程， 所以pthread_kill只能向同一个进程的线程发送信号。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-cpp" data-lang="cpp"><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">pthread_kill</span>(pthread_t <span style="color:#00f">thread</span>, <span style="color:#00f">int</span> sig);
+</span></span></code></pre></div><p>由于pthread_t类型的线程ID只在线程组内是唯一的， 其他进程完全可能存在线程ID相同的线程， 所以pthread_kill只能向同一个进程的线程发送信号。
 除了这个接口外， Linux还提供了特有的函数将pthread_kill和sigqueue功能累加在一起：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#define _GNU_SOURCE
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;pthread.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#00f">int</span> <span style="color:#c34e00">pthread_sigqueue</span>(pthread_t <span style="color:#00f">thread</span>, <span style="color:#00f">int</span> sig,
-                <span style="color:#00f">const</span> <span style="color:#00f">union</span> sigval value);
-</code></pre></div><p>这个接口和sigqueue一样， 可以发送携带数据的信号。 当然， 只能发给同一个进程内的线程。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define _GNU_SOURCE
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;pthread.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">pthread_sigqueue</span>(pthread_t <span style="color:#00f">thread</span>, <span style="color:#00f">int</span> sig,
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">const</span> <span style="color:#00f">union</span> sigval value);
+</span></span></code></pre></div><p>这个接口和sigqueue一样， 可以发送携带数据的信号。 当然， 只能发给同一个进程内的线程。</p>
 <h4 id="-多线程程序对信号的处理">** 多线程程序对信号的处理**</h4>
 <p>单线程的程序， 对信号的处理已经比较复杂了。 因为信号打断了进程的控制流， 所以信号处理函数只能调用异步信号安全的函数。 而异步信号安全是个很苛刻的条件。
 多线程的引入， 加剧了这种复杂度。 因为信号可以发送给进程， 也可以发送给进程内的某一线程。 不同线程还可以设置自己的掩码来实现对信号的屏蔽。 而且， 没有一个线程相关的函数是异步信号安全的， 信号处理函数不能调用任何pthread函数， 也不能通过条件变量来通知其他线程。

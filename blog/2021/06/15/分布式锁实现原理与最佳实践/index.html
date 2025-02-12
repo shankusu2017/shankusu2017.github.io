@@ -329,53 +329,53 @@
 <p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/1.png" alt="img"></p>
 <p>设置过期时间的作用，如果某个并行任务（进程/线程/协程）持有锁，但不能正常释放，将导致所有任务都无法获取锁，获取执行权限。而引入了过期时间解决此问题的同时，也会引入新的问题，具体后面分析。</p>
 <p><strong>1.2代码实现</strong></p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">import</span> <span style="color:#009c00">&#34;github.com/go-redis/redis&#34;</span>  <span style="color:#f00;font-style:italic">//redis package
-</span><span style="color:#f00;font-style:italic">//connect redis
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">var</span> client = redis.<span style="color:#c34e00">NewClient</span>(&amp;redis.Options{
-    Addr:     <span style="color:#009c00">&#34;localhost:6379&#34;</span>,
-    Password: <span style="color:#009c00">&#34;&#34;</span>,
-    DB:       0,
-})
-<span style="color:#f00;font-style:italic">//lock
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">lock</span>(myfunc <span style="color:#00f">func</span>()) {
-    <span style="color:#00f">var</span> lockKey = <span style="color:#009c00">&#34;mylockr&#34;</span>
-    <span style="color:#f00;font-style:italic">//lock
-</span><span style="color:#f00;font-style:italic"></span>    lockSuccess, err := client.<span style="color:#c34e00">SetNX</span>(lockKey, 1, time.Second*5).<span style="color:#c34e00">Result</span>()
-    <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> || !lockSuccess {
-        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;get lock fail&#34;</span>)
-        <span style="color:#00f">return</span>
-    } <span style="color:#00f">else</span> {
-        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;get lock&#34;</span>)
-    }
-    <span style="color:#f00;font-style:italic">//run func
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">myfunc</span>()
-    <span style="color:#f00;font-style:italic">//unlock
-</span><span style="color:#f00;font-style:italic"></span>    _, err := client.<span style="color:#c34e00">Del</span>(lockKey).<span style="color:#c34e00">Result</span>()
-    <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
-        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock fail&#34;</span>)
-    } <span style="color:#00f">else</span> {
-        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock&#34;</span>)
-    }
-}
-<span style="color:#f00;font-style:italic">//do action
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">var</span> counter <span style="color:#00f">int64</span>
-<span style="color:#00f">func</span> <span style="color:#c34e00">incr</span>() {
-    counter++
-    fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;after incr is %d\n&#34;</span>, counter)
-}
-<span style="color:#f00;font-style:italic">//5 goroutine compete lock
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">var</span> wg sync.WaitGroup
-<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-    <span style="color:#00f">for</span> i := 0; i &lt; 5; i++ {
-        wg.<span style="color:#c34e00">Add</span>(1)
-        <span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
-            <span style="color:#c34e00">lock</span>(incr)
-        }()
-    }
-    wg.<span style="color:#c34e00">Wait</span>()
-    fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;final counter is %d \n&#34;</span>, counter)
-}
-</code></pre></div><p>以上代码截取关键部分，完整代码参见：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">import</span> <span style="color:#009c00">&#34;github.com/go-redis/redis&#34;</span>  <span style="color:#f00;font-style:italic">//redis package
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//connect redis
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">var</span> client = redis.<span style="color:#c34e00">NewClient</span>(&amp;redis.Options{
+</span></span><span style="display:flex;"><span>    Addr:     <span style="color:#009c00">&#34;localhost:6379&#34;</span>,
+</span></span><span style="display:flex;"><span>    Password: <span style="color:#009c00">&#34;&#34;</span>,
+</span></span><span style="display:flex;"><span>    DB:       0,
+</span></span><span style="display:flex;"><span>})
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//lock
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">lock</span>(myfunc <span style="color:#00f">func</span>()) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">var</span> lockKey = <span style="color:#009c00">&#34;mylockr&#34;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//lock
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    lockSuccess, err := client.<span style="color:#c34e00">SetNX</span>(lockKey, 1, time.Second*5).<span style="color:#c34e00">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> || !lockSuccess {
+</span></span><span style="display:flex;"><span>        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;get lock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span>
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;get lock&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//run func
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">myfunc</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//unlock
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    _, err := client.<span style="color:#c34e00">Del</span>(lockKey).<span style="color:#c34e00">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//do action
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">var</span> counter <span style="color:#00f">int64</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">incr</span>() {
+</span></span><span style="display:flex;"><span>    counter++
+</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;after incr is %d\n&#34;</span>, counter)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//5 goroutine compete lock
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">var</span> wg sync.WaitGroup
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> i := 0; i &lt; 5; i++ {
+</span></span><span style="display:flex;"><span>        wg.<span style="color:#c34e00">Add</span>(1)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">go</span> <span style="color:#00f">func</span>() {
+</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">lock</span>(incr)
+</span></span><span style="display:flex;"><span>        }()
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    wg.<span style="color:#c34e00">Wait</span>()
+</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;final counter is %d \n&#34;</span>, counter)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>以上代码截取关键部分，完整代码参见：</p>
 <p><a href="https://github.com/skyhackvip/lock/blob/master/redislock.go">https://github.com/skyhackvip/lock/blob/master/redislock.go</a></p>
 <p>代码执行结果：</p>
 <p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/2.png" alt="img"></p>
@@ -390,55 +390,55 @@
 <p><strong>1.4方案优化</strong></p>
 <p>那么有什么有效解决方案呢？</p>
 <p>简单来说就是利用lock的value，还记得之前代码设置lock的时候随便使用了一个值1就打发了。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">resp := client.SetNX(lockKey, 1, time.Second*5)
-</code></pre></div><p>这里的1可以改为能识别该routine的唯一值（如uid，orderid等），也可以使用uuid随机生成一个。（关于如何生成uuid方案参见公众号上一篇文章）</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">lock</span>(myfunc <span style="color:#00f">func</span>()) {
-    <span style="color:#f00;font-style:italic">//lock
-</span><span style="color:#f00;font-style:italic"></span>    uuid := <span style="color:#c34e00">getUuid</span>()
-    lockSuccess, err := client.<span style="color:#c34e00">SetNX</span>(lockKey, uuid, time.Second*5).<span style="color:#c34e00">Result</span>()
-    <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> || !lockSuccess {
-        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;get lock fail&#34;</span>)
-        <span style="color:#00f">return</span>
-    } <span style="color:#00f">else</span> {
-        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;get lock&#34;</span>)
-    }   
-    <span style="color:#f00;font-style:italic">//run func
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">myfunc</span>()
-    <span style="color:#f00;font-style:italic">//unlock
-</span><span style="color:#f00;font-style:italic"></span>    value, _ := client.<span style="color:#c34e00">Get</span>(lockKey).<span style="color:#c34e00">Result</span>()
-    <span style="color:#00f">if</span> value == uuid { <span style="color:#f00;font-style:italic">//compare value,if equal then del
-</span><span style="color:#f00;font-style:italic"></span>        _, err := client.<span style="color:#c34e00">Del</span>(lockKey).<span style="color:#c34e00">Result</span>()
-        <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
-            fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock fail&#34;</span>)
-        }  <span style="color:#00f">else</span> {
-            fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock&#34;</span>)
-        }
-    }
-}
-</code></pre></div><p>这里增加了value的比较，确认了是当前routine，才会进行删除。至此问题解决了吗？</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">value, _ := client.Get(lockKey).Result() 和 value==uuid
-</code></pre></div><p>这个操作本身不具有“原子性”，可能当获取到value并且对比一致了，但此时lock过期失效了，而同时另一个routine拿到了结果，那么这里又会把别人的锁误删除了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>resp := client.SetNX(lockKey, 1, time.Second*5)
+</span></span></code></pre></div><p>这里的1可以改为能识别该routine的唯一值（如uid，orderid等），也可以使用uuid随机生成一个。（关于如何生成uuid方案参见公众号上一篇文章）</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">lock</span>(myfunc <span style="color:#00f">func</span>()) {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//lock
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    uuid := <span style="color:#c34e00">getUuid</span>()
+</span></span><span style="display:flex;"><span>    lockSuccess, err := client.<span style="color:#c34e00">SetNX</span>(lockKey, uuid, time.Second*5).<span style="color:#c34e00">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> || !lockSuccess {
+</span></span><span style="display:flex;"><span>        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;get lock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span>
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;get lock&#34;</span>)
+</span></span><span style="display:flex;"><span>    }   
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//run func
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">myfunc</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//unlock
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    value, _ := client.<span style="color:#c34e00">Get</span>(lockKey).<span style="color:#c34e00">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> value == uuid { <span style="color:#f00;font-style:italic">//compare value,if equal then del
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        _, err := client.<span style="color:#c34e00">Del</span>(lockKey).<span style="color:#c34e00">Result</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>            fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>        }  <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>            fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock&#34;</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这里增加了value的比较，确认了是当前routine，才会进行删除。至此问题解决了吗？</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>value, _ := client.Get(lockKey).Result() 和 value==uuid
+</span></span></code></pre></div><p>这个操作本身不具有“原子性”，可能当获取到value并且对比一致了，但此时lock过期失效了，而同时另一个routine拿到了结果，那么这里又会把别人的锁误删除了。</p>
 <p><strong>1.5方案再优化</strong></p>
 <p>那么有没有办法保障操作的原子性呢，这里可以使用lua彻底解决，lua是嵌入式语言，redis本身支持。使用golang操作redis运行lua命令，保障问题解决。上代码如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">lock</span>(myfunc <span style="color:#00f">func</span>()) {
-    <span style="color:#f00;font-style:italic">//...code
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//unlock
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">var</span> luaScript = redis.<span style="color:#c34e00">NewScript</span>(<span style="color:#009c00">`
-</span><span style="color:#009c00">        if redis.call(&#34;get&#34;, KEYS[1]) == ARGV[1]
-</span><span style="color:#009c00">            then
-</span><span style="color:#009c00">                return redis.call(&#34;del&#34;, KEYS[1])
-</span><span style="color:#009c00">            else
-</span><span style="color:#009c00">                return 0
-</span><span style="color:#009c00">        end
-</span><span style="color:#009c00">    `</span>)
-    rs, _ := luaScript.<span style="color:#c34e00">Run</span>(client, []<span style="color:#00f">string</span>{lockKey}, uuid).<span style="color:#c34e00">Result</span>()
-    <span style="color:#00f">if</span> rs == 0 {
-        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock fail&#34;</span>)
-    } <span style="color:#00f">else</span> {
-        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock&#34;</span>)
-    }
-}
-</code></pre></div><p>lua脚本中KEYS[1]代表lock的key，ARGV[1]代表lock的value，也就是生成的uuid。通过执行lua来保障这里删除锁的操作是原子的。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">lock</span>(myfunc <span style="color:#00f">func</span>()) {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//...code
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//unlock
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">var</span> luaScript = redis.<span style="color:#c34e00">NewScript</span>(<span style="color:#009c00">`
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">        if redis.call(&#34;get&#34;, KEYS[1]) == ARGV[1]
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">            then
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">                return redis.call(&#34;del&#34;, KEYS[1])
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">            else
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">                return 0
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">        end
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    `</span>)
+</span></span><span style="display:flex;"><span>    rs, _ := luaScript.<span style="color:#c34e00">Run</span>(client, []<span style="color:#00f">string</span>{lockKey}, uuid).<span style="color:#c34e00">Result</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> rs == 0 {
+</span></span><span style="display:flex;"><span>        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock fail&#34;</span>)
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;unlock&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>lua脚本中KEYS[1]代表lock的key，ARGV[1]代表lock的value，也就是生成的uuid。通过执行lua来保障这里删除锁的操作是原子的。</p>
 <p>完整代码参见：https://github.com/skyhackvip/lock/blob/master/redislualock.go</p>
 <p><strong>1.6redis锁适用场景</strong></p>
 <p>由redis设置的锁，多个并发任务进行争抢占用，因此非常适合高并发情况下，用来进行抢锁。</p>
@@ -447,27 +447,27 @@
 <p>使用zk的临时节点插入值，如果插入成功后watch会通知所有监听节点，此时其他并行任务不可再进行插入。具体图示如下：</p>
 <p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/5.png" alt="img"></p>
 <p><strong>2.2代码实现</strong></p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">
-import &#34;github.com/samuel/go-zookeeper/zk&#34; //package
-//connect zk
-conn, _, err := zk.Connect([]string{&#34;localhost:2181&#34;}, time.Second)
-//zklock
-func zklock(conn *zk.Conn, myfunc func()) {
-    lock := zk.NewLock(conn, &#34;/mylock&#34;, zk.WorldACL(zk.PermAll))    
-    err := lock.Lock()
-    if err != nil {
-        panic(err)
-    }   
-    fmt.Println(&#34;get lock&#34;)
-    myfunc()
-    lock.Unlock()
-    fmt.Println(&#34;unlock&#34;)
-}
-//goroutine run
-for i := 0; i &lt; 5; i++ {
-     go zklock(conn, incr)
-}
-</code></pre></div><p>完整代码参见：https://github.com/skyhackvip/lock/blob/master/zklock.go</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>import &#34;github.com/samuel/go-zookeeper/zk&#34; //package
+</span></span><span style="display:flex;"><span>//connect zk
+</span></span><span style="display:flex;"><span>conn, _, err := zk.Connect([]string{&#34;localhost:2181&#34;}, time.Second)
+</span></span><span style="display:flex;"><span>//zklock
+</span></span><span style="display:flex;"><span>func zklock(conn *zk.Conn, myfunc func()) {
+</span></span><span style="display:flex;"><span>    lock := zk.NewLock(conn, &#34;/mylock&#34;, zk.WorldACL(zk.PermAll))    
+</span></span><span style="display:flex;"><span>    err := lock.Lock()
+</span></span><span style="display:flex;"><span>    if err != nil {
+</span></span><span style="display:flex;"><span>        panic(err)
+</span></span><span style="display:flex;"><span>    }   
+</span></span><span style="display:flex;"><span>    fmt.Println(&#34;get lock&#34;)
+</span></span><span style="display:flex;"><span>    myfunc()
+</span></span><span style="display:flex;"><span>    lock.Unlock()
+</span></span><span style="display:flex;"><span>    fmt.Println(&#34;unlock&#34;)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>//goroutine run
+</span></span><span style="display:flex;"><span>for i := 0; i &lt; 5; i++ {
+</span></span><span style="display:flex;"><span>     go zklock(conn, incr)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>完整代码参见：https://github.com/skyhackvip/lock/blob/master/zklock.go</p>
 <p>执行结果如下：</p>
 <p><img src="http://shanks.link/img/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/6.png" alt="img"></p>
 <p>每次执行，执行结果都是5。</p>

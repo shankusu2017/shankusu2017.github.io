@@ -300,165 +300,165 @@
     <h3 id="官方参考手册">官方参考手册</h3>
 <p><a href="https://manpages.courier-mta.org/htmlman7/pipe.7.html">https://manpages.courier-mta.org/htmlman7/pipe.7.html</a></p>
 <h3 id="示例代码">示例代码</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// O_NOATIME 宏定义的扩展要求
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#f00;font-style:italic">#define _GNU_SOURCE 1
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;fcntl.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#undef _GNU_SOURCE
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;unistd.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;pthread.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/time.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/types.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/stat.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;linux/unistd.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;assert.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;limits.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#00f">static</span> <span style="color:#00f">int</span> pip[2];
-
-<span style="color:#00f">void</span> 
-<span style="color:#c34e00">sleep_select</span>(<span style="color:#00f">int</span> sec)
-{
-    <span style="color:#00f">struct</span> timeval timeout;
-
-    timeout.tv_usec = 0;
-    timeout.tv_sec = sec;
-
-    select(0, NULL, NULL, NULL, &amp;timeout);
-}
-
-<span style="color:#00f">static</span> <span style="color:#00f">void</span> 
-*<span style="color:#c34e00">thread_read</span>(<span style="color:#00f">void</span> *userdata)
-{
-    <span style="color:#00f">char</span> data[5] = {0};
-    <span style="color:#00f">int</span> ret;
-
-    printf(<span style="color:#009c00">&#34;p0: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, pip[0]);
-    printf(<span style="color:#009c00">&#34;p1: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, pip[1]);
-
-    <span style="color:#00f">while</span> (1)
-    {
-        fd_set fds;
-        FD_ZERO(&amp;fds);
-        FD_SET(pip[0], &amp;fds);
-        <span style="color:#00f">struct</span> timeval timeout = {10, 0};
-        ret = select(pip[0] + 1, &amp;fds, NULL, NULL, &amp;timeout);
-        <span style="color:#00f">if</span> (ret &lt; 0)
-        {
-            printf(<span style="color:#009c00">&#34;select error</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
-            <span style="color:#00f">break</span>;
-        }
-        <span style="color:#00f">else</span> <span style="color:#00f">if</span> (ret == 0)
-        {
-            <span style="color:#f00;font-style:italic">// printf(&#34;no fd ready\n&#34;);
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">continue</span>;
-        }
-        <span style="color:#00f">else</span>
-        {
-            <span style="color:#00f">if</span> (FD_ISSET(pip[0], &amp;fds) &gt; 0)
-            {
-                read(pip[0], data, 5);
-                printf(<span style="color:#009c00">&#34;data: %s</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, data);
-            }
-        }
-    }
-}
-
-<span style="color:#00f">static</span> <span style="color:#00f">void</span> *
-<span style="color:#c34e00">thread_write</span>(<span style="color:#00f">void</span>)
-{
-    printf(<span style="color:#009c00">&#34;thread_write</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
-    <span style="color:#00f">char</span> data[] = <span style="color:#009c00">&#34;pipe-data&#34;</span>;
-    <span style="color:#00f">while</span> (1)
-    {
-        sleep_select(1);
-        write(pip[1], data, <span style="color:#00f">sizeof</span>(data));
-        <span style="color:#f00;font-style:italic">/* 单次写入的数据长度超过 PIPE_BUF 时， 内核不保证写入的原子性*/</span>
-        <span style="color:#00f">if</span> (<span style="color:#00f">sizeof</span>(data) &gt; PIPE_BUF)
-        {
-            printf(<span style="color:#009c00">&#34;warn data is too long</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
-        }
-    }
-}
-
-<span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> *argv[])
-{
-    <span style="color:#00f">char</span> data[] = <span style="color:#009c00">&#34;data&#34;</span>;
-    pthread_t id;
-    <span style="color:#00f">if</span> (pipe(pip))
-    {
-        printf(<span style="color:#009c00">&#34;pipe error</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
-        exit(-1);
-    }
-
-    printf(<span style="color:#009c00">&#34;p0: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, pip[0]);
-    printf(<span style="color:#009c00">&#34;p1: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, pip[1]);
-
-    fcntl(pip[0], F_SETFL, O_NOATIME); <span style="color:#f00;font-style:italic">/* 提高性能 */</span>
-    fcntl(pip[1], F_SETFL, O_NOATIME);
-
-    <span style="color:#00f">if</span> (pthread_create(&amp;id, NULL, thread_read, NULL))
-    {
-        printf(<span style="color:#009c00">&#34;create thread error</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
-        exit(-1);
-    }
-
-    printf(<span style="color:#009c00">&#34;pthread id = %x</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, id);
-    pthread_create(&amp;id, NULL, thread_write, NULL);
-
-    <span style="color:#f00;font-style:italic">// signal(SIGUSR1, mysignal);
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">while</span> (1)
-    {
-        sleep_select(2);
-    }
-
-    pthread_join(id, NULL);
-}
-</code></pre></div><h3 id="基本介绍">基本介绍</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">无名管道(4)：通过管道同步进程
-通过管道同步进程
-管道其实就是一个文件
-
-PIPE通信应用
-通过管道同步进程
-管道自带同步互斥机制：
-管道的内核实现：fs/pipe.h
-通过内核的锁、等待队列等机制实现
-Write操作可能会阻塞进程
-当内存缓冲区已满被读进程锁定
-直到所有数据被写入到管道为止
-Read操作进程可能会阻塞进程
-读进程可以休眠在等待队列
-直到所有子进程都关闭了管道的写入端描述符为止
-父进程的写入端描述符也要关闭，否则父进程读管道时也会被阻塞
-只有当所有的写端描述符都已关闭，且管道中的数据都被读出，对读端描述符调用read函数才会返回0(即读到EOF标志)
-当所有的读取端和写入端都关闭，管道才能被销毁
-管道缓冲区设置
-管道缓冲区
-管道对应的内存缓冲区大小
-PIPE_BUF的容量是有限的：默认是65536字节
-在不同OS下PIPE_BUF大小设置不同：在limits.h头文件中定义
-写入管道的数据超过PIPE_BUF大小，内核会分割几块传输
-最大值/proc/sys/fs/pipe-maxsize
-查看打开的管道文件：cat /proc/PID/fd
-设置缓冲区大小
-特权用户：可以修改上限值
-设置缓冲区大小：fcntl(fd, F_SETPIPE, size)
-</code></pre></div><p><a href="https://blog.csdn.net/Scroll_C/article/details/123414270">参考资料连接</a></p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// O_NOATIME 宏定义的扩展要求
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#f00;font-style:italic">#define _GNU_SOURCE 1
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;fcntl.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#undef _GNU_SOURCE
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;unistd.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;pthread.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/time.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/types.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/stat.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;linux/unistd.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;assert.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;limits.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">int</span> pip[2];
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> 
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">sleep_select</span>(<span style="color:#00f">int</span> sec)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> timeval timeout;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    timeout.tv_usec = 0;
+</span></span><span style="display:flex;"><span>    timeout.tv_sec = sec;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    select(0, NULL, NULL, NULL, &amp;timeout);
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> 
+</span></span><span style="display:flex;"><span>*<span style="color:#c34e00">thread_read</span>(<span style="color:#00f">void</span> *userdata)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> data[5] = {0};
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> ret;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;p0: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, pip[0]);
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;p1: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, pip[1]);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">while</span> (1)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        fd_set fds;
+</span></span><span style="display:flex;"><span>        FD_ZERO(&amp;fds);
+</span></span><span style="display:flex;"><span>        FD_SET(pip[0], &amp;fds);
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">struct</span> timeval timeout = {10, 0};
+</span></span><span style="display:flex;"><span>        ret = select(pip[0] + 1, &amp;fds, NULL, NULL, &amp;timeout);
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (ret &lt; 0)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            printf(<span style="color:#009c00">&#34;select error</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> <span style="color:#00f">if</span> (ret == 0)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// printf(&#34;no fd ready\n&#34;);
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">continue</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span>
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> (FD_ISSET(pip[0], &amp;fds) &gt; 0)
+</span></span><span style="display:flex;"><span>            {
+</span></span><span style="display:flex;"><span>                read(pip[0], data, 5);
+</span></span><span style="display:flex;"><span>                printf(<span style="color:#009c00">&#34;data: %s</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, data);
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> *
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">thread_write</span>(<span style="color:#00f">void</span>)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;thread_write</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> data[] = <span style="color:#009c00">&#34;pipe-data&#34;</span>;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">while</span> (1)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        sleep_select(1);
+</span></span><span style="display:flex;"><span>        write(pip[1], data, <span style="color:#00f">sizeof</span>(data));
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/* 单次写入的数据长度超过 PIPE_BUF 时， 内核不保证写入的原子性*/</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (<span style="color:#00f">sizeof</span>(data) &gt; PIPE_BUF)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            printf(<span style="color:#009c00">&#34;warn data is too long</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> *argv[])
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> data[] = <span style="color:#009c00">&#34;data&#34;</span>;
+</span></span><span style="display:flex;"><span>    pthread_t id;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (pipe(pip))
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        printf(<span style="color:#009c00">&#34;pipe error</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
+</span></span><span style="display:flex;"><span>        exit(-1);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;p0: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, pip[0]);
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;p1: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, pip[1]);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    fcntl(pip[0], F_SETFL, O_NOATIME); <span style="color:#f00;font-style:italic">/* 提高性能 */</span>
+</span></span><span style="display:flex;"><span>    fcntl(pip[1], F_SETFL, O_NOATIME);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (pthread_create(&amp;id, NULL, thread_read, NULL))
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        printf(<span style="color:#009c00">&#34;create thread error</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
+</span></span><span style="display:flex;"><span>        exit(-1);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    printf(<span style="color:#009c00">&#34;pthread id = %x</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, id);
+</span></span><span style="display:flex;"><span>    pthread_create(&amp;id, NULL, thread_write, NULL);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// signal(SIGUSR1, mysignal);
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">while</span> (1)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        sleep_select(2);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    pthread_join(id, NULL);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="基本介绍">基本介绍</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>无名管道(4)：通过管道同步进程
+</span></span><span style="display:flex;"><span>通过管道同步进程
+</span></span><span style="display:flex;"><span>管道其实就是一个文件
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>PIPE通信应用
+</span></span><span style="display:flex;"><span>通过管道同步进程
+</span></span><span style="display:flex;"><span>管道自带同步互斥机制：
+</span></span><span style="display:flex;"><span>管道的内核实现：fs/pipe.h
+</span></span><span style="display:flex;"><span>通过内核的锁、等待队列等机制实现
+</span></span><span style="display:flex;"><span>Write操作可能会阻塞进程
+</span></span><span style="display:flex;"><span>当内存缓冲区已满被读进程锁定
+</span></span><span style="display:flex;"><span>直到所有数据被写入到管道为止
+</span></span><span style="display:flex;"><span>Read操作进程可能会阻塞进程
+</span></span><span style="display:flex;"><span>读进程可以休眠在等待队列
+</span></span><span style="display:flex;"><span>直到所有子进程都关闭了管道的写入端描述符为止
+</span></span><span style="display:flex;"><span>父进程的写入端描述符也要关闭，否则父进程读管道时也会被阻塞
+</span></span><span style="display:flex;"><span>只有当所有的写端描述符都已关闭，且管道中的数据都被读出，对读端描述符调用read函数才会返回0(即读到EOF标志)
+</span></span><span style="display:flex;"><span>当所有的读取端和写入端都关闭，管道才能被销毁
+</span></span><span style="display:flex;"><span>管道缓冲区设置
+</span></span><span style="display:flex;"><span>管道缓冲区
+</span></span><span style="display:flex;"><span>管道对应的内存缓冲区大小
+</span></span><span style="display:flex;"><span>PIPE_BUF的容量是有限的：默认是65536字节
+</span></span><span style="display:flex;"><span>在不同OS下PIPE_BUF大小设置不同：在limits.h头文件中定义
+</span></span><span style="display:flex;"><span>写入管道的数据超过PIPE_BUF大小，内核会分割几块传输
+</span></span><span style="display:flex;"><span>最大值/proc/sys/fs/pipe-maxsize
+</span></span><span style="display:flex;"><span>查看打开的管道文件：cat /proc/PID/fd
+</span></span><span style="display:flex;"><span>设置缓冲区大小
+</span></span><span style="display:flex;"><span>特权用户：可以修改上限值
+</span></span><span style="display:flex;"><span>设置缓冲区大小：fcntl(fd, F_SETPIPE, size)
+</span></span></code></pre></div><p><a href="https://blog.csdn.net/Scroll_C/article/details/123414270">参考资料连接</a></p>
 <h3 id="管道的原子性">管道的原子性</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">一个管道的容量是有限的。POSIX规定，少于 PIPE_BUF 的写操作必须原子完成：要写的数据应被连续的写到管道；大于 PIPE_BUF 的写操作可能是非原子的: 内核可能会把此数据与其它进程的对此管道的写操作交替起来。POSIX规定PIPE_BUF至少为512B(linux中为 4096B)，具体的语义如下: 其中n为要写的字节数
-      n &lt;= PIPE_BUF, O_NONBLOCK无效：原子的写入n个字节。如果管道当前的剩余空间不足以立即写入n个字节，就阻塞直到有足够的空间。
-      n &lt;= PIPE_BUF, O_NONBLOCK有效：写入具有原子性，如果有足够的空间写入n个字节，write立即成功返回。否则一个都不写入，返回错误，并设置errno为EAGAIN。
-      n &gt;   PIPE_BUF, O_NONBLOCK无效：非原子写。可能会和其它的写进程交替写。write阻塞直到将n个字节写入管道。
-      n &gt;   PIPE_BUF, O_NONBLOCK有效：如果管道满，则write失败，返回错误，并将errno设置为 EAGIN。如果不满，则返回写入的字节数为1~n，即部分写入，写入时可能有其他进程穿插写入。
-
-结论：
-1、当要写入的数据量不大于PIPE_BUF时，linux将保证写入的原子性。
-2、当要写入的数据量大于PIPE_BUF时，linux将不再保证写入的原子性。
-</code></pre></div><p><a href="https://blog.csdn.net/petib_wangwei/article/details/72820051">参考资料连接</a></p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>一个管道的容量是有限的。POSIX规定，少于 PIPE_BUF 的写操作必须原子完成：要写的数据应被连续的写到管道；大于 PIPE_BUF 的写操作可能是非原子的: 内核可能会把此数据与其它进程的对此管道的写操作交替起来。POSIX规定PIPE_BUF至少为512B(linux中为 4096B)，具体的语义如下: 其中n为要写的字节数
+</span></span><span style="display:flex;"><span>      n &lt;= PIPE_BUF, O_NONBLOCK无效：原子的写入n个字节。如果管道当前的剩余空间不足以立即写入n个字节，就阻塞直到有足够的空间。
+</span></span><span style="display:flex;"><span>      n &lt;= PIPE_BUF, O_NONBLOCK有效：写入具有原子性，如果有足够的空间写入n个字节，write立即成功返回。否则一个都不写入，返回错误，并设置errno为EAGAIN。
+</span></span><span style="display:flex;"><span>      n &gt;   PIPE_BUF, O_NONBLOCK无效：非原子写。可能会和其它的写进程交替写。write阻塞直到将n个字节写入管道。
+</span></span><span style="display:flex;"><span>      n &gt;   PIPE_BUF, O_NONBLOCK有效：如果管道满，则write失败，返回错误，并将errno设置为 EAGIN。如果不满，则返回写入的字节数为1~n，即部分写入，写入时可能有其他进程穿插写入。
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>结论：
+</span></span><span style="display:flex;"><span>1、当要写入的数据量不大于PIPE_BUF时，linux将保证写入的原子性。
+</span></span><span style="display:flex;"><span>2、当要写入的数据量大于PIPE_BUF时，linux将不再保证写入的原子性。
+</span></span></code></pre></div><p><a href="https://blog.csdn.net/petib_wangwei/article/details/72820051">参考资料连接</a></p>
 
     </div>
     <footer class="post-footer">

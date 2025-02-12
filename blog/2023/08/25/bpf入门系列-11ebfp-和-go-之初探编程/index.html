@@ -328,48 +328,48 @@
 <li>Cilium 的<a href="https://github.com/cilium/cilium/tree/master/bpf">源代码</a>和其在 [<a href="https://k8s.networkop.co.uk/cni/cilium/#a-day-in-the-life-of-a-packet">1]</a> 和 [<a href="http://arthurchiao.art/blog/cilium-life-of-a-packet-pod-to-service/">2]</a> 的分析。</li>
 </ul>
 <p>我的 eBPF 程序非常简单，它包括对 eBPF <a href="https://man7.org/linux/man-pages/man7/bpf-helpers.7.html">辅助函数</a>的一次调用，可根据传入接口的索引将<em>所有</em>数据包从一个接口重定向到另一个。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;linux/bpf.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;bpf/bpf_helpers.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>
-SEC(<span style="color:#009c00">&#34;xdp&#34;</span>)
-<span style="color:#00f">int</span>  xdp_xconnect(<span style="color:#00f">struct</span> xdp_md *ctx)
-{
-    <span style="color:#00f">return</span> bpf_redirect_map(&amp;xconnect_map, ctx-&gt;ingress_ifindex, 0);
-}
-</code></pre></div><p>为了编译上述程序，我们需要为所有包含的头文件提供包含路径。最简单的方法是在 <a href="https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next.git/tree/tools/lib/bpf">linux/tools/lib/bpf/</a> 下复制所有文件，然而，这将包括很多不必要的文件。因此，另一种方法是创建一个依赖性列表。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ clang -MD -MF xconnect.d -target bpf -I ~/linux/tools/lib/bpf -c xconnect.c
-</code></pre></div><p>现在我们可以只对 <code>xconnect.d</code> 中指定的少量文件进行本地拷贝，并使用以下命令为本地 CPU 架构编译 eBPF 代码。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ clang -target bpf -Wall -O2 -emit-llvm -g -Iinclude -c xconnect.c -o - | <span style="color:#009c00">\
-</span><span style="color:#009c00"></span>llc -march=bpf -mcpu=probe -filetype=obj -o xconnect.o
-</code></pre></div><p>The resulting ELF file is what we’d need to provide to our Go library in the next step.</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;linux/bpf.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;bpf/bpf_helpers.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span>SEC(<span style="color:#009c00">&#34;xdp&#34;</span>)
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span>  xdp_xconnect(<span style="color:#00f">struct</span> xdp_md *ctx)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> bpf_redirect_map(&amp;xconnect_map, ctx-&gt;ingress_ifindex, 0);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>为了编译上述程序，我们需要为所有包含的头文件提供包含路径。最简单的方法是在 <a href="https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next.git/tree/tools/lib/bpf">linux/tools/lib/bpf/</a> 下复制所有文件，然而，这将包括很多不必要的文件。因此，另一种方法是创建一个依赖性列表。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ clang -MD -MF xconnect.d -target bpf -I ~/linux/tools/lib/bpf -c xconnect.c
+</span></span></code></pre></div><p>现在我们可以只对 <code>xconnect.d</code> 中指定的少量文件进行本地拷贝，并使用以下命令为本地 CPU 架构编译 eBPF 代码。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ clang -target bpf -Wall -O2 -emit-llvm -g -Iinclude -c xconnect.c -o - | <span style="color:#009c00">\
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00"></span>llc -march=bpf -mcpu=probe -filetype=obj -o xconnect.o
+</span></span></code></pre></div><p>The resulting ELF file is what we’d need to provide to our Go library in the next step.</p>
 <p>编译生成的 ELF 文件就是我们在下一步需要提供给 Go 库的程序。</p>
 <h2 id="步骤-2---编写-go-代码">步骤 2 - 编写 Go 代码</h2>
 <p>编译好的 eBPF 程序和 Map 可以通过 <code>libbpf-go</code> 加载，这只需几个指令。通过添加带有 <code>ebpf</code> 标签的结构，我们可以自动进行重定位程序，并且知道何处发现 Map。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">spec, err := ebpf.<span style="color:#c34e00">LoadCollectionSpec</span>(<span style="color:#009c00">&#34;ebpf/xconnect.o&#34;</span>)
-<span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
-  panic(err)
-}
-
-<span style="color:#00f">var</span> objs <span style="color:#00f">struct</span> {
-	XCProg  *ebpf.Program <span style="color:#009c00">`ebpf:&#34;xdp_xconnect&#34;`</span>
-	XCMap   *ebpf.Map     <span style="color:#009c00">`ebpf:&#34;xconnect_map&#34;`</span>
-}
-<span style="color:#00f">if</span> err := spec.<span style="color:#c34e00">LoadAndAssign</span>(&amp;objs, <span style="color:#00f">nil</span>); err != <span style="color:#00f">nil</span> {
-	panic(err)
-}
-<span style="color:#00f">defer</span> objs.XCProg.<span style="color:#c34e00">Close</span>()
-<span style="color:#00f">defer</span> objs.XCMap.<span style="color:#c34e00">Close</span>()
-</code></pre></div><p><code>ebpf.Map</code> 类型有一组方法，可对加载的 Map 内容进行标准的 CRUD 操作：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">err = objs.XCMap.<span style="color:#c34e00">Put</span>(uint32(0), uint32(10))
-
-<span style="color:#00f">var</span> v0 <span style="color:#00f">uint32</span>
-err = objs.XCMap.<span style="color:#c34e00">Lookup</span>(uint32(0), &amp;v0)
-
-err = objs.XCMap.<span style="color:#c34e00">Delete</span>(uint32(0))
-</code></pre></div><p>唯一没有被 <code>libbpf-go</code> 包含的步骤是将程序附加到网络钩子上。然而，这可以通过任何现有的 netlink 库轻松实现，例如<a href="https://github.com/vishvananda/netlink">vishvananda/netlink</a>，通过将网络连接与加载程序的文件描述符联系起来：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">link, err := netlink.<span style="color:#c34e00">LinkByName</span>(<span style="color:#009c00">&#34;eth0&#34;</span>)
-err = netlink.<span style="color:#c34e00">LinkSetXdpFdWithFlags</span>(*link, c.objs.XCProg.<span style="color:#c34e00">FD</span>(), 2)
-</code></pre></div><p>请注意，我使用 <a href="https://github.com/torvalds/linux/blob/master/tools/include/uapi/linux/if_link.h#L966">SKB_MODE</a> XDP 标志来绕过退出的 veth 驱动程序 <a href="https://github.com/xdp-project/xdp-tutorial/tree/master/packet03-redirecting#sending-packets-back-to-the-interface-they-came-from">caveat</a> 。尽管本地 XDP 模式比任何其他 eBPF 钩子<a href="https://www.netronome.com/media/images/fig3.width-800.png">快得多</a>，但 SKB_MODE 可能没有那么快，因为数据包头必须由网络栈预先解析（见<a href="https://www.youtube.com/watch?v=q3gjNe6LKDI">视频</a>）。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>spec, err := ebpf.<span style="color:#c34e00">LoadCollectionSpec</span>(<span style="color:#009c00">&#34;ebpf/xconnect.o&#34;</span>)
+</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>  panic(err)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">var</span> objs <span style="color:#00f">struct</span> {
+</span></span><span style="display:flex;"><span>	XCProg  *ebpf.Program <span style="color:#009c00">`ebpf:&#34;xdp_xconnect&#34;`</span>
+</span></span><span style="display:flex;"><span>	XCMap   *ebpf.Map     <span style="color:#009c00">`ebpf:&#34;xconnect_map&#34;`</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> err := spec.<span style="color:#c34e00">LoadAndAssign</span>(&amp;objs, <span style="color:#00f">nil</span>); err != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>	panic(err)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#00f">defer</span> objs.XCProg.<span style="color:#c34e00">Close</span>()
+</span></span><span style="display:flex;"><span><span style="color:#00f">defer</span> objs.XCMap.<span style="color:#c34e00">Close</span>()
+</span></span></code></pre></div><p><code>ebpf.Map</code> 类型有一组方法，可对加载的 Map 内容进行标准的 CRUD 操作：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>err = objs.XCMap.<span style="color:#c34e00">Put</span>(uint32(0), uint32(10))
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">var</span> v0 <span style="color:#00f">uint32</span>
+</span></span><span style="display:flex;"><span>err = objs.XCMap.<span style="color:#c34e00">Lookup</span>(uint32(0), &amp;v0)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>err = objs.XCMap.<span style="color:#c34e00">Delete</span>(uint32(0))
+</span></span></code></pre></div><p>唯一没有被 <code>libbpf-go</code> 包含的步骤是将程序附加到网络钩子上。然而，这可以通过任何现有的 netlink 库轻松实现，例如<a href="https://github.com/vishvananda/netlink">vishvananda/netlink</a>，通过将网络连接与加载程序的文件描述符联系起来：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>link, err := netlink.<span style="color:#c34e00">LinkByName</span>(<span style="color:#009c00">&#34;eth0&#34;</span>)
+</span></span><span style="display:flex;"><span>err = netlink.<span style="color:#c34e00">LinkSetXdpFdWithFlags</span>(*link, c.objs.XCProg.<span style="color:#c34e00">FD</span>(), 2)
+</span></span></code></pre></div><p>请注意，我使用 <a href="https://github.com/torvalds/linux/blob/master/tools/include/uapi/linux/if_link.h#L966">SKB_MODE</a> XDP 标志来绕过退出的 veth 驱动程序 <a href="https://github.com/xdp-project/xdp-tutorial/tree/master/packet03-redirecting#sending-packets-back-to-the-interface-they-came-from">caveat</a> 。尽管本地 XDP 模式比任何其他 eBPF 钩子<a href="https://www.netronome.com/media/images/fig3.width-800.png">快得多</a>，但 SKB_MODE 可能没有那么快，因为数据包头必须由网络栈预先解析（见<a href="https://www.youtube.com/watch?v=q3gjNe6LKDI">视频</a>）。</p>
 <h2 id="步骤-3---代码分发">步骤 3 - 代码分发</h2>
 <p>在这一点上，如果不是因为一个问题 – eBPF <a href="https://facebookmicrosites.github.io/bpf/blog/2020/02/19/bpf-portability-and-co-re.html#the-problem-of-bpf-portability">代码可移植性</a>，一切都应该已经准备好打包和发布应用。历史上，这个过程涉及将 eBPF 源代码复制到目标平台，拉取所需的内核头文件，并为特定的内核版本进行编译。这个问题对于追踪/监控/跟踪的用例尤其明显，因为这些用例可能需要访问几乎所有的内核数据结构，所以唯一的解决办法是引入中介层（见 <a href="https://facebookmicrosites.github.io/bpf/blog/2020/02/19/bpf-portability-and-co-re.html">CO-RE</a>）。</p>
 <p>另一方面，网络用例依赖于一个相对较小且稳定的内核类型子集，所以它们不会像跟踪和性能分析程序那样遇到同样的问题。根据我目前看到的情况，两种最常见的代码打包方法是：</p>
@@ -378,9 +378,9 @@ err = netlink.<span style="color:#c34e00">LinkSetXdpFdWithFlags</span>(*link, c.
 <li>分发 eBPF 代码并在目标平台上拉取内核头文件。</li>
 </ul>
 <p>在这两种情况下，eBPF 代码仍然需要在目标平台上编译，这是一个额外的步骤，需要在用户空间应用程序启动之前进行。然而，还有一个选择，那就是预先将 eBPF 代码编译成 ELF 格式文件，最终只分发 ELF 文件。这正是 <a href="https://pkg.go.dev/github.com/cilium/ebpf/cmd/bpf2go"><code>bpf2go</code></a> 可以做到的，它可以将编译后的代码嵌入到 Go 包中。其依靠 <code>go generate</code> 注解指令产生一个<a href="https://github.com/networkop/xdp-xconnect/blob/main/pkg/xdp/xdp_bpf.go">新的文件</a>，其中包含编译好的 eBPF 和 <code>libbpf-go</code> 脚手架代码，唯一的要求是 <a href="https://github.com/networkop/xdp-xconnect/blob/main/pkg/xdp/xdp.go#L14"><code>//go:generate</code></a> 指令。一旦生成，我们的 eBPF 程序只需几行就可以被加载（注意没有任何参数）。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">specs, err := <span style="color:#c34e00">newXdpSpecs</span>()
-objs, err := specs.<span style="color:#c34e00">Load</span>(<span style="color:#00f">nil</span>)
-</code></pre></div><p>这种方法明显的优点是，我们不再需要在目标机器上编译，可以在一个软件包或 Go 二进制文件中同时运送 eBPF 和用户空间 Go 代码。这很好，因为它允许我们不仅将应用程序作为二进制文件使用，还可以将其导入任何第三方 Go 应用程序中（见<a href="https://github.com/networkop/xdp-xconnect#usage">使用实例</a>）。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>specs, err := <span style="color:#c34e00">newXdpSpecs</span>()
+</span></span><span style="display:flex;"><span>objs, err := specs.<span style="color:#c34e00">Load</span>(<span style="color:#00f">nil</span>)
+</span></span></code></pre></div><p>这种方法明显的优点是，我们不再需要在目标机器上编译，可以在一个软件包或 Go 二进制文件中同时运送 eBPF 和用户空间 Go 代码。这很好，因为它允许我们不仅将应用程序作为二进制文件使用，还可以将其导入任何第三方 Go 应用程序中（见<a href="https://github.com/networkop/xdp-xconnect#usage">使用实例</a>）。</p>
 <h2 id="阅读和有趣的参考资料">阅读和有趣的参考资料</h2>
 <p>通用理论： <a href="https://github.com/xdp-project/xdp-tutorial">https://github.com/xdp-project/xdp-tutorial</a> <a href="https://docs.cilium.io/en/stable/bpf/">https://docs.cilium.io/en/stable/bpf/</a> <a href="https://qmonnet.github.io/whirl-offload/2016/09/01/dive-into-bpf/">https://qmonnet.github.io/whirl-offload/2016/09/01/dive-into-bpf/</a></p>
 <p>BCC 和 libbpf： <a href="https://facebookmicrosites.github.io/bpf/blog/2020/02/20/bcc-to-libbpf-howto-guide.html">https://facebookmicrosites.github.io/bpf/blog/2020/02/20/bcc-to-libbpf-howto-guide.html</a> <a href="https://nakryiko.com/posts/libbpf-bootstrap/">https://nakryiko.com/posts/libbpf-bootstrap/</a> <a href="https://pingcap.com/blog/why-we-switched-from-bcc-to-libbpf-for-linux-bpf-performance-analysis">https://pingcap.com/blog/why-we-switched-from-bcc-to-libbpf-for-linux-bpf-performance-analysis</a> <a href="https://facebookmicrosites.github.io/bpf/blog/">https://facebookmicrosites.github.io/bpf/blog/</a></p>

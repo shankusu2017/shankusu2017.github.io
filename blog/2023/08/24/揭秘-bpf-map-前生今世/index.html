@@ -301,11 +301,11 @@
 <h2 id="1-前言">1. 前言</h2>
 <p>众所周知，map 可用于内核 BPF 程序和用户应用程序之间实现双向的数据交换， 为 BPF 技术中的重要基础数据结构。</p>
 <p>在 BPF 程序中可以通过声明 <code>struct bpf_map_def</code> 结构完成创建，这其实带给我们一种错觉，感觉这和普通的 C 语言变量没有区别，然而事实真的是这样的吗？ 事情远没有这么简单，读完本文以后相信你会有更大的惊喜。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">struct</span> bpf_map_def <span style="color:#c34e00">SEC</span>(<span style="color:#009c00">&#34;maps&#34;</span>) 
-my_map = { .type = BPF_MAP_TYPE_ARRAY,  
-          <span style="color:#f00;font-style:italic">// ... 
-</span><span style="color:#f00;font-style:italic"></span>         }; 
-</code></pre></div><p>我们知道最终 BPF 程序是需要在内核中执行，但是 map 数据结构是用于用户空间和内核 BPF 程序双向的数据结构，那么问题来了：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> bpf_map_def <span style="color:#c34e00">SEC</span>(<span style="color:#009c00">&#34;maps&#34;</span>) 
+</span></span><span style="display:flex;"><span>my_map = { .type = BPF_MAP_TYPE_ARRAY,  
+</span></span><span style="display:flex;"><span>          <span style="color:#f00;font-style:italic">// ... 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>         }; 
+</span></span></code></pre></div><p>我们知道最终 BPF 程序是需要在内核中执行，但是 map 数据结构是用于用户空间和内核 BPF 程序双向的数据结构，那么问题来了：</p>
 <ul>
 <li>通过 <code>struct bpf_map_def</code> 定义的变量究竟是如何创建的，是在用户空间创建还是内核中直接创建的？</li>
 <li>如何实现创建后的 map 的结构，在用户空间与内核中 BPF 程序关联？你可能注意到在用户空间中对于 map 的访问是通过 map 文件句柄 fd 完成（类型为 int），但是在 BPF 程序中是通过 <code>struct bpf_map *</code> 结构完成的。</li>
@@ -314,72 +314,69 @@ my_map = { .type = BPF_MAP_TYPE_ARRAY,
 <h2 id="2-简单的使用样例">2. 简单的使用样例</h2>
 <p>本样例来自于 <a href="https://elixir.bootlin.com/linux/v5.13/source/samples/bpf/sockex1_user.c">samples/bpf/sockex1_user.c</a> 和 <a href="https://elixir.bootlin.com/linux/v5.13/source/samples/bpf/sockex1_kern.c">sockex1_kern.c</a>，略有修改和删除。</p>
 <p><a href="https://elixir.bootlin.com/linux/v5.13/source/samples/bpf/sockex1_user.c">sockex1_user.c</a> 用户空间程序主要内容如下（为方便展示，部分内容有删除和修改）：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> **argv) { 
-    <span style="color:#00f">struct</span> bpf_object *obj; 
-    <span style="color:#00f">int</span> map_fd, prog_fd; <span style="color:#f00;font-style:italic">// 加载 BPF 程序至 bpf_object 对象中， 	
-</span><span style="color:#f00;font-style:italic"></span>    bpf_prog_load(<span style="color:#009c00">&#34;sockex_kern.o&#34;</span>, BPF_PROG_TYPE_SOCKET_FILTER, &amp;obj, &amp;prog_fd))   <span style="color:#f00;font-style:italic">// 获取 my_map 对应的 map_fd 句柄 
-</span><span style="color:#f00;font-style:italic"></span>        map_fd = bpf_object__find_map_fd_by_name(obj, <span style="color:#009c00">&#34;my_map&#34;</span>); <span style="color:#f00;font-style:italic">// == 本次关注 ==   // 通过 setsockopt 将 BPF 字节码加载到内核中  
-</span><span style="color:#f00;font-style:italic"></span>    sock = open_raw_sock(<span style="color:#009c00">&#34;lo&#34;</span>); 
-    setsockopt(sock, SOL_SOCKET, SO_ATTACH_BPF, &amp;prog_fd, <span style="color:#00f">sizeof</span>(prog_fd))； 	
-        popen(<span style="color:#009c00">&#34;ping -4 -c5 localhost&#34;</span>, <span style="color:#009c00">&#34;r&#34;</span>); <span style="color:#f00;font-style:italic">// 产生报文   // 从 my_map 中读取 5 次 IPPROTO_TCP 的统计 
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> (i = 0; i &lt; 5; i++) {  	
-        <span style="color:#00f">long</span> <span style="color:#00f">long</span> tcp_cnt; 	
-        <span style="color:#00f">int</span> key = IPPROTO_TCP; 			assert(bpf_map_lookup_elem(map_fd, &amp;key, &amp;tcp_cnt) == 0); <span style="color:#f00;font-style:italic">// == 本次关注 == 	// ... 	
-</span><span style="color:#f00;font-style:italic"></span>        sleep(1); 
-    } 	
- <span style="color:#00f">return</span> 0; 
-} 
-</code></pre></div><p>sockex1_user.c 文件中的 <code>bpf_map_lookup_elem</code> 调用的函数原型如下，定义在文件 <a href="https://elixir.bootlin.com/linux/v5.13/source/tools/lib/bpf/bpf.c">tools/lib/bpf/bpf.c</a> 中：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">int</span> bpf_map_lookup_elem(<span style="color:#00f">int</span> fd, <span style="color:#00f">const</span> <span style="color:#00f">void</span> *key, <span style="color:#00f">void</span> *value) 
-</code></pre></div><p>函数底层通过 <code>sys_bpf(cmd=BPF_MAP_LOOKUP_ELEM，...)</code> 实现，为我们方便 map 操作的用户空间封装函数， bpf 系统调用可参考 <a href="https://man7.org/linux/man-pages/man2/bpf.2.html">man 2 bpf</a>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> **argv) { 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> bpf_object *obj; 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> map_fd, prog_fd; <span style="color:#f00;font-style:italic">// 加载 BPF 程序至 bpf_object 对象中， 	
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    bpf_prog_load(<span style="color:#009c00">&#34;sockex_kern.o&#34;</span>, BPF_PROG_TYPE_SOCKET_FILTER, &amp;obj, &amp;prog_fd))   <span style="color:#f00;font-style:italic">// 获取 my_map 对应的 map_fd 句柄 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        map_fd = bpf_object__find_map_fd_by_name(obj, <span style="color:#009c00">&#34;my_map&#34;</span>); <span style="color:#f00;font-style:italic">// == 本次关注 ==   // 通过 setsockopt 将 BPF 字节码加载到内核中  
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    sock = open_raw_sock(<span style="color:#009c00">&#34;lo&#34;</span>); 
+</span></span><span style="display:flex;"><span>    setsockopt(sock, SOL_SOCKET, SO_ATTACH_BPF, &amp;prog_fd, <span style="color:#00f">sizeof</span>(prog_fd))； 	
+</span></span><span style="display:flex;"><span>        popen(<span style="color:#009c00">&#34;ping -4 -c5 localhost&#34;</span>, <span style="color:#009c00">&#34;r&#34;</span>); <span style="color:#f00;font-style:italic">// 产生报文   // 从 my_map 中读取 5 次 IPPROTO_TCP 的统计 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> (i = 0; i &lt; 5; i++) {  	
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">long</span> <span style="color:#00f">long</span> tcp_cnt; 	
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">int</span> key = IPPROTO_TCP; 			assert(bpf_map_lookup_elem(map_fd, &amp;key, &amp;tcp_cnt) == 0); <span style="color:#f00;font-style:italic">// == 本次关注 == 	// ... 	
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        sleep(1); 
+</span></span><span style="display:flex;"><span>    } 	
+</span></span><span style="display:flex;"><span> <span style="color:#00f">return</span> 0; 
+</span></span><span style="display:flex;"><span>} 
+</span></span></code></pre></div><p>sockex1_user.c 文件中的 <code>bpf_map_lookup_elem</code> 调用的函数原型如下，定义在文件 <a href="https://elixir.bootlin.com/linux/v5.13/source/tools/lib/bpf/bpf.c">tools/lib/bpf/bpf.c</a> 中：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">int</span> bpf_map_lookup_elem(<span style="color:#00f">int</span> fd, <span style="color:#00f">const</span> <span style="color:#00f">void</span> *key, <span style="color:#00f">void</span> *value) 
+</span></span></code></pre></div><p>函数底层通过 <code>sys_bpf(cmd=BPF_MAP_LOOKUP_ELEM，...)</code> 实现，为我们方便 map 操作的用户空间封装函数， bpf 系统调用可参考 <a href="https://man7.org/linux/man-pages/man2/bpf.2.html">man 2 bpf</a>。</p>
 <p>其中 <a href="https://elixir.bootlin.com/linux/v5.13/source/samples/bpf/sockex1_kern.c">sockex1_kern.c</a> 主要内容如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// map 定义  
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> bpf_map_def <span style="color:#c34e00">SEC</span>(<span style="color:#009c00">&#34;maps&#34;</span>) 
-    my_map = { 
-    .type = BPF_MAP_TYPE_ARRAY, 
-    .key_size = <span style="color:#00f">sizeof</span>(u32), 
-    .value_size = <span style="color:#00f">sizeof</span>(<span style="color:#00f">long</span>), 
-    .max_entries = 256, 
-	}; <span style="color:#f00;font-style:italic">// BPF 程序，获取到报文协议类型并进行计数更新 
-</span><span style="color:#f00;font-style:italic"></span>SEC(<span style="color:#009c00">&#34;socket1&#34;</span>) 
-<span style="color:#00f">int</span> bpf_prog1(<span style="color:#00f">struct</span> __sk_buff *skb) { 
-    <span style="color:#00f">int</span> index = load_byte(skb, ETH_HLEN + offsetof(<span style="color:#00f">struct</span> iphdr, protocol)); 
-    <span style="color:#00f">long</span> *value; 	
-    value = bpf_map_lookup_elem(&amp;my_map, &amp;index);  <span style="color:#f00;font-style:italic">// 查找索引并更新 map 对应的值，== 本次关注 == 
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> (value) 
-        __sync_fetch_and_add(value, skb-&gt;len); 		     <span style="color:#00f">return</span> 0; 
-} 
-<span style="color:#00f">char</span> _license[] SEC(<span style="color:#009c00">&#34;license&#34;</span>) = <span style="color:#009c00">&#34;GPL&#34;</span>;
-</code></pre></div><p>sockex1_kern.c 文件中的 <code>bpf_map_lookup_elem</code> 函数为内核中提供的 BPF 辅助函数，原型声明如下，详情可参考 <a href="https://man7.org/linux/man-pages/man7/bpf-helpers.7.html">man 7 bpf-helper</a>：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">void</span> *bpf_map_lookup_elem(<span style="color:#00f">struct</span> bpf_map *map, <span style="color:#00f">const</span> <span style="color:#00f">void</span> *key) 
-</code></pre></div><h3 id="用户空间与内核-bpf-辅助函数参数对比">用户空间与内核 BPF 辅助函数参数对比</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// map 定义  
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> bpf_map_def <span style="color:#c34e00">SEC</span>(<span style="color:#009c00">&#34;maps&#34;</span>) 
+</span></span><span style="display:flex;"><span>    my_map = { 
+</span></span><span style="display:flex;"><span>    .type = BPF_MAP_TYPE_ARRAY, 
+</span></span><span style="display:flex;"><span>    .key_size = <span style="color:#00f">sizeof</span>(u32), 
+</span></span><span style="display:flex;"><span>    .value_size = <span style="color:#00f">sizeof</span>(<span style="color:#00f">long</span>), 
+</span></span><span style="display:flex;"><span>    .max_entries = 256, 
+</span></span><span style="display:flex;"><span>	}; <span style="color:#f00;font-style:italic">// BPF 程序，获取到报文协议类型并进行计数更新 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>SEC(<span style="color:#009c00">&#34;socket1&#34;</span>) 
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> bpf_prog1(<span style="color:#00f">struct</span> __sk_buff *skb) { 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> index = load_byte(skb, ETH_HLEN + offsetof(<span style="color:#00f">struct</span> iphdr, protocol)); 
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">long</span> *value; 	
+</span></span><span style="display:flex;"><span>    value = bpf_map_lookup_elem(&amp;my_map, &amp;index);  <span style="color:#f00;font-style:italic">// 查找索引并更新 map 对应的值，== 本次关注 == 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> (value) 
+</span></span><span style="display:flex;"><span>        __sync_fetch_and_add(value, skb-&gt;len); 		     <span style="color:#00f">return</span> 0; 
+</span></span><span style="display:flex;"><span>} 
+</span></span><span style="display:flex;"><span><span style="color:#00f">char</span> _license[] SEC(<span style="color:#009c00">&#34;license&#34;</span>) = <span style="color:#009c00">&#34;GPL&#34;</span>;
+</span></span></code></pre></div><p>sockex1_kern.c 文件中的 <code>bpf_map_lookup_elem</code> 函数为内核中提供的 BPF 辅助函数，原型声明如下，详情可参考 <a href="https://man7.org/linux/man-pages/man7/bpf-helpers.7.html">man 7 bpf-helper</a>：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">void</span> *bpf_map_lookup_elem(<span style="color:#00f">struct</span> bpf_map *map, <span style="color:#00f">const</span> <span style="color:#00f">void</span> *key) 
+</span></span></code></pre></div><h3 id="用户空间与内核-bpf-辅助函数参数对比">用户空间与内核 BPF 辅助函数参数对比</h3>
 <p>通过分析 sockex1_user.c 和 sockex1_kern.c 函数中的 <code>bpf_map_lookup_elem</code> 使用姿势，这里我们做个简单对比：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">// 用户空间 map 查询函数 
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> bpf_map_lookup_elem(<span style="color:#00f">int</span> fd, <span style="color:#00f">const</span> <span style="color:#00f">void</span> *key, <span style="color:#00f">void</span> *value) <span style="color:#f00;font-style:italic">// 内核中 BPF 辅助函数 map 查询函数 
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">void</span> *bpf_map_lookup_elem(<span style="color:#00f">struct</span> bpf_map *map, <span style="color:#00f">const</span> <span style="color:#00f">void</span> *key) 
-</code></pre></div><p>那么如何将 <code>int fd</code> 与 <code>struct bpf_map *map</code> 共同关联一个对象呢？ 这需要我们通过分析 BPF 字节码来进行解密。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 用户空间 map 查询函数 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">int</span> bpf_map_lookup_elem(<span style="color:#00f">int</span> fd, <span style="color:#00f">const</span> <span style="color:#00f">void</span> *key, <span style="color:#00f">void</span> *value) <span style="color:#f00;font-style:italic">// 内核中 BPF 辅助函数 map 查询函数 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">void</span> *bpf_map_lookup_elem(<span style="color:#00f">struct</span> bpf_map *map, <span style="color:#00f">const</span> <span style="color:#00f">void</span> *key) 
+</span></span></code></pre></div><p>那么如何将 <code>int fd</code> 与 <code>struct bpf_map *map</code> 共同关联一个对象呢？ 这需要我们通过分析 BPF 字节码来进行解密。</p>
 <h2 id="3-深入指令分析">3. 深入指令分析</h2>
 <p>首先我们将 sockex1_kern.c 文件使用 <code>llvm/clang</code> 将之编译成 ELF 的 BPF 字节码。对于生成的 <code>sockex1_kern.o</code> 文件可以用 <code>llvm-objdump</code> 来查看相对应的文件格式，这里我们仅关注 map 相关的部分。</p>
 <h3 id="31-查看-bpf-指令">3.1 查看 BPF 指令</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ clang -O2 -target bpf -c sockex1_kern.c  -o sockex1_kern.o $ llvm-objdump -S sockex1_kern.o 0000000000000000 &lt;bpf_prog1&gt;: 		 // ... 			; 	value = bpf_map_lookup_elem(&amp;my_map, &amp;index); <span style="color:#f00;font-style:italic"># 备注：编译的机器启用了 BTF        7:	18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll       9:	85 00 00 00 01 00 00 00	call 1       // ... </span>
-</code></pre></div><p>上述结果展示了 BPF 程序中 <code>socket1</code> 部分的函数 <code>bpf_prog1</code> 的 BPF 指令，<strong>但是其中对于涉及到的变量 <code>my_map</code> 的引用都未有解决</strong>。上述的反汇编部分打印了 <code>map_lookup_elem()</code> 函数调用涉及的指令：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ clang -O2 -target bpf -c sockex1_kern.c  -o sockex1_kern.o $ llvm-objdump -S sockex1_kern.o 0000000000000000 &lt;bpf_prog1&gt;: 		 // ... 			; 	value = bpf_map_lookup_elem(&amp;my_map, &amp;index); <span style="color:#f00;font-style:italic"># 备注：编译的机器启用了 BTF        7:	18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll       9:	85 00 00 00 01 00 00 00	call 1       // ... </span>
+</span></span></code></pre></div><p>上述结果展示了 BPF 程序中 <code>socket1</code> 部分的函数 <code>bpf_prog1</code> 的 BPF 指令，<strong>但是其中对于涉及到的变量 <code>my_map</code> 的引用都未有解决</strong>。上述的反汇编部分打印了 <code>map_lookup_elem()</code> 函数调用涉及的指令：</p>
 <ul>
 <li>
 <p>根据 BPF 程序调用的约定，寄存器 <code>r1</code> 为函数调用的第 1 个参数，这里即 <code>bpf_map_lookup_elem(&amp;my_map, &amp;index)</code> 调用中的 <code>my_map</code> 。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">7:	18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll  <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 0        </span>
-9:	85 00 00 00 01 00 00 00	call 1               <span style="color:#f00;font-style:italic"># 调用 bpf_map_lookup_elem，编号为 1 </span>
-</code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">
-
-
-</code></pre></div></li>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>7:	18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll  <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 0        </span>
+</span></span><span style="display:flex;"><span>9:	85 00 00 00 01 00 00 00	call 1               <span style="color:#f00;font-style:italic"># 调用 bpf_map_lookup_elem，编号为 1 </span>
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"></code></pre></div></li>
 </ul>
 <p>上述 <strong>“7:”</strong> 行代表了为一条 16 个字节的 BPF 指令，表示加载一个 64 位立即数。</p>
 <p>这里无需担心相关的 BPF 指令集，后续我们会详细展开解释。1 个 BPF 指令由 8 个字节组成，格式定义如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">struct</span> bpf_insn {    
-    __u8    code;       <span style="color:#f00;font-style:italic">/* opcode */</span>    
-    __u8    dst_reg:4;  <span style="color:#f00;font-style:italic">/* dest register */</span>           __u8    src_reg:4;    <span style="color:#f00;font-style:italic">/* source register */</span>         __s16   off;          <span style="color:#f00;font-style:italic">/* signed offset */</span>    
-    __s32   imm;     <span style="color:#f00;font-style:italic">/* signed immediate constant */</span> }; 
-</code></pre></div><p>通过上述结构对应拆解一下 <strong>”7:“</strong> 行（其中包含了 2 条 BPF 指令，为 BPF 指令中的特殊指令，运行时会被解析成 1 条指令执行） ，第 1 条 BPF 指令详细的信息如下：（这里忽略了 off 字段）</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> bpf_insn {    
+</span></span><span style="display:flex;"><span>    __u8    code;       <span style="color:#f00;font-style:italic">/* opcode */</span>    
+</span></span><span style="display:flex;"><span>    __u8    dst_reg:4;  <span style="color:#f00;font-style:italic">/* dest register */</span>           __u8    src_reg:4;    <span style="color:#f00;font-style:italic">/* source register */</span>         __s16   off;          <span style="color:#f00;font-style:italic">/* signed offset */</span>    
+</span></span><span style="display:flex;"><span>    __s32   imm;     <span style="color:#f00;font-style:italic">/* signed immediate constant */</span> }; 
+</span></span></code></pre></div><p>通过上述结构对应拆解一下 <strong>”7:“</strong> 行（其中包含了 2 条 BPF 指令，为 BPF 指令中的特殊指令，运行时会被解析成 1 条指令执行） ，第 1 条 BPF 指令详细的信息如下：（这里忽略了 off 字段）</p>
 <ul>
 <li><code>opcode</code> 为 0x18，即 <code>BPF_LD | BPF_IMM | BPF_DW</code>。该 opcode 表示要将一个 64 位的立即数加载到目标寄存器。</li>
 <li><code>dst_reg </code>是 1（4 个 bit 位），代表寄存器 <code>r1</code>。</li>
@@ -390,42 +387,42 @@ my_map = { .type = BPF_MAP_TYPE_ARRAY,
 <h3 id="32-加载器创建-map-对象">3.2 加载器创建 map 对象</h3>
 <p>当加载器（loader）在加载 ELF 对象 <code>sockex1_kern.o</code> 时，其首先会从 ELF 格式的 <code>maps</code> 区域获取到定义的 map 对象 <code>my_map</code> 及相关的属性， 然后通过调用 <code>bpf()</code> 系统调用来创建 <code>my_map</code> 对象，如果创建成功，那么 <code>bpf()</code> 系统调用返回一个文件描述符 (map fd)。</p>
 <p>同时，加载器也会对于基于 map 元信息（比如名称 <code>my_map</code>）与通过 <code>bpf()</code> 系统调用创建 map 后返回的 map fd 建立起对应关系，此后用户空间空间程序就可以使用 <code>my_map</code> 作为关键字获取到其对应的 fd，具体代码如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">map_fd = bpf_object__find_map_fd_by_name(obj, <span style="color:#009c00">&#34;my_map&#34;</span>); 
-</code></pre></div><p>用户空间获取到了 map 对象的 fd，后续可用于 <code>map_lookup_elem（map_fd, ...)</code> 函数进行 map 的查询等操作。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>map_fd = bpf_object__find_map_fd_by_name(obj, <span style="color:#009c00">&#34;my_map&#34;</span>); 
+</span></span></code></pre></div><p>用户空间获取到了 map 对象的 fd，后续可用于 <code>map_lookup_elem（map_fd, ...)</code> 函数进行 map 的查询等操作。</p>
 <h3 id="33-第一次变身-map-fd-替换">3.3 第一次变身： map fd 替换</h3>
 <p>以上完成了 my_map 对象的创建，但是在 BPF 字节码程序加载到内核前，还需要将 map fd 在 BPF 指令集中完成第一次变身，如函数 <code>lib/bpf.c: bpf_apply_relo_map()</code> 的代码片段所示：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"> prog-&gt;insns[insn_off].src_reg = BPF_PSEUDO_MAP_FD; <span style="color:#f00;font-style:italic">// 值在内核中定义为 1        
-</span><span style="color:#f00;font-style:italic"></span> prog-&gt;insns[insn_off].imm = ctx-&gt;map_fds[map_idx]; <span style="color:#f00;font-style:italic">// ctx-&gt;map_fds[map_idx] 即为保存的 map fd 值。 
-</span></code></pre></div><p>这里假设获取到的 map 文件描述符为 6，那么在加载的 BPF 程序完成 <code>bpf_apply_relo_map</code> 的替换后上述的指令对比如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span> prog-&gt;insns[insn_off].src_reg = BPF_PSEUDO_MAP_FD; <span style="color:#f00;font-style:italic">// 值在内核中定义为 1        
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> prog-&gt;insns[insn_off].imm = ctx-&gt;map_fds[map_idx]; <span style="color:#f00;font-style:italic">// ctx-&gt;map_fds[map_idx] 即为保存的 map fd 值。 
+</span></span></span></code></pre></div><p>这里假设获取到的 map 文件描述符为 6，那么在加载的 BPF 程序完成 <code>bpf_apply_relo_map</code> 的替换后上述的指令对比如下：</p>
 <p>ELF 文件中的字节码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">7:	18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 0        </span>
-9:	85 00 00 00 01 00 00 00	call 1 <span style="color:#f00;font-style:italic"># 调用 bpf_map_lookup_elem，编号为 1 </span>
-</code></pre></div><p>替换 map fd 后的字节码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">7:	18 11 00 00 06 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll  <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 6        </span>
-9:	85 00 00 00 01 00 00 00	call 1 <span style="color:#f00;font-style:italic"># 调用 bpf_map_lookup_elem，编号为 1                      `</span>
-</code></pre></div><h3 id="34-第二次变身-map-fd-替换成-map-结构指针">3.4 第二次变身： map fd 替换成 map 结构指针</h3>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>7:	18 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 0        </span>
+</span></span><span style="display:flex;"><span>9:	85 00 00 00 01 00 00 00	call 1 <span style="color:#f00;font-style:italic"># 调用 bpf_map_lookup_elem，编号为 1 </span>
+</span></span></code></pre></div><p>替换 map fd 后的字节码：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>7:	18 11 00 00 06 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll  <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 6        </span>
+</span></span><span style="display:flex;"><span>9:	85 00 00 00 01 00 00 00	call 1 <span style="color:#f00;font-style:italic"># 调用 bpf_map_lookup_elem，编号为 1                      `</span>
+</span></span></code></pre></div><h3 id="34-第二次变身-map-fd-替换成-map-结构指针">3.4 第二次变身： map fd 替换成 map 结构指针</h3>
 <p>当上述经过第一次变身的 BPF 字节码加载到内核后，还需要进行一次变身，才能真正在内核中工作，这次 BPF 验证器（verifier）扛过大旗。</p>
 <p>验证器将加载器注入到指令中的 map fd 替换成内核中的 map 对象指针。调用堆栈的情况如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">sys_bpf()    --&gt; bpf_prog_load()        --&gt; bpf_check()            --&gt; replace_map_fd_with_map_ptr()           --&gt; do_check()                --&gt; check_ld_imm()                ==&gt; check_func_arg()            --&gt; convert_pseudo_ld_imm64()
-</code></pre></div><p>函数 <code>replace_map_fd_with_map_ptr()</code> 通过以下代码完成第二次大变身，实现了内核中 BPF 字节码的 <code>imm</code> 摇身一变成为 <code>map ptr</code> 地址。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">f = fdget(insn[0].imm);  <span style="color:#f00;font-style:italic">// 从第 1 条指令中的 imm 字段获取到加载器设置的 map fd        
-</span><span style="color:#f00;font-style:italic"></span>map = __bpf_map_get(f);  <span style="color:#f00;font-style:italic">// 基于 map fd 获取到 map 对象指针        
-</span><span style="color:#f00;font-style:italic"></span>addr = (<span style="color:#00f">unsigned</span> <span style="color:#00f">long</span>)map;          
-insn[0].imm = (u32)addr;   <span style="color:#f00;font-style:italic">// 将 map  对象指针低 32 位放入第一条指令中的 imm 字段        
-</span><span style="color:#f00;font-style:italic"></span>insn[1].imm = addr &gt;&gt; 32;  <span style="color:#f00;font-style:italic">// 将 map  对象指针高 32 位放入第二条指令中的 imm 字段
-</span></code></pre></div><p>于此同时，函数 <code>convert_pseudo_ld_imm64()</code> 还需要清理加载器设置的 <code>src_reg = BPF_PSEUDO_MAP_FD</code> 操作（ <code>prog-&gt;insns[insn_off].src_reg = BPF_PSEUDO_MAP_FD;</code>）， 用于表明完成了整个指令的重写工作：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">if</span> (insn-&gt;code == (BPF_LD | BPF_IMM | BPF_DW))                insn-&gt;src_reg = 0; 
-</code></pre></div><p>如果这里的 <code>my_map</code> 在内核中 64 位地址为 <code>0xffff8881384aa200</code>，那么验证器完成第二次变身后的 BPF 字节码对比如下。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>sys_bpf()    --&gt; bpf_prog_load()        --&gt; bpf_check()            --&gt; replace_map_fd_with_map_ptr()           --&gt; do_check()                --&gt; check_ld_imm()                ==&gt; check_func_arg()            --&gt; convert_pseudo_ld_imm64()
+</span></span></code></pre></div><p>函数 <code>replace_map_fd_with_map_ptr()</code> 通过以下代码完成第二次大变身，实现了内核中 BPF 字节码的 <code>imm</code> 摇身一变成为 <code>map ptr</code> 地址。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>f = fdget(insn[0].imm);  <span style="color:#f00;font-style:italic">// 从第 1 条指令中的 imm 字段获取到加载器设置的 map fd        
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>map = __bpf_map_get(f);  <span style="color:#f00;font-style:italic">// 基于 map fd 获取到 map 对象指针        
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>addr = (<span style="color:#00f">unsigned</span> <span style="color:#00f">long</span>)map;          
+</span></span><span style="display:flex;"><span>insn[0].imm = (u32)addr;   <span style="color:#f00;font-style:italic">// 将 map  对象指针低 32 位放入第一条指令中的 imm 字段        
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>insn[1].imm = addr &gt;&gt; 32;  <span style="color:#f00;font-style:italic">// 将 map  对象指针高 32 位放入第二条指令中的 imm 字段
+</span></span></span></code></pre></div><p>于此同时，函数 <code>convert_pseudo_ld_imm64()</code> 还需要清理加载器设置的 <code>src_reg = BPF_PSEUDO_MAP_FD</code> 操作（ <code>prog-&gt;insns[insn_off].src_reg = BPF_PSEUDO_MAP_FD;</code>）， 用于表明完成了整个指令的重写工作：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">if</span> (insn-&gt;code == (BPF_LD | BPF_IMM | BPF_DW))                insn-&gt;src_reg = 0; 
+</span></span></code></pre></div><p>如果这里的 <code>my_map</code> 在内核中 64 位地址为 <code>0xffff8881384aa200</code>，那么验证器完成第二次变身后的 BPF 字节码对比如下。</p>
 <p>替换 map fd 后的字节码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">7:	18 11 00 00 06 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll  <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 6        </span>
-9:	85 00 00 00 01 00 00 00	call 1                  <span style="color:#f00;font-style:italic"># 调用 bpf_map_lookup_elem，编号为 1  </span>
-</code></pre></div><p>替换为 map 对象指针后的字节码如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">7： 18 01 00 00 00 a2 4a 38 00 00 00 00 81 88 ff ff           <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 0xffff8881384aa200 9： 85 00 00 00 30 86 01 00 # 调用 bpf_map_lookup_elem，编号为 1 </span>
-</code></pre></div><p>在完成了上述两次变身后，当在内核中调用 <code>map_lookup_elem()</code> 时，第一个参数 <code>my_map</code> 的值为 <code>0xffff8881384aa200</code>，</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>7:	18 11 00 00 06 00 00 00 00 00 00 00 00 00 00 00	r1 = 0 ll  <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 6        </span>
+</span></span><span style="display:flex;"><span>9:	85 00 00 00 01 00 00 00	call 1                  <span style="color:#f00;font-style:italic"># 调用 bpf_map_lookup_elem，编号为 1  </span>
+</span></span></code></pre></div><p>替换为 map 对象指针后的字节码如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>7： 18 01 00 00 00 a2 4a 38 00 00 00 00 81 88 ff ff           <span style="color:#f00;font-style:italic"># 64 位直接数赋值 , r1 = 0xffff8881384aa200 9： 85 00 00 00 30 86 01 00 # 调用 bpf_map_lookup_elem，编号为 1 </span>
+</span></span></code></pre></div><p>在完成了上述两次变身后，当在内核中调用 <code>map_lookup_elem()</code> 时，第一个参数 <code>my_map</code> 的值为 <code>0xffff8881384aa200</code>，</p>
 <p>从而实现了从最早的 ELF 中的 0 ，替换成了 map_fd (6)，直到最后的 map 对象 <code>struct bpf_map * (0xffff8881384aa200)</code>。</p>
 <p>提示，内核中 <code>bpf_map_lookup_elem</code> 辅助函数的原型定义为：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">static</span> <span style="color:#00f">void</span> *(*bpf_map_lookup_elem)(<span style="color:#00f">struct</span> bpf_map *map, <span style="color:#00f">void</span> *key) 
-</code></pre></div><h2 id="4-整个流程总结">4. 整个流程总结</h2>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> *(*bpf_map_lookup_elem)(<span style="color:#00f">struct</span> bpf_map *map, <span style="color:#00f">void</span> *key) 
+</span></span></code></pre></div><h2 id="4-整个流程总结">4. 整个流程总结</h2>
 <p>通过上述 map 访问指令的 2 次大变身，我们可以清晰了解 map 创建、map fd 指令重写和 map ptr 对象的重写，也能够彻底明白用户空间 map fd 与内核中 map 对象指针的关联关系。</p>
 <p>俗话说一图胜千言，这里我们用一张图进行整个流程的总结：</p>
 <p><img src="https://www.ebpf.top/post/map_internal/imgs/map_load_process.png" alt="img"></p>

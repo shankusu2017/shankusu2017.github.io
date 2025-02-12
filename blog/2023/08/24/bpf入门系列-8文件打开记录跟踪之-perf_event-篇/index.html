@@ -319,54 +319,54 @@
 </ul>
 <h2 id="代码实现">代码实现</h2>
 <p>原始代码如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f00;font-style:italic">#!/usr/bin/python</span>
-<span style="color:#00f">from</span> bcc <span style="color:#00f">import</span> BPF
-
-prog = <span style="color:#009c00">&#34;&#34;&#34;
-</span><span style="color:#009c00">int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {
-</span><span style="color:#009c00">    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">    bpf_trace_printk(&#34;</span><span style="color:#009c00">%d</span><span style="color:#009c00"> [</span><span style="color:#009c00">%s</span><span style="color:#009c00">]</span><span style="color:#009c00">\\</span><span style="color:#009c00">n&#34;, pid, filename);
-</span><span style="color:#009c00">    return 0;
-</span><span style="color:#009c00">}
-</span><span style="color:#009c00">&#34;&#34;&#34;</span>
-
-b = BPF(text=prog)
-b.attach_kprobe(event=b.get_syscall_fnname(<span style="color:#009c00">&#34;open&#34;</span>), fn_name=<span style="color:#009c00">&#34;trace_syscall_open&#34;</span>)
-<span style="color:#00f">try</span>:
-    b.trace_print()
-<span style="color:#00f">except</span> KeyboardInterrupt:
-    exit()
-</code></pre></div><p>按照上述的步骤，调整后的 Probe 的程序如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">prog = <span style="color:#009c00">&#34;&#34;&#34;
-</span><span style="color:#009c00">#include &lt;uapi/linux/limits.h&gt; // for  NAME_MAX
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">// 1 define struct
-</span><span style="color:#009c00">struct event_data_t {
-</span><span style="color:#009c00">    u32 pid;
-</span><span style="color:#009c00">    char fname[NAME_MAX];  // max of filename
-</span><span style="color:#009c00">};
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">// 2. declare BPF_PERF_OUTPUT define
-</span><span style="color:#009c00">BPF_PERF_OUTPUT(open_events);
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {
-</span><span style="color:#009c00">    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">    // 3.1 define event data and fill data
-</span><span style="color:#009c00">    struct event_data_t evt = </span><span style="color:#009c00">{}</span><span style="color:#009c00">;
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">    evt.pid = pid;
-</span><span style="color:#009c00">    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)filename);
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">    // bpf_trace_printk(&#34;</span><span style="color:#009c00">%d</span><span style="color:#009c00"> [</span><span style="color:#009c00">%s</span><span style="color:#009c00">]</span><span style="color:#009c00">\\</span><span style="color:#009c00">n&#34;, pid, filename); =&gt;
-</span><span style="color:#009c00">    // 3.2 submit the event
-</span><span style="color:#009c00">    open_events.perf_submit(ctx, &amp;evt, sizeof(evt));
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">    return 0;
-</span><span style="color:#009c00">}
-</span><span style="color:#009c00">&#34;&#34;&#34;</span>
-</code></pre></div><p>这里将详细介绍我们进行的相关调整：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#!/usr/bin/python</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">from</span> bcc <span style="color:#00f">import</span> BPF
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>prog = <span style="color:#009c00">&#34;&#34;&#34;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    bpf_trace_printk(&#34;</span><span style="color:#009c00">%d</span><span style="color:#009c00"> [</span><span style="color:#009c00">%s</span><span style="color:#009c00">]</span><span style="color:#009c00">\\</span><span style="color:#009c00">n&#34;, pid, filename);
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    return 0;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">}
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">&#34;&#34;&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>b = BPF(text=prog)
+</span></span><span style="display:flex;"><span>b.attach_kprobe(event=b.get_syscall_fnname(<span style="color:#009c00">&#34;open&#34;</span>), fn_name=<span style="color:#009c00">&#34;trace_syscall_open&#34;</span>)
+</span></span><span style="display:flex;"><span><span style="color:#00f">try</span>:
+</span></span><span style="display:flex;"><span>    b.trace_print()
+</span></span><span style="display:flex;"><span><span style="color:#00f">except</span> KeyboardInterrupt:
+</span></span><span style="display:flex;"><span>    exit()
+</span></span></code></pre></div><p>按照上述的步骤，调整后的 Probe 的程序如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span>prog = <span style="color:#009c00">&#34;&#34;&#34;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">#include &lt;uapi/linux/limits.h&gt; // for  NAME_MAX
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">// 1 define struct
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">struct event_data_t {
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u32 pid;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    char fname[NAME_MAX];  // max of filename
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">};
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">// 2. declare BPF_PERF_OUTPUT define
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">BPF_PERF_OUTPUT(open_events);
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u32 pid = bpf_get_current_pid_tgid() &gt;&gt; 32;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    // 3.1 define event data and fill data
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    struct event_data_t evt = </span><span style="color:#009c00">{}</span><span style="color:#009c00">;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    evt.pid = pid;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)filename);
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    // bpf_trace_printk(&#34;</span><span style="color:#009c00">%d</span><span style="color:#009c00"> [</span><span style="color:#009c00">%s</span><span style="color:#009c00">]</span><span style="color:#009c00">\\</span><span style="color:#009c00">n&#34;, pid, filename); =&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    // 3.2 submit the event
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    open_events.perf_submit(ctx, &amp;evt, sizeof(evt));
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    return 0;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">}
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">&#34;&#34;&#34;</span>
+</span></span></code></pre></div><p>这里将详细介绍我们进行的相关调整：</p>
 <ol>
 <li>定义了内核 Probe 程序与用户空间程序通信的结构体 <code>event_data_t</code>，包含 <code>pid</code> 和 <code>filename</code> 两个字段；</li>
 <li>使用 BCC 提供的宏 <code>BPF_PERF_OUTPUT(open_events)</code> 完成内核中 <code>open_events</code> 变量的定义；</li>
@@ -374,34 +374,34 @@ b.attach_kprobe(event=b.get_syscall_fnname(<span style="color:#009c00">&#34;open
 <li>最后，使用 <code>open_events.perf_submit</code> 将 <code>event</code> 数据发送至用户空间；</li>
 </ol>
 <p>上述代码，完成了我们在内核 Probe 程序中的所有工作。用户空间 Python 程序则需要定义 <code>event</code> 消费函数，并使用 <code>perf_buffer_poll</code> 函数轮训消费即可。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#f00;font-style:italic"># 1.1 define process event</span>
-<span style="color:#00f">def</span> <span style="color:#c34e00">print_event</span>(cpu, data, size):
-  event = b[<span style="color:#009c00">&#34;open_events&#34;</span>].event(data)
-  print(<span style="color:#009c00">&#34;Rcv Event </span><span style="color:#009c00">%d</span><span style="color:#009c00">, </span><span style="color:#009c00">%s</span><span style="color:#009c00">&#34;</span>%(event.pid, event.fname))
-
-<span style="color:#f00;font-style:italic"># 1.2 loop with callback to print_event</span>
-b[<span style="color:#009c00">&#34;open_events&#34;</span>].open_perf_buffer(print_event)
-<span style="color:#00f">while</span> <span style="color:#00f">True</span>:
-    <span style="color:#00f">try</span>:
-        b.perf_buffer_poll()  <span style="color:#f00;font-style:italic"># 2. perf poll</span>
-    <span style="color:#00f">except</span> KeyboardInterrupt:
-        exit()
-</code></pre></div><p>在用户空间的 Python 代码中，当前我们只需要定义事件处理函数，将事件与函数进行关联，然后持续轮询数据即可。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># 1.1 define process event</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">def</span> <span style="color:#c34e00">print_event</span>(cpu, data, size):
+</span></span><span style="display:flex;"><span>  event = b[<span style="color:#009c00">&#34;open_events&#34;</span>].event(data)
+</span></span><span style="display:flex;"><span>  print(<span style="color:#009c00">&#34;Rcv Event </span><span style="color:#009c00">%d</span><span style="color:#009c00">, </span><span style="color:#009c00">%s</span><span style="color:#009c00">&#34;</span>%(event.pid, event.fname))
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># 1.2 loop with callback to print_event</span>
+</span></span><span style="display:flex;"><span>b[<span style="color:#009c00">&#34;open_events&#34;</span>].open_perf_buffer(print_event)
+</span></span><span style="display:flex;"><span><span style="color:#00f">while</span> <span style="color:#00f">True</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">try</span>:
+</span></span><span style="display:flex;"><span>        b.perf_buffer_poll()  <span style="color:#f00;font-style:italic"># 2. perf poll</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">except</span> KeyboardInterrupt:
+</span></span><span style="display:flex;"><span>        exit()
+</span></span></code></pre></div><p>在用户空间的 Python 代码中，当前我们只需要定义事件处理函数，将事件与函数进行关联，然后持续轮询数据即可。</p>
 <ol>
 <li>
 <p>我们定义了事件处理函数 <code>print_event</code>，然后读取出对应的数据并生成结构数据 ，<code>event = b[&quot;open_events&quot;].event(data)</code>，此处不用再声明 Python 中的结构体变量，BCC 已经协助处理，否则需要我们显示定义，在一些早期的 BCC 代码中还可以看到手工转换的场景。</p>
 </li>
 <li>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"> <span style="color:#00f">import</span> ctypes
- <span style="color:#00f">class</span> <span style="color:#007575">OpenEvt</span>(ctypes.Structure):
-     _fields_ = [
-         (<span style="color:#009c00">&#34;pid&#34;</span>,   ctypes.c_uint),
-         (<span style="color:#009c00">&#34;fname&#34;</span>, ctypes.c_char * MAX_STR_LEN),
-     ]
-
- <span style="color:#f00;font-style:italic"># event 处理函数中强制 cast 使用    </span>
- <span style="color:#f00;font-style:italic"># event = ct.cast(data, ct.POINTER(OpenEvt)).contents</span>
-</code></pre></div><p>``</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span> <span style="color:#00f">import</span> ctypes
+</span></span><span style="display:flex;"><span> <span style="color:#00f">class</span> <span style="color:#007575">OpenEvt</span>(ctypes.Structure):
+</span></span><span style="display:flex;"><span>     _fields_ = [
+</span></span><span style="display:flex;"><span>         (<span style="color:#009c00">&#34;pid&#34;</span>,   ctypes.c_uint),
+</span></span><span style="display:flex;"><span>         (<span style="color:#009c00">&#34;fname&#34;</span>, ctypes.c_char * MAX_STR_LEN),
+</span></span><span style="display:flex;"><span>     ]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#f00;font-style:italic"># event 处理函数中强制 cast 使用    </span>
+</span></span><span style="display:flex;"><span> <span style="color:#f00;font-style:italic"># event = ct.cast(data, ct.POINTER(OpenEvt)).contents</span>
+</span></span></code></pre></div><p>`</p>
 </li>
 <li></li>
 <li>
@@ -409,10 +409,10 @@ b[<span style="color:#009c00">&#34;open_events&#34;</span>].open_perf_buffer(pri
 </li>
 </ol>
 <p>运行结果如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#f00;font-style:italic">#./open_perf_output.py</span>
-Rcv Event 1732, /var/log/secure
-Rcv Event 12846, /usr/lib64/python2.7/encodings/ascii.so
-</code></pre></div><p>完整样例可以参考 <a href="https://github.com/DavadDi/bpf_study/blob/master/ebpf_bcc_trace_open_ex/open_perf_output.py">open_perf_output.py</a>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#./open_perf_output.py</span>
+</span></span><span style="display:flex;"><span>Rcv Event 1732, /var/log/secure
+</span></span><span style="display:flex;"><span>Rcv Event 12846, /usr/lib64/python2.7/encodings/ascii.so
+</span></span></code></pre></div><p>完整样例可以参考 <a href="https://github.com/DavadDi/bpf_study/blob/master/ebpf_bcc_trace_open_ex/open_perf_output.py">open_perf_output.py</a>。</p>
 <h2 id="3-总结">3. 总结</h2>
 <p>通过我们上述代码样例，相信你已经非常熟悉了如何使用 BPF_PERF_OUTPUT 方式，在直接编写的各种跟踪程序中，优先推荐使用这种方式进行高效的数据通信。</p>
 <ul>

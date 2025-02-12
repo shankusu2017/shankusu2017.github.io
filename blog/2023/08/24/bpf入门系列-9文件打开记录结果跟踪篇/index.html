@@ -312,59 +312,59 @@
 <li>新增加跟踪函数返回结果函数 <code>trace_syscall_open_return</code> ，读取函数返回结果，并读取 <code>trace_syscall_open</code> 保存的入口相关信息合并后使用 <code>perf_submit</code> 函数发送数据；</li>
 </ol>
 <p>prog 相关代码调整后如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">prog = <span style="color:#009c00">&#34;&#34;&#34;
-</span><span style="color:#009c00">#include &lt;uapi/linux/limits.h&gt; // for  NAME_MAX
-</span><span style="color:#009c00">#include &lt;linux/sched.h&gt;       // for TASK_COMM_LEN
-</span><span style="color:#009c00">struct event_data_t {
-</span><span style="color:#009c00">    u32 pid;
-</span><span style="color:#009c00">    u32 ret;                    // 1. sys_open 的返回结果
-</span><span style="color:#009c00">    char comm[TASK_COMM_LEN];   // 1. 增加当前进程的命令行
-</span><span style="color:#009c00">    char fname[NAME_MAX];
-</span><span style="color:#009c00">};
-</span><span style="color:#009c00">// 1. add 
-</span><span style="color:#009c00">struct val_t {
-</span><span style="color:#009c00">    u64 id;
-</span><span style="color:#009c00">    const char *fname;
-</span><span style="color:#009c00">};
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">BPF_HASH(infotmp, u64, struct val_t); // 1. 增加保存中间结果的 HASH_MAP
-</span><span style="color:#009c00">BPF_PERF_OUTPUT(open_events);
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {
-</span><span style="color:#009c00">    struct val_t val = </span><span style="color:#009c00">{}</span><span style="color:#009c00">;
-</span><span style="color:#009c00">    u64 id = bpf_get_current_pid_tgid();
-</span><span style="color:#009c00">  
-</span><span style="color:#009c00">    val.id = id;
-</span><span style="color:#009c00">    val.fname = filename;
-</span><span style="color:#009c00">  
-</span><span style="color:#009c00">    infotmp.update(&amp;id, &amp;val);  // 2. 保存中间结果至 hash_map 中
-</span><span style="color:#009c00">  
-</span><span style="color:#009c00">    return 0;
-</span><span style="color:#009c00">}
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">int trace_syscall_open_return(struct pt_regs *ctx) // 3.1 新增加 ret 跟踪函数
-</span><span style="color:#009c00">{
-</span><span style="color:#009c00">    u64 id = bpf_get_current_pid_tgid();
-</span><span style="color:#009c00">    struct val_t *valp;
-</span><span style="color:#009c00">    struct event_data_t evt = </span><span style="color:#009c00">{}</span><span style="color:#009c00">;
-</span><span style="color:#009c00">  
-</span><span style="color:#009c00">    valp = infotmp.lookup(&amp;id); // 3.2 从 hash_map 中获取到  sys_open 函数保存的中间数据
-</span><span style="color:#009c00">    if (valp == 0) {
-</span><span style="color:#009c00">        // missed entry
-</span><span style="color:#009c00">        return 0;
-</span><span style="color:#009c00">    }
-</span><span style="color:#009c00">    evt.pid = id &gt;&gt; 32;
-</span><span style="color:#009c00">    evt.ret = PT_REGS_RC(ctx); // 3.3 读取结果值
-</span><span style="color:#009c00">    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)valp-&gt;fname);
-</span><span style="color:#009c00">    bpf_get_current_comm(&amp;evt.comm, sizeof(evt.comm));  // 3.4 读取当前进程的 commandline 至结构体中
-</span><span style="color:#009c00">  
-</span><span style="color:#009c00">    open_events.perf_submit(ctx, &amp;evt, sizeof(evt));
-</span><span style="color:#009c00">  
-</span><span style="color:#009c00">    infotmp.delete(&amp;id);  // 3.4 完成跟踪删除中间结果
-</span><span style="color:#009c00">    return 0;
-</span><span style="color:#009c00">}
-</span><span style="color:#009c00">&#34;&#34;&#34;</span>
-</code></pre></div><p>对于代码的调整，这里我们详细进行解释：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span>prog = <span style="color:#009c00">&#34;&#34;&#34;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">#include &lt;uapi/linux/limits.h&gt; // for  NAME_MAX
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">#include &lt;linux/sched.h&gt;       // for TASK_COMM_LEN
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">struct event_data_t {
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u32 pid;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u32 ret;                    // 1. sys_open 的返回结果
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    char comm[TASK_COMM_LEN];   // 1. 增加当前进程的命令行
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    char fname[NAME_MAX];
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">};
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">// 1. add 
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">struct val_t {
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u64 id;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    const char *fname;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">};
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">BPF_HASH(infotmp, u64, struct val_t); // 1. 增加保存中间结果的 HASH_MAP
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">BPF_PERF_OUTPUT(open_events);
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">int trace_syscall_open(struct pt_regs *ctx, const char __user *filename, int flags) {
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    struct val_t val = </span><span style="color:#009c00">{}</span><span style="color:#009c00">;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u64 id = bpf_get_current_pid_tgid();
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">  
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    val.id = id;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    val.fname = filename;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">  
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    infotmp.update(&amp;id, &amp;val);  // 2. 保存中间结果至 hash_map 中
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">  
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    return 0;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">}
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">int trace_syscall_open_return(struct pt_regs *ctx) // 3.1 新增加 ret 跟踪函数
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">{
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    u64 id = bpf_get_current_pid_tgid();
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    struct val_t *valp;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    struct event_data_t evt = </span><span style="color:#009c00">{}</span><span style="color:#009c00">;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">  
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    valp = infotmp.lookup(&amp;id); // 3.2 从 hash_map 中获取到  sys_open 函数保存的中间数据
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    if (valp == 0) {
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">        // missed entry
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">        return 0;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    }
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    evt.pid = id &gt;&gt; 32;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    evt.ret = PT_REGS_RC(ctx); // 3.3 读取结果值
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    bpf_probe_read(&amp;evt.fname, sizeof(evt.fname), (void *)valp-&gt;fname);
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    bpf_get_current_comm(&amp;evt.comm, sizeof(evt.comm));  // 3.4 读取当前进程的 commandline 至结构体中
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">  
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    open_events.perf_submit(ctx, &amp;evt, sizeof(evt));
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">  
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    infotmp.delete(&amp;id);  // 3.4 完成跟踪删除中间结果
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    return 0;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">}
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">&#34;&#34;&#34;</span>
+</span></span></code></pre></div><p>对于代码的调整，这里我们详细进行解释：</p>
 <ol>
 <li>主要增加功能对应的数据结构（或调整），并增加数据存储相关的定义。
 <ul>
@@ -385,23 +385,23 @@
 </ol>
 <p>至此，BPF 程序的调整已经完成，由于我们新增了 <code>kretprobe</code> 方式跟踪，因此需要在用户空间增加对应的关联动作。</p>
 <h3 id="用户空间程序">用户空间程序</h3>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">b.attach_kretprobe(event=b.get_syscall_fnname(<span style="color:#009c00">&#34;open&#34;</span>), fn_name=<span style="color:#009c00">&#34;trace_syscall_open_return&#34;</span>) <span style="color:#f00;font-style:italic"># 1. add</span>
-
-<span style="color:#f00;font-style:italic"># process event</span>
-<span style="color:#00f">def</span> <span style="color:#c34e00">print_event</span>(cpu, data, size):
-  event = b[<span style="color:#009c00">&#34;open_events&#34;</span>].event(data)
-  print(<span style="color:#009c00">&#34;[</span><span style="color:#009c00">%s</span><span style="color:#009c00">] </span><span style="color:#009c00">%d</span><span style="color:#009c00">, </span><span style="color:#009c00">%s</span><span style="color:#009c00">, res: </span><span style="color:#009c00">%d</span><span style="color:#009c00">&#34;</span>%(event.comm, event.pid, event.fname, event.ret))  <span style="color:#f00;font-style:italic"># 2. print</span>
-</code></pre></div><p>用户空间程序的调整相对比较少，增加 <code>kretprobe</code> 跟踪，并在事件跟踪函数中打印出我们新增加的对应字段：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span>b.attach_kretprobe(event=b.get_syscall_fnname(<span style="color:#009c00">&#34;open&#34;</span>), fn_name=<span style="color:#009c00">&#34;trace_syscall_open_return&#34;</span>) <span style="color:#f00;font-style:italic"># 1. add</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># process event</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">def</span> <span style="color:#c34e00">print_event</span>(cpu, data, size):
+</span></span><span style="display:flex;"><span>  event = b[<span style="color:#009c00">&#34;open_events&#34;</span>].event(data)
+</span></span><span style="display:flex;"><span>  print(<span style="color:#009c00">&#34;[</span><span style="color:#009c00">%s</span><span style="color:#009c00">] </span><span style="color:#009c00">%d</span><span style="color:#009c00">, </span><span style="color:#009c00">%s</span><span style="color:#009c00">, res: </span><span style="color:#009c00">%d</span><span style="color:#009c00">&#34;</span>%(event.comm, event.pid, event.fname, event.ret))  <span style="color:#f00;font-style:italic"># 2. print</span>
+</span></span></code></pre></div><p>用户空间程序的调整相对比较少，增加 <code>kretprobe</code> 跟踪，并在事件跟踪函数中打印出我们新增加的对应字段：</p>
 <ol>
 <li><code>b.attach_kretprobe</code> 函数将将 <code>sys_open</code> 函数的结果跟踪与函数 <code>trace_syscall_open_return</code> 完成关联；</li>
 <li>我们在 <code>print_event</code> 函数中增加新增结构体字段 <code>comm</code> 和 <code>ret</code> 的打印；</li>
 </ol>
 <p>函数运行的结果如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash"><span style="color:#f00;font-style:italic">#./open_perf_output_ret.py</span>
-[CmsGoAgent.linu] 722, /proc/7744/cmdline, res: 5
-[CmsGoAgent.linu] 722, /proc/7744/stat, res: 5
-[CmsGoAgent.linu] 722, /proc/7744/status, res: 5
-</code></pre></div><p>完整代码可以参见 <a href="https://github.com/DavadDi/bpf_study/blob/master/ebpf_bcc_trace_open_ex/open_perf_output_ret.py">open_perf_output_ret.py</a>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#./open_perf_output_ret.py</span>
+</span></span><span style="display:flex;"><span>[CmsGoAgent.linu] 722, /proc/7744/cmdline, res: 5
+</span></span><span style="display:flex;"><span>[CmsGoAgent.linu] 722, /proc/7744/stat, res: 5
+</span></span><span style="display:flex;"><span>[CmsGoAgent.linu] 722, /proc/7744/status, res: 5
+</span></span></code></pre></div><p>完整代码可以参见 <a href="https://github.com/DavadDi/bpf_study/blob/master/ebpf_bcc_trace_open_ex/open_perf_output_ret.py">open_perf_output_ret.py</a>。</p>
 <h2 id="3-总结">3. 总结</h2>
 <p>支持我们通过 3 篇文章介绍了如何在 BPF 技术中使用 <code>kprobe</code> 技术跟踪 <code>open</code> 系统调用，并展示了如何使用 perf_event 的方式进行数据通信；最后我们使用 <code>kretprobe</code> 技术实现了 <code>open</code> 系统调用的返回值，并使用 BPF 技术中实现的 HASH_MAP 保存中间临时结果，并在 <code>kretprobe</code>对应的跟踪函数中将函数入口信息与结果值合并传递值用户空间。</p>
 <p>基于上述案例，我们可以很容易扩展到其他相关的系统调用，并通过功能增强实现我们自己的 BPF 跟踪程序。</p>

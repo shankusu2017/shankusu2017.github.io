@@ -320,91 +320,91 @@
 <p>第一个练习要学习的，就是链路层的交换机是如何实现转发机制的，也就是根据一个已知的 MAC 地址，交换机要知道对应的端口是哪一个。真正的交换机都是自动学习这样一个映射关系的，我们在最后一个练习就会看到。在第一个练习里，我们把复杂的过程拆解，先实现一个静态的转发映射表练练手。</p>
 <p>在我们要完成的 <code>p4src/l2_basic_forwarding.p4</code> 这个文件中，我们有一系列的 TODOs 要完成，我们一个一个说。</p>
 <p>第一步，我们要定义一些数据类型，比如我们链路层的 header，还有常规的 metadata。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">/*************************************************************************
-</span><span style="color:#f00;font-style:italic">*********************** H E A D E R S  ***********************************
-</span><span style="color:#f00;font-style:italic">*************************************************************************/</span>
-
-<span style="color:#00f">typedef</span> bit&lt;9&gt;  egressSpec_t;       <span style="color:#f00;font-style:italic">// 定义端口类型，占 9 个 bit
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> bit&lt;48&gt; macAddr_t;          <span style="color:#f00;font-style:italic">// 链路层地址，占 48 个 bit
-</span><span style="color:#f00;font-style:italic"></span>
-header ethernet_t {                 <span style="color:#f00;font-style:italic">// 链路层的 header
-</span><span style="color:#f00;font-style:italic"></span>    macAddr_t dstAddr;
-    macAddr_t srcAddr;
-    bit&lt;16&gt;   etherType;
-}
-
-<span style="color:#00f">struct</span> metadata {                   <span style="color:#f00;font-style:italic">// metadata 这里虽然没有用到，但作为标准的参数，我们要给出定义
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">/* empty */</span>
-}
-
-<span style="color:#00f">struct</span> headers {                    <span style="color:#f00;font-style:italic">// 这里列出所有需要的 header，这个练习里只需要链路层的部分
-</span><span style="color:#f00;font-style:italic"></span>    ethernet_t   ethernet;
-}
-</code></pre></div><p>第二步，我们要定义一个 Match-Action 的表，把 MAC 地址映射到对应端口上。其实这一步类似于上一个 Repeater 的练习。定义表的时候，我们通常要定义四个部分，(i) 键值，(ii) 动作，(iii) 表的大小，和 (iv) 默认的动作。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">/*************************************************************************
-</span><span style="color:#f00;font-style:italic">**************  I N G R E S S   P R O C E S S I N G   *******************
-</span><span style="color:#f00;font-style:italic">*************************************************************************/</span>
-
-control <span style="color:#c34e00">MyIngress</span>(inout headers hdr,
-                  inout metadata meta,
-                  inout standard_metadata_t standard_metadata) {
-
-    action drop() {
-
-        mark_to_drop(standard_metadata);
-    }
-
-    action forward(bit&lt;9&gt; egress_port) {    <span style="color:#f00;font-style:italic">// 转发的动作，就是把在表中查到的 port 赋值给 egress_spec
-</span><span style="color:#f00;font-style:italic"></span>        standard_metadata.egress_spec = egress_port;
-    }
-
-    table dmac {                            <span style="color:#f00;font-style:italic">// 定义一个表叫 dmac
-</span><span style="color:#f00;font-style:italic"></span>        key = {
-            hdr.ethernet.dstAddr: exact;    <span style="color:#f00;font-style:italic">// Match 的时候就看目标 MAC 地址是否完全一样
-</span><span style="color:#f00;font-style:italic"></span>        }
-
-        actions = {                         <span style="color:#f00;font-style:italic">// 列出所有的需要的动作
-</span><span style="color:#f00;font-style:italic"></span>            forward;
-            NoAction;                                   
-        }
-
-        size = 256;
-        default_action = NoAction;          <span style="color:#f00;font-style:italic">// 如果表里没有查到，先不进行任何动作
-</span><span style="color:#f00;font-style:italic"></span>    }
-
-    apply {
-        dmac.apply();                       <span style="color:#f00;font-style:italic">// 记得要 apply 才会用上这个表
-</span><span style="color:#f00;font-style:italic"></span>    }
-}
-</code></pre></div><p>定义好了我们的表之后，还需要在表里面填写好转发的规则，否则现在我们的 <code>dmac</code> 表还是空的，全部 packet 都会 miss，然后会默认选择 NoAction。所以我们要像上次 Repeater 里面一样，用 CLI 语言写好我们的规则。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*************************************************************************
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*********************** H E A D E R S  ***********************************
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*************************************************************************/</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">typedef</span> bit&lt;9&gt;  egressSpec_t;       <span style="color:#f00;font-style:italic">// 定义端口类型，占 9 个 bit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">typedef</span> bit&lt;48&gt; macAddr_t;          <span style="color:#f00;font-style:italic">// 链路层地址，占 48 个 bit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span>header ethernet_t {                 <span style="color:#f00;font-style:italic">// 链路层的 header
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    macAddr_t dstAddr;
+</span></span><span style="display:flex;"><span>    macAddr_t srcAddr;
+</span></span><span style="display:flex;"><span>    bit&lt;16&gt;   etherType;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> metadata {                   <span style="color:#f00;font-style:italic">// metadata 这里虽然没有用到，但作为标准的参数，我们要给出定义
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">/* empty */</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> headers {                    <span style="color:#f00;font-style:italic">// 这里列出所有需要的 header，这个练习里只需要链路层的部分
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    ethernet_t   ethernet;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>第二步，我们要定义一个 Match-Action 的表，把 MAC 地址映射到对应端口上。其实这一步类似于上一个 Repeater 的练习。定义表的时候，我们通常要定义四个部分，(i) 键值，(ii) 动作，(iii) 表的大小，和 (iv) 默认的动作。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*************************************************************************
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">**************  I N G R E S S   P R O C E S S I N G   *******************
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*************************************************************************/</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>control <span style="color:#c34e00">MyIngress</span>(inout headers hdr,
+</span></span><span style="display:flex;"><span>                  inout metadata meta,
+</span></span><span style="display:flex;"><span>                  inout standard_metadata_t standard_metadata) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    action drop() {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        mark_to_drop(standard_metadata);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    action forward(bit&lt;9&gt; egress_port) {    <span style="color:#f00;font-style:italic">// 转发的动作，就是把在表中查到的 port 赋值给 egress_spec
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        standard_metadata.egress_spec = egress_port;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    table dmac {                            <span style="color:#f00;font-style:italic">// 定义一个表叫 dmac
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        key = {
+</span></span><span style="display:flex;"><span>            hdr.ethernet.dstAddr: exact;    <span style="color:#f00;font-style:italic">// Match 的时候就看目标 MAC 地址是否完全一样
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        actions = {                         <span style="color:#f00;font-style:italic">// 列出所有的需要的动作
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            forward;
+</span></span><span style="display:flex;"><span>            NoAction;                                   
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        size = 256;
+</span></span><span style="display:flex;"><span>        default_action = NoAction;          <span style="color:#f00;font-style:italic">// 如果表里没有查到，先不进行任何动作
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    apply {
+</span></span><span style="display:flex;"><span>        dmac.apply();                       <span style="color:#f00;font-style:italic">// 记得要 apply 才会用上这个表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>定义好了我们的表之后，还需要在表里面填写好转发的规则，否则现在我们的 <code>dmac</code> 表还是空的，全部 packet 都会 miss，然后会默认选择 NoAction。所以我们要像上次 Repeater 里面一样，用 CLI 语言写好我们的规则。</p>
 <p>在 <code>p4app.json</code> 里，我们有写：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-json" data-lang="json">...
-    <span style="color:#009c00">&#34;switches&#34;</span>: {
-      &#34;s1&#34;: {
-        &#34;cli_input&#34;: <span style="color:#009c00">&#34;s1-commands.txt&#34;</span>
-      }
-    }
-...
-</code></pre></div><p>所以只要在这个练习的根路径下创建一个叫 <code>s1-commands.txt</code> 的新文件，然后在里面写上：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text"># table_add &lt;表的名字&gt; &lt;动作的名字&gt; &lt;动作的参数——MAC地址&gt; =&gt; &lt;目标端口数&gt;
-table_add dmac forward 00:00:0a:00:00:01 =&gt; 1
-table_add dmac forward 00:00:0a:00:00:02 =&gt; 2
-table_add dmac forward 00:00:0a:00:00:03 =&gt; 3
-table_add dmac forward 00:00:0a:00:00:04 =&gt; 4
-</code></pre></div><p>其实和上一篇文章中 Repeater 练习里面的语法结构是一模一样的，只不过这次我们把键值从 input_port 换成了 MAC 地址。但为什么要这么映射呢？每一个 host 的 MAC 地址其实都是按照一个模式去分配的，也就是 <code>00:00:&lt;16进制的IP地址&gt;</code>。比如 h1 的 IP 地址是 <code>10.0.1.5</code>，那么它的 MAC 地址就是 <code>00:00:0a:00:01:05</code>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-json" data-lang="json"><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#34;switches&#34;</span>: {
+</span></span><span style="display:flex;"><span>      &#34;s1&#34;: {
+</span></span><span style="display:flex;"><span>        &#34;cli_input&#34;: <span style="color:#009c00">&#34;s1-commands.txt&#34;</span>
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><p>所以只要在这个练习的根路径下创建一个叫 <code>s1-commands.txt</code> 的新文件，然后在里面写上：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span># table_add &lt;表的名字&gt; &lt;动作的名字&gt; &lt;动作的参数——MAC地址&gt; =&gt; &lt;目标端口数&gt;
+</span></span><span style="display:flex;"><span>table_add dmac forward 00:00:0a:00:00:01 =&gt; 1
+</span></span><span style="display:flex;"><span>table_add dmac forward 00:00:0a:00:00:02 =&gt; 2
+</span></span><span style="display:flex;"><span>table_add dmac forward 00:00:0a:00:00:03 =&gt; 3
+</span></span><span style="display:flex;"><span>table_add dmac forward 00:00:0a:00:00:04 =&gt; 4
+</span></span></code></pre></div><p>其实和上一篇文章中 Repeater 练习里面的语法结构是一模一样的，只不过这次我们把键值从 input_port 换成了 MAC 地址。但为什么要这么映射呢？每一个 host 的 MAC 地址其实都是按照一个模式去分配的，也就是 <code>00:00:&lt;16进制的IP地址&gt;</code>。比如 h1 的 IP 地址是 <code>10.0.1.5</code>，那么它的 MAC 地址就是 <code>00:00:0a:00:01:05</code>。</p>
 <p>在我们运行 <code>sudo p4run</code> 之后，终端里会自动显示各个节点的网络配置，包括交换机 s1 的每个端口的信息：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">Switch port mapping:
-s1:  1:h1       2:h2    3:h3    4:h4
-</code></pre></div><p>这样我们就知道应该如何在 <code>s1-commands.txt</code> 中创建规则了。当然，我们也可以之后在 <code>mininet</code> 里的 CLI 用比如 <code>h1 ifconfig -a</code> 去查看比如 h1 的网络配置，在上一篇文章中也已经介绍过，这里就不再赘述。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>Switch port mapping:
+</span></span><span style="display:flex;"><span>s1:  1:h1       2:h2    3:h3    4:h4
+</span></span></code></pre></div><p>这样我们就知道应该如何在 <code>s1-commands.txt</code> 中创建规则了。当然，我们也可以之后在 <code>mininet</code> 里的 CLI 用比如 <code>h1 ifconfig -a</code> 去查看比如 h1 的网络配置，在上一篇文章中也已经介绍过，这里就不再赘述。</p>
 <p>等到所有的任务都完成，就可以 <code>sudo p4run</code> 运行起我们的环境，然后用 PING 来测试一下交换机 s1 能不能成功的转发网络报文了。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">mininet&gt; pingall
-*** Ping: testing ping reachability
-h1 -&gt; h2 h3 h4
-h2 -&gt; h1 h3 h4
-h3 -&gt; h1 h2 h4
-h4 -&gt; h1 h2 h3
-*** Results: 0% dropped (12/12 received)
-</code></pre></div><p>如果看到上面这样的结果，那么说明我们成功的从各个 host 节点上都可以成功和其他节点通信啦！</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>mininet&gt; pingall
+</span></span><span style="display:flex;"><span>*** Ping: testing ping reachability
+</span></span><span style="display:flex;"><span>h1 -&gt; h2 h3 h4
+</span></span><span style="display:flex;"><span>h2 -&gt; h1 h3 h4
+</span></span><span style="display:flex;"><span>h3 -&gt; h1 h2 h4
+</span></span><span style="display:flex;"><span>h4 -&gt; h1 h2 h3
+</span></span><span style="display:flex;"><span>*** Results: 0% dropped (12/12 received)
+</span></span></code></pre></div><p>如果看到上面这样的结果，那么说明我们成功的从各个 host 节点上都可以成功和其他节点通信啦！</p>
 <blockquote>
 <p>小结：这个练习，我们主要是复习一下表的设计和操作，如何使用表来完成网络报文在链路层的转发。难点可能就是要知道 <code>s1-commands.txt</code> 里面的每一个规则应该如何添加，怎么确定哪个 MAC 地址对应着哪个端口。</p>
 </blockquote>
@@ -417,63 +417,63 @@ h4 -&gt; h1 h2 h3
 <p>在一个交换机不知道收到的网络报文改转发给谁的时候，它会把这个网络报文发给除了接受端口之外的所有其他的端口，这个过程也叫 L2 Flooding。比如在交换机收到了一个来自 h1（1 号端口）的网络报文，这个 packet 要发给 h2，但交换机不知道 h2 是谁，于是要发 ARP request 问 h2 是谁，request 要发给除了 1 号端口的所有其他端口，也就是 2, 3, 4 号端口，然后 2 号端口会发回来一个 ARP reply，告诉交换机 h2 在 <code>00:00:0a:00:00:02</code>。</p>
 <p>为了实现这个机制，我们就要用到 P4 里面的 <code>standard_metadata.mcast_grp</code> 了。类似于把网络报文从一个特定的端口发出去的 <code>standard_metadata.egress_spec</code>，当定义了 <code>standard_metadata.mcast_grp</code> 的时候，网络报文会从一个特定的组播的小组发出去，而这个小组可能包含多个端口。</p>
 <p>像我们所使用的一个交换机 s1 连接四个 host 的情况，组播就可以在 CLI 中（接着上面的 <code>s1-commands.txt</code>）按照如下的方式配置：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">mc_mgrp_create 1        # 创建组播的小组 1
-mc_node_create 0 2 3 4  # 创建一个节点 0，包含了 2 3 4 三个端口
-mc_node_associate 1 0   # 把节点 0 和组播小组 1 联系起来
-
-mc_mgrp_create 2        # 创建组播的小组 2
-mc_node_create 1 1 3 4  # 创建一个节点 1，包含了 1 3 4 三个端口
-mc_node_associate 2 1   # 把节点 1 和组播小组 2 联系起来
-
-mc_mgrp_create 3        # 创建组播的小组 1
-mc_node_create 2 1 2 4  # 创建一个节点 2，包含了 1 2 4 三个端口
-mc_node_associate 3 2   # 把节点 2 和组播小组 3 联系起来
-
-mc_mgrp_create 4        # 创建组播的小组 1
-mc_node_create 3 1 2 3  # 创建一个节点 2，包含了 1 2 3 三个端口
-mc_node_associate 4 3   # 把节点 3 和组播小组 4 联系起来
-</code></pre></div><p>更多具体的配置和语法文档在<a href="https://link.zhihu.com/?target=https%3A//github.com/nsg-ethz/p4-learning/blob/master/documentation/simple-switch.md%23creating-multicast-groups">这里</a>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>mc_mgrp_create 1        # 创建组播的小组 1
+</span></span><span style="display:flex;"><span>mc_node_create 0 2 3 4  # 创建一个节点 0，包含了 2 3 4 三个端口
+</span></span><span style="display:flex;"><span>mc_node_associate 1 0   # 把节点 0 和组播小组 1 联系起来
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>mc_mgrp_create 2        # 创建组播的小组 2
+</span></span><span style="display:flex;"><span>mc_node_create 1 1 3 4  # 创建一个节点 1，包含了 1 3 4 三个端口
+</span></span><span style="display:flex;"><span>mc_node_associate 2 1   # 把节点 1 和组播小组 2 联系起来
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>mc_mgrp_create 3        # 创建组播的小组 1
+</span></span><span style="display:flex;"><span>mc_node_create 2 1 2 4  # 创建一个节点 2，包含了 1 2 4 三个端口
+</span></span><span style="display:flex;"><span>mc_node_associate 3 2   # 把节点 2 和组播小组 3 联系起来
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>mc_mgrp_create 4        # 创建组播的小组 1
+</span></span><span style="display:flex;"><span>mc_node_create 3 1 2 3  # 创建一个节点 2，包含了 1 2 3 三个端口
+</span></span><span style="display:flex;"><span>mc_node_associate 4 3   # 把节点 3 和组播小组 4 联系起来
+</span></span></code></pre></div><p>更多具体的配置和语法文档在<a href="https://link.zhihu.com/?target=https%3A//github.com/nsg-ethz/p4-learning/blob/master/documentation/simple-switch.md%23creating-multicast-groups">这里</a>。</p>
 <p>定义了这样的组，我们就可以说，当收到了一个 1 号端口发来的未知网络报文的时候，我们就从组播的 1 小组发给 2, 3, 4 号端口连接的 host。当然，为了实现这样的过程，我们需要建立一个新的表，能够把一个网络报文的 <code>ingress_port</code> 映射到一个组播的小组。所以在 p4 里的 Ingress 部分，我们要在上一个练习的基础上，加上下面这些：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">    action <span style="color:#c34e00">set_mcast_grp</span>(bit&lt;16&gt; mcast_grp) {
-        standard_metadata.mcast_grp = mcast_grp;        <span style="color:#f00;font-style:italic">// 通过查表，设置发出的组播组号
-</span><span style="color:#f00;font-style:italic"></span>    }
-
-    table broadcast {
-
-        key = {
-            standard_metadata.ingress_port : exact;     <span style="color:#f00;font-style:italic">// 根据 ingress_port 选择映射的组播号
-</span><span style="color:#f00;font-style:italic"></span>        }
-        actions = {
-            set_mcast_grp;
-            NoAction;
-        }
-        size = 32;
-        default_action =  NoAction;
-
-    }
-</code></pre></div><p>有了这第二个表，我们就可以继续补充上 CLI 里面（接着上面的 <code>s1-commands.txt</code>）需要的规则：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">table_add broadcast set_mcast_grp 1 =&gt; 1  # 来自 ingress_port 1 的 packet 从组播的 1 组发出去
-table_add broadcast set_mcast_grp 2 =&gt; 2
-table_add broadcast set_mcast_grp 3 =&gt; 3
-table_add broadcast set_mcast_grp 4 =&gt; 4
-</code></pre></div><p>我们已经定义好，也填好了两个 <code>dmac</code> 和 <code>broadcast</code> 两个表了，下面就该实现逻辑部分了。我们想要实现的就是，在知道了一个网络报文的目标 MAC 地址的时候，也就是 <code>dmac</code> 表 hit 的情况下，按照 <code>dmac</code> 的表实现转发，如果不知道 MAC 地址的时候，用组播的方式发送 ARP request，获取 MAC 地址。所以这里我们就需要用一个判断语句。P4 里的判断语句有两种写法，一种是 <code>if</code>:</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">    apply {
-
-        <span style="color:#00f">if</span> (!dmac.apply().hit) {        <span style="color:#f00;font-style:italic">// 如果没有 hit
-</span><span style="color:#f00;font-style:italic"></span>            broadcast.apply();   <span style="color:#f00;font-style:italic">// 就采用 multicast 的表
-</span><span style="color:#f00;font-style:italic"></span>        }
-
-    }
-</code></pre></div><p>另一种就是 <code>switch</code>:</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">    apply {
-
-        <span style="color:#00f">switch</span> (dmac.apply().action_run) {  <span style="color:#f00;font-style:italic">// 检查 match 到的 action
-</span><span style="color:#f00;font-style:italic"></span>            NoAction: {                     <span style="color:#f00;font-style:italic">// 如果是 miss，也就是采用默认的 NoAction
-</span><span style="color:#f00;font-style:italic"></span>                broadcast.apply();   <span style="color:#f00;font-style:italic">// 就采用 multicast
-</span><span style="color:#f00;font-style:italic"></span>            }
-        }
-    }
-</code></pre></div><p>写完这些，我们就可以再一次跑上 <code>sudo p4run</code>，测试一下能不能成功 multicast 到各个端口。为了测试这一点，我们可以先打开四个终端，用 <code>tcpdump</code> 分别监听四个 interfaces，然后再用 <code>h1 ping h2</code> 测试。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>    action <span style="color:#c34e00">set_mcast_grp</span>(bit&lt;16&gt; mcast_grp) {
+</span></span><span style="display:flex;"><span>        standard_metadata.mcast_grp = mcast_grp;        <span style="color:#f00;font-style:italic">// 通过查表，设置发出的组播组号
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    table broadcast {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        key = {
+</span></span><span style="display:flex;"><span>            standard_metadata.ingress_port : exact;     <span style="color:#f00;font-style:italic">// 根据 ingress_port 选择映射的组播号
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        }
+</span></span><span style="display:flex;"><span>        actions = {
+</span></span><span style="display:flex;"><span>            set_mcast_grp;
+</span></span><span style="display:flex;"><span>            NoAction;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        size = 32;
+</span></span><span style="display:flex;"><span>        default_action =  NoAction;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>有了这第二个表，我们就可以继续补充上 CLI 里面（接着上面的 <code>s1-commands.txt</code>）需要的规则：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>table_add broadcast set_mcast_grp 1 =&gt; 1  # 来自 ingress_port 1 的 packet 从组播的 1 组发出去
+</span></span><span style="display:flex;"><span>table_add broadcast set_mcast_grp 2 =&gt; 2
+</span></span><span style="display:flex;"><span>table_add broadcast set_mcast_grp 3 =&gt; 3
+</span></span><span style="display:flex;"><span>table_add broadcast set_mcast_grp 4 =&gt; 4
+</span></span></code></pre></div><p>我们已经定义好，也填好了两个 <code>dmac</code> 和 <code>broadcast</code> 两个表了，下面就该实现逻辑部分了。我们想要实现的就是，在知道了一个网络报文的目标 MAC 地址的时候，也就是 <code>dmac</code> 表 hit 的情况下，按照 <code>dmac</code> 的表实现转发，如果不知道 MAC 地址的时候，用组播的方式发送 ARP request，获取 MAC 地址。所以这里我们就需要用一个判断语句。P4 里的判断语句有两种写法，一种是 <code>if</code>:</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>    apply {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (!dmac.apply().hit) {        <span style="color:#f00;font-style:italic">// 如果没有 hit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            broadcast.apply();   <span style="color:#f00;font-style:italic">// 就采用 multicast 的表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>另一种就是 <code>switch</code>:</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>    apply {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">switch</span> (dmac.apply().action_run) {  <span style="color:#f00;font-style:italic">// 检查 match 到的 action
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            NoAction: {                     <span style="color:#f00;font-style:italic">// 如果是 miss，也就是采用默认的 NoAction
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                broadcast.apply();   <span style="color:#f00;font-style:italic">// 就采用 multicast
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>写完这些，我们就可以再一次跑上 <code>sudo p4run</code>，测试一下能不能成功 multicast 到各个端口。为了测试这一点，我们可以先打开四个终端，用 <code>tcpdump</code> 分别监听四个 interfaces，然后再用 <code>h1 ping h2</code> 测试。</p>
 <p><img src="http://shanks.link/img/p4/v2-b9bfd59b4a18e43e2d80227292333651_1440w.webp" alt="img"></p>
 <p>ARP Table</p>
 <p>如上图所示，每个 interface 都抓到了 ARP request 的包，说明我们的交换机在不知道 MAC 地址的时候，能够成功组播 ARP request 到各个其他端口。值得说明的是，在 <code>s1-eth1</code> 的 interface 上，我们也看到了 ARP request，<code>s1-eth1</code> 对应的是 1 号端口连接的 h1。按理说从 1 号端口来的网络报文应该不会再在 1 号端口发 ARP request 了，其实这个地方我们看到的 ARP request 是接收到的网络报文，而没有进行转发。如果是广播而不是组播的话，我们其实会在 <code>s1-eth1</code> 上看到两个 ARP request。</p>
@@ -486,11 +486,11 @@ table_add broadcast set_mcast_grp 4 =&gt; 4
 <p>这个练习在 <a href="https://link.zhihu.com/?target=https%3A//github.com/nsg-ethz/p4-learning/tree/master/exercises/04-L2_Learning">https://github.com/nsg-ethz/p4-learning/tree/master/exercises/04-L2_Learning</a>，记得提前 git clone 下来！所有的操作都在这个文件夹里进行。有一些之前已经讲过的操作，就不会再过多的说明了。</p>
 </blockquote>
 <p>到了这一步，我们已经可以不需要 mininet 提供的 ARP 自动填充了，但好像这个交换机还不是很聪明的样子。回头看一下我们的 <code>s1-commands.txt</code> 里面，还需要我们手动告诉交换机下面这些信息：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">table_add dmac forward 00:00:0a:00:00:01 =&gt; 1
-table_add dmac forward 00:00:0a:00:00:02 =&gt; 2
-table_add dmac forward 00:00:0a:00:00:03 =&gt; 3
-table_add dmac forward 00:00:0a:00:00:04 =&gt; 4
-</code></pre></div><p>如果每一个交换机都要我们手动配置这些信息，那可是要累死了，所以这也是自学习交换机存在的意义了。如果我们每收到一个网络报文，我们记住它的源 MAC 地址，和 ingress port，不就能得到上面这些信息了吗？</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>table_add dmac forward 00:00:0a:00:00:01 =&gt; 1
+</span></span><span style="display:flex;"><span>table_add dmac forward 00:00:0a:00:00:02 =&gt; 2
+</span></span><span style="display:flex;"><span>table_add dmac forward 00:00:0a:00:00:03 =&gt; 3
+</span></span><span style="display:flex;"><span>table_add dmac forward 00:00:0a:00:00:04 =&gt; 4
+</span></span></code></pre></div><p>如果每一个交换机都要我们手动配置这些信息，那可是要累死了，所以这也是自学习交换机存在的意义了。如果我们每收到一个网络报文，我们记住它的源 MAC 地址，和 ingress port，不就能得到上面这些信息了吗？</p>
 <p>我们来整理一下思路…</p>
 <ol>
 <li><strong>学习过程</strong>：对于每个网络报文，先看看它的源 MAC 地址有没有见过，如果没见过，那我们就把这个地址和它对应的 ingress port 的映射记录在表（之前已经实现的 <code>dmac</code>）里，然后要想办法告诉交换机，这个 MAC 地址我们见过了，不用再做更多操作了，继续下一步转发就可以了。</li>
@@ -500,317 +500,317 @@ table_add dmac forward 00:00:0a:00:00:04 =&gt; 4
 <h3 id="clone">Clone</h3>
 <p>Clone，顾名思义，就是把 packet 克隆一个一模一样的，发给 controller。而原来的那个本体，会继续按正常的 pipeline 的顺序被处理和转发。当我们收到一个没见过源 MAC 地址的网络报文的时候，我们就可以克隆一个 packet，发给 controller，然后让 controller 帮我们在 <code>dmac</code> 的表里注册好 MAC 地址和 ingress port 的映射，然后告诉交换机这个源地址已经见过了。</p>
 <p>Clone 作为一个 <code>extern</code> 函数，有两种使用方式：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">clone(in CloneType type, in bit&lt;32&gt; session)
-clone3(in CloneType type, in bit&lt;32&gt; session, in T data)
-</code></pre></div><p>这两个方式的唯一区别就是，是否带有第三个用于存储一些额外参数用的自定义的 metadata <code>struct</code>，因为 <code>clone</code> 之后对应的 <code>standard_metadata</code> 都会被重制（通常都是 0），所以如果还有要用到的信息，比如我们这里要用到 <code>standard_metadata.ingress_port</code>，就要用第三个参数传递一下。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>clone(in CloneType type, in bit&lt;32&gt; session)
+</span></span><span style="display:flex;"><span>clone3(in CloneType type, in bit&lt;32&gt; session, in T data)
+</span></span></code></pre></div><p>这两个方式的唯一区别就是，是否带有第三个用于存储一些额外参数用的自定义的 metadata <code>struct</code>，因为 <code>clone</code> 之后对应的 <code>standard_metadata</code> 都会被重制（通常都是 0），所以如果还有要用到的信息，比如我们这里要用到 <code>standard_metadata.ingress_port</code>，就要用第三个参数传递一下。</p>
 <p>然后说第一个参数，我们会用到的，暂时只有两种，<code>CloneType.I2E</code> 和 <code>CloneType.E2E</code>。<code>I2E</code> 是从 ingress 的过程克隆一份，直接发送到 egress 的部分进行处理，跳过 ingress 的时候调用 <code>clone</code> 后面的代码。<code>E2E</code> 是从 egress 的过程克隆一份，再一次发回到 egress 的 pipeline，有点像一个在 egress 里二次加工的过程。</p>
 <p>这里有一个潜在的问题，就是怎么判断正在处理的 packet 是本体还是被克隆的那一个呢？如果分不清的话，比如 <code>E2E</code> 的时候会不会就是一个无限循环了？P4 在这里用 <code>standard_metadata.instance_type</code> 来区分，普通的 packet 的 <code>instance_type == 0</code>，<code>I2E</code> 的 <code>instance_type == 1</code>，<code>E2E</code> 的 <code>instance_type == 2</code>，于是我们就可以用 <code>if</code> 语句来区分本体和克隆体了。具体的应用实例我们会在稍后看到。</p>
 <p>第二个参数，就是一个标准的 session ID 了，P4 里也叫 mirror ID，这个 ID 是用来告诉交换机该把克隆的 packet 发送到哪一个端口的。在 CLI 里，我们会用</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">mirroring_add &lt;session&gt; &lt;output_port&gt;
-</code></pre></div><p>来绑定把 session 和 controller 连接的端口绑定在一起。比如如果 controller 连在交换机的端口 7 的话，我们就可以用 <code>mirroring_add 100 7</code> 把它和 session 100 绑定在一起，然后在 <code>clone</code> 的时候把第二个参数定义为 100，这样克隆的 packet 都会被发送到连接在端口 7 的 controller 了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>mirroring_add &lt;session&gt; &lt;output_port&gt;
+</span></span></code></pre></div><p>来绑定把 session 和 controller 连接的端口绑定在一起。比如如果 controller 连在交换机的端口 7 的话，我们就可以用 <code>mirroring_add 100 7</code> 把它和 session 100 绑定在一起，然后在 <code>clone</code> 的时候把第二个参数定义为 100，这样克隆的 packet 都会被发送到连接在端口 7 的 controller 了。</p>
 <p>更多关于 Clone 的用法，可以在这个<a href="https://link.zhihu.com/?target=https%3A//github.com/nsg-ethz/p4-learning/blob/master/documentation/simple-switch.md%23cloning-packets">官方文档</a>查到。</p>
 <p>了解了 Clone 的机制之后，我们就可以开始思考如何实现学习的过程了。</p>
 <p>第一步，为了让 controller 能够得到 MAC 地址和 ingress port 的映射，我们需要把这两个数据发给 controller，所以我们可以定义一个 <code>header cpu_t</code> 作为给 controller 发送的消息的 payload：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">header cpu_t {
-    bit&lt;48&gt; srcAddr;        <span style="color:#f00;font-style:italic">// 源 MAC 地址
-</span><span style="color:#f00;font-style:italic"></span>    bit&lt;16&gt; ingress_port;   <span style="color:#f00;font-style:italic">// 交换机的接收端口
-</span><span style="color:#f00;font-style:italic"></span>}
-
-<span style="color:#00f">struct</span> headers {
-    ethernet_t   ethernet;  
-    cpu_t        cpu;       <span style="color:#f00;font-style:italic">// 在 Ethernet 之后加上给 controller 看的 header
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>同时，我们提到了，Clone 的 packet 会失去 metadata 里 <code>ingress_port</code> 的信息，所以我们需要用自己定义的 <code>metadata</code> 暂时存储这个信息，然后之后 copy 到 <code>cpu_t.ingress_port</code>：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">struct</span> metadata {
-    bit&lt;9&gt; ingress_port;
-}
-</code></pre></div><p>定义了这两个数据结构之后，我们会发现，我们在 copy <code>ingress_port</code> 的时候需要做数据类型转换，这是因为在 controller 上我们要用 python 的 <code>struct.unpack</code> 来解析 <code>cpu_t</code>，所以需要加上 padding，所以要从 9 bit 变成 16 bit。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>header cpu_t {
+</span></span><span style="display:flex;"><span>    bit&lt;48&gt; srcAddr;        <span style="color:#f00;font-style:italic">// 源 MAC 地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    bit&lt;16&gt; ingress_port;   <span style="color:#f00;font-style:italic">// 交换机的接收端口
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> headers {
+</span></span><span style="display:flex;"><span>    ethernet_t   ethernet;  
+</span></span><span style="display:flex;"><span>    cpu_t        cpu;       <span style="color:#f00;font-style:italic">// 在 Ethernet 之后加上给 controller 看的 header
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p>同时，我们提到了，Clone 的 packet 会失去 metadata 里 <code>ingress_port</code> 的信息，所以我们需要用自己定义的 <code>metadata</code> 暂时存储这个信息，然后之后 copy 到 <code>cpu_t.ingress_port</code>：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> metadata {
+</span></span><span style="display:flex;"><span>    bit&lt;9&gt; ingress_port;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>定义了这两个数据结构之后，我们会发现，我们在 copy <code>ingress_port</code> 的时候需要做数据类型转换，这是因为在 controller 上我们要用 python 的 <code>struct.unpack</code> 来解析 <code>cpu_t</code>，所以需要加上 padding，所以要从 9 bit 变成 16 bit。</p>
 <p>基于上一个练习，我们已经有了 <code>dmac</code> 和 <code>broadcast</code> 两个表了。只需要再加一个表来告诉交换机一个源 MAC 地址有没有见过就好了。我们不能用 <code>dmac</code> 来完成这个过程，是因为 <code>dmac</code> match 的是 destination MAC 地址，而这里我们需要 match source MAC 地址。所以我们就叫这个新的表 <code>smac</code>。如果一个 packet 的源 MAC 地址已经见过了（hit），那我们就不用处理（<code>NoAction</code>），否则，我们要克隆一个 packet 发给 controller，让 controller 登记一下 <code>srcAddr-&gt;ingress_port</code> 的映射。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">control <span style="color:#c34e00">MyIngress</span>(inout headers hdr,
-                  inout metadata meta,
-                  inout standard_metadata_t standard_metadata) {
-    
-    ...
-
-    action mac_learn() {
-        meta.ingress_port = standard_metadata.ingress_port; <span style="color:#f00;font-style:italic">// 把接收端口存在我们自己定义的 metadata 里
-</span><span style="color:#f00;font-style:italic"></span>                                                            <span style="color:#f00;font-style:italic">// 因为 clone 的时候 standard_metadata.ingress_port 就会被重制为 0
-</span><span style="color:#f00;font-style:italic"></span>        clone3(CloneType.I2E, 100, meta);                   <span style="color:#f00;font-style:italic">// 克隆的 packet 会被从 Ingress 直接发送到 Egress 部分，并从 session 100 对应的端口发给 controller                
-</span><span style="color:#f00;font-style:italic"></span>    }
-
-    table smac {
-        key = {
-            hdr.ethernet.srcAddr: exact;    <span style="color:#f00;font-style:italic">// Match 的是源 MAC 地址
-</span><span style="color:#f00;font-style:italic"></span>        }
-
-        actions = {
-            mac_learn;
-            NoAction;
-        }
-        size = 256;
-        default_action = mac_learn;         <span style="color:#f00;font-style:italic">// 默认动作是 mac_learn
-</span><span style="color:#f00;font-style:italic"></span>    }
-
-    ...
-
-}
-</code></pre></div><p>有了这个 <code>smac</code> 表之后，我们在原来的逻辑基础上，只需要在前面加上 <code>smac.apply()</code> 就可以了：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">control <span style="color:#c34e00">MyIngress</span>(inout headers hdr,
-                  inout metadata meta,
-                  inout standard_metadata_t standard_metadata) {
-    ...
-    apply {
-
-        smac.apply();               <span style="color:#f00;font-style:italic">// 先检查一下源 MAC 地址有没有见过
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (!dmac.apply().hit) {    <span style="color:#f00;font-style:italic">// 如果没有 hit
-</span><span style="color:#f00;font-style:italic"></span>            broadcast.apply();      <span style="color:#f00;font-style:italic">// 就采用 multicast 的表
-</span><span style="color:#f00;font-style:italic"></span>        }
-
-    }
-    ...
-}
-</code></pre></div><p>这样每个 packet 在 Ingress 的过程，都要先经由 <code>smac</code> 处理，再被转发。被 <code>smac</code> 处理的 packet 会被 <code>clone3</code> 那一行代码送到 Egress 的过程：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">control <span style="color:#c34e00">MyEgress</span>(inout headers hdr,
-                 inout metadata meta,
-                 inout standard_metadata_t standard_metadata) {
-
-    apply {
-
-        <span style="color:#f00;font-style:italic">// If ingress clone
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (standard_metadata.instance_type == 1){
-            hdr.cpu.setValid();                                 <span style="color:#f00;font-style:italic">// 把克隆的 packet 的 cpu header 设置成 valid，这样在 Deparser 的时候才会被加进 headers 里
-</span><span style="color:#f00;font-style:italic"></span>            hdr.cpu.srcAddr = hdr.ethernet.srcAddr;
-            hdr.cpu.ingress_port = (bit&lt;16&gt;)meta.ingress_port;  <span style="color:#f00;font-style:italic">// 把 ingress_port 拷贝过来，记得转换类型
-</span><span style="color:#f00;font-style:italic"></span>            hdr.ethernet.etherType = L2_LEARN_ETHER_TYPE;       <span style="color:#f00;font-style:italic">// EtherType 换成 0x1234，controller 用这个来过滤
-</span><span style="color:#f00;font-style:italic"></span>            truncate((bit&lt;32&gt;)22);                              <span style="color:#f00;font-style:italic">// 截断 ether(48+48+16 bits)+cpu(48+16 bits) header = 22 bytes 之后的部分，因为我们只需要 cpu header 里面的信息作为 payload
-</span><span style="color:#f00;font-style:italic"></span>        }
-    }
-}
-
-control <span style="color:#c34e00">MyDeparser</span>(packet_out packet, in headers hdr) {
-    apply {
-        <span style="color:#f00;font-style:italic">//parsed headers have to be added again into the packet.
-</span><span style="color:#f00;font-style:italic"></span>        packet.emit(hdr.ethernet);
-        packet.emit(hdr.cpu);       <span style="color:#f00;font-style:italic">// 普通的 packet 的 cpu header 不是 valid 的，所以只有 ethernet header 没有 cpu header
-</span><span style="color:#f00;font-style:italic"></span>    }
-}
-</code></pre></div><p>到此为止，P4 的代码就已经写好了。下面我们就要写一下 controller 的代码了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>control <span style="color:#c34e00">MyIngress</span>(inout headers hdr,
+</span></span><span style="display:flex;"><span>                  inout metadata meta,
+</span></span><span style="display:flex;"><span>                  inout standard_metadata_t standard_metadata) {
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    action mac_learn() {
+</span></span><span style="display:flex;"><span>        meta.ingress_port = standard_metadata.ingress_port; <span style="color:#f00;font-style:italic">// 把接收端口存在我们自己定义的 metadata 里
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                                                            <span style="color:#f00;font-style:italic">// 因为 clone 的时候 standard_metadata.ingress_port 就会被重制为 0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        clone3(CloneType.I2E, 100, meta);                   <span style="color:#f00;font-style:italic">// 克隆的 packet 会被从 Ingress 直接发送到 Egress 部分，并从 session 100 对应的端口发给 controller                
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    table smac {
+</span></span><span style="display:flex;"><span>        key = {
+</span></span><span style="display:flex;"><span>            hdr.ethernet.srcAddr: exact;    <span style="color:#f00;font-style:italic">// Match 的是源 MAC 地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        actions = {
+</span></span><span style="display:flex;"><span>            mac_learn;
+</span></span><span style="display:flex;"><span>            NoAction;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        size = 256;
+</span></span><span style="display:flex;"><span>        default_action = mac_learn;         <span style="color:#f00;font-style:italic">// 默认动作是 mac_learn
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>有了这个 <code>smac</code> 表之后，我们在原来的逻辑基础上，只需要在前面加上 <code>smac.apply()</code> 就可以了：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>control <span style="color:#c34e00">MyIngress</span>(inout headers hdr,
+</span></span><span style="display:flex;"><span>                  inout metadata meta,
+</span></span><span style="display:flex;"><span>                  inout standard_metadata_t standard_metadata) {
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>    apply {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        smac.apply();               <span style="color:#f00;font-style:italic">// 先检查一下源 MAC 地址有没有见过
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (!dmac.apply().hit) {    <span style="color:#f00;font-style:italic">// 如果没有 hit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            broadcast.apply();      <span style="color:#f00;font-style:italic">// 就采用 multicast 的表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这样每个 packet 在 Ingress 的过程，都要先经由 <code>smac</code> 处理，再被转发。被 <code>smac</code> 处理的 packet 会被 <code>clone3</code> 那一行代码送到 Egress 的过程：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>control <span style="color:#c34e00">MyEgress</span>(inout headers hdr,
+</span></span><span style="display:flex;"><span>                 inout metadata meta,
+</span></span><span style="display:flex;"><span>                 inout standard_metadata_t standard_metadata) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    apply {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// If ingress clone
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (standard_metadata.instance_type == 1){
+</span></span><span style="display:flex;"><span>            hdr.cpu.setValid();                                 <span style="color:#f00;font-style:italic">// 把克隆的 packet 的 cpu header 设置成 valid，这样在 Deparser 的时候才会被加进 headers 里
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            hdr.cpu.srcAddr = hdr.ethernet.srcAddr;
+</span></span><span style="display:flex;"><span>            hdr.cpu.ingress_port = (bit&lt;16&gt;)meta.ingress_port;  <span style="color:#f00;font-style:italic">// 把 ingress_port 拷贝过来，记得转换类型
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            hdr.ethernet.etherType = L2_LEARN_ETHER_TYPE;       <span style="color:#f00;font-style:italic">// EtherType 换成 0x1234，controller 用这个来过滤
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            truncate((bit&lt;32&gt;)22);                              <span style="color:#f00;font-style:italic">// 截断 ether(48+48+16 bits)+cpu(48+16 bits) header = 22 bytes 之后的部分，因为我们只需要 cpu header 里面的信息作为 payload
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>control <span style="color:#c34e00">MyDeparser</span>(packet_out packet, in headers hdr) {
+</span></span><span style="display:flex;"><span>    apply {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//parsed headers have to be added again into the packet.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        packet.emit(hdr.ethernet);
+</span></span><span style="display:flex;"><span>        packet.emit(hdr.cpu);       <span style="color:#f00;font-style:italic">// 普通的 packet 的 cpu header 不是 valid 的，所以只有 ethernet header 没有 cpu header
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>到此为止，P4 的代码就已经写好了。下面我们就要写一下 controller 的代码了。</p>
 <p>Controller 的代码会用到 <code>scapy</code> 和 ETHz 网络团队写的 <a href="https://link.zhihu.com/?target=https%3A//github.com/nsg-ethz/p4-utils">p4utils</a> 与 Mininet 环境中的各个节点（主要是交换机）进行交互。</p>
 <p>比如初始化的过程，是下面这段代码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#00f">from</span> p4utils.utils.topology <span style="color:#00f">import</span> Topology             <span style="color:#f00;font-style:italic"># 用来解析当前 mininet 配置的网络拓扑结构</span>
-<span style="color:#00f">from</span> p4utils.utils.sswitch_API <span style="color:#00f">import</span> SimpleSwitchAPI   <span style="color:#f00;font-style:italic"># 用来代替 s1-commands.txt 里的 CLI，和 mininet 的 control plane 交互</span>
-<span style="color:#00f">from</span> scapy.all <span style="color:#00f">import</span> Ether, sniff, Packet, BitField
-
-<span style="color:#00f">class</span> <span style="color:#007575">CpuHeader</span>(Packet):
-    <span style="color:#009c00">&#39;&#39;&#39;
-</span><span style="color:#009c00">    定义我们 CPU header 的构成
-</span><span style="color:#009c00">    &#39;&#39;&#39;</span>
-    name = <span style="color:#009c00">&#39;CpuPacket&#39;</span>
-    fields_desc = [BitField(<span style="color:#009c00">&#39;macAddr&#39;</span>,0,48), BitField(<span style="color:#009c00">&#39;ingress_port&#39;</span>, 0, 16)]
-
-...
-
-<span style="color:#00f">class</span> <span style="color:#007575">L2Controller</span>(object):
-
-    <span style="color:#00f">def</span> __init__(self, sw_name):
-
-        <span style="color:#f00;font-style:italic"># 初始化网络拓扑结构</span>
-        self.topo = Topology(db=<span style="color:#009c00">&#34;topology.db&#34;</span>)
-
-        <span style="color:#f00;font-style:italic"># 从拓扑结构中获取 controller 在交换机上的端口</span>
-        self.sw_name = sw_name
-        self.cpu_port =  self.topo.get_cpu_port_index(self.sw_name) 
-
-        <span style="color:#f00;font-style:italic"># 初始化 controller 的交互接口 API</span>
-        self.thrift_port = self.topo.get_thrift_port(sw_name)
-        self.controller = SimpleSwitchAPI(self.thrift_port)
-
-        self.init()
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">init</span>(self):
-
-        self.controller.reset_state()   <span style="color:#f00;font-style:italic"># 重制交换机上的状态</span>
-        self.add_boadcast_groups()
-        self.add_mirror()
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">add_mirror</span>(self):
-
-        <span style="color:#00f">if</span> self.cpu_port:
-            self.controller.mirroring_add(100, self.cpu_port) <span style="color:#f00;font-style:italic"># 也就是 CLI 中的 mirroring_add 100 7</span>
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">add_boadcast_groups</span>(self):
-        <span style="color:#f00;font-style:italic"># CLI 中配置组播的部分</span>
-
-        interfaces_to_port = self.topo[self.sw_name][<span style="color:#009c00">&#34;interfaces_to_port&#34;</span>].copy()
-        <span style="color:#f00;font-style:italic"># 把 lo 和 cpu 的端口去掉</span>
-        interfaces_to_port.pop(<span style="color:#009c00">&#39;lo&#39;</span>, <span style="color:#00f">None</span>)
-        interfaces_to_port.pop(self.topo.get_cpu_port_intf(self.sw_name), <span style="color:#00f">None</span>)
-
-        mc_grp_id = 1 <span style="color:#f00;font-style:italic"># 组 ID</span>
-        rid = 0 <span style="color:#f00;font-style:italic"># 节点 ID</span>
-        <span style="color:#00f">for</span> ingress_port in interfaces_to_port.values():
-
-            port_list = interfaces_to_port.values()[:]
-            <span style="color:#00f">del</span>(port_list[port_list.index(ingress_port)])
-
-            <span style="color:#f00;font-style:italic"># 增加一个组播的小组</span>
-            self.controller.mc_mgrp_create(mc_grp_id)
-
-            <span style="color:#f00;font-style:italic"># 增加一个组播的节点</span>
-            handle = self.controller.mc_node_create(rid, port_list)
-
-            <span style="color:#f00;font-style:italic"># 把组播的小组和节点关联起来</span>
-            self.controller.mc_node_associate(mc_grp_id, handle)
-
-            <span style="color:#f00;font-style:italic"># 把 ingress_port 和组播的组映射关系加进表里</span>
-            self.controller.table_add(<span style="color:#009c00">&#34;broadcast&#34;</span>, <span style="color:#009c00">&#34;set_mcast_grp&#34;</span>, [str(ingress_port)], [str(mc_grp_id)])
-
-            mc_grp_id +=1
-            rid +=1
-</code></pre></div><p>主循环的部分，要一直监听来自 cpu 端口的 packet，我们就选择用 scapy 的 <code>sniff</code>。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">    ...
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">recv_msg_cpu</span>(self, pkt):
-
-        packet = Ether(str(pkt))
-        <span style="color:#00f">if</span> packet.type == 0x1234:   <span style="color:#f00;font-style:italic"># 只查看 EtherType 是 0x1234 的 packet</span>
-            cpu_header = CpuHeader(bytes(packet.payload)) <span style="color:#f00;font-style:italic"># 解析 ethernet header 后面的 cpu header</span>
-            self.learn([(cpu_header.macAddr, cpu_header.ingress_port)]) <span style="color:#f00;font-style:italic"># 我们需要完成的 learn 函数</span>
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">run_cpu_port_loop</span>(self):    <span style="color:#f00;font-style:italic"># 主循环函数</span>
-
-        cpu_port_intf = str(self.topo.get_cpu_port_intf(self.sw_name).replace(<span style="color:#009c00">&#34;eth0&#34;</span>, <span style="color:#009c00">&#34;eth1&#34;</span>))
-        sniff(iface=cpu_port_intf, prn=self.recv_msg_cpu)
-
-
-<span style="color:#00f">if</span> __name__ == <span style="color:#009c00">&#34;__main__&#34;</span>:
-    <span style="color:#00f">import</span> sys
-    sw_name = sys.argv[1]
-    receive_from = sys.argv[2]
-    <span style="color:#00f">if</span> receive_from == <span style="color:#009c00">&#34;cpu&#34;</span>:
-        controller = L2Controller(sw_name).run_cpu_port_loop()
-</code></pre></div><p>最后，我们需要完成的就是 <code>learn</code> 这个函数，有了 <code>self.controller</code>，其实我们需要做的就和 CLI 里面的是一样的，但要注意 match 的 key 和对应的 value 分别是什么。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python">    ...
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">learn</span>(self, learning_data):
-
-        <span style="color:#00f">for</span> mac_addr, ingress_port in learning_data:
-            print <span style="color:#009c00">&#34;mac: </span><span style="color:#009c00">%012X</span><span style="color:#009c00"> ingress_port: </span><span style="color:#009c00">%s</span><span style="color:#009c00"> &#34;</span> % (mac_addr, ingress_port)
-            <span style="color:#f00;font-style:italic"># 和 CLI 中的 table_add &lt;table_name&gt; &lt;action_name&gt; &lt;key&gt; &lt;value&gt; 一样</span>
-            self.controller.table_add(<span style="color:#009c00">&#34;smac&#34;</span>, <span style="color:#009c00">&#34;NoAction&#34;</span>, [str(mac_addr)])  <span style="color:#f00;font-style:italic"># 在 smac 中加入我们已经见过的 source MAC addr</span>
-            self.controller.table_add(<span style="color:#009c00">&#34;dmac&#34;</span>, <span style="color:#009c00">&#34;forward&#34;</span>, [str(mac_addr)], [str(ingress_port)]) <span style="color:#f00;font-style:italic"># 在 dmac 中注册 MAC addr -&gt; ingress_port 的映射 </span>
-</code></pre></div><p>到这里，我们就终于可以测试了！跑上 <code>sudo p4run</code>，然后再在另一个终端跑上 <code>sudo python l2_learning_controller.py s1 cpu</code>，就可以试试 <code>pingall</code> 了：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">mininet&gt; pingall
-*** Ping: testing ping reachability
-h1 -&gt; h2 h3 h4
-h2 -&gt; h1 h3 h4
-h3 -&gt; h1 h2 h4
-h4 -&gt; h1 h2 h3
-*** Results: 0% dropped (12/12 received)
-</code></pre></div><p>如果要看看 <code>dmac</code> 的表有没有被自动填充好，可以用下面这个命令：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-text" data-lang="text">$ simple_switch_CLI --thrift-port 9090
-Obtaining JSON from switch...
-Done
-Control utility for runtime P4 table manipulation
-RuntimeCmd: table_dump dmac
-</code></pre></div><blockquote>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#00f">from</span> p4utils.utils.topology <span style="color:#00f">import</span> Topology             <span style="color:#f00;font-style:italic"># 用来解析当前 mininet 配置的网络拓扑结构</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">from</span> p4utils.utils.sswitch_API <span style="color:#00f">import</span> SimpleSwitchAPI   <span style="color:#f00;font-style:italic"># 用来代替 s1-commands.txt 里的 CLI，和 mininet 的 control plane 交互</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">from</span> scapy.all <span style="color:#00f">import</span> Ether, sniff, Packet, BitField
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">class</span> <span style="color:#007575">CpuHeader</span>(Packet):
+</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#39;&#39;&#39;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    定义我们 CPU header 的构成
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">    &#39;&#39;&#39;</span>
+</span></span><span style="display:flex;"><span>    name = <span style="color:#009c00">&#39;CpuPacket&#39;</span>
+</span></span><span style="display:flex;"><span>    fields_desc = [BitField(<span style="color:#009c00">&#39;macAddr&#39;</span>,0,48), BitField(<span style="color:#009c00">&#39;ingress_port&#39;</span>, 0, 16)]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">class</span> <span style="color:#007575">L2Controller</span>(object):
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> __init__(self, sw_name):
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic"># 初始化网络拓扑结构</span>
+</span></span><span style="display:flex;"><span>        self.topo = Topology(db=<span style="color:#009c00">&#34;topology.db&#34;</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic"># 从拓扑结构中获取 controller 在交换机上的端口</span>
+</span></span><span style="display:flex;"><span>        self.sw_name = sw_name
+</span></span><span style="display:flex;"><span>        self.cpu_port =  self.topo.get_cpu_port_index(self.sw_name) 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic"># 初始化 controller 的交互接口 API</span>
+</span></span><span style="display:flex;"><span>        self.thrift_port = self.topo.get_thrift_port(sw_name)
+</span></span><span style="display:flex;"><span>        self.controller = SimpleSwitchAPI(self.thrift_port)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        self.init()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">init</span>(self):
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        self.controller.reset_state()   <span style="color:#f00;font-style:italic"># 重制交换机上的状态</span>
+</span></span><span style="display:flex;"><span>        self.add_boadcast_groups()
+</span></span><span style="display:flex;"><span>        self.add_mirror()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">add_mirror</span>(self):
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> self.cpu_port:
+</span></span><span style="display:flex;"><span>            self.controller.mirroring_add(100, self.cpu_port) <span style="color:#f00;font-style:italic"># 也就是 CLI 中的 mirroring_add 100 7</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">add_boadcast_groups</span>(self):
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic"># CLI 中配置组播的部分</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        interfaces_to_port = self.topo[self.sw_name][<span style="color:#009c00">&#34;interfaces_to_port&#34;</span>].copy()
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic"># 把 lo 和 cpu 的端口去掉</span>
+</span></span><span style="display:flex;"><span>        interfaces_to_port.pop(<span style="color:#009c00">&#39;lo&#39;</span>, <span style="color:#00f">None</span>)
+</span></span><span style="display:flex;"><span>        interfaces_to_port.pop(self.topo.get_cpu_port_intf(self.sw_name), <span style="color:#00f">None</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        mc_grp_id = 1 <span style="color:#f00;font-style:italic"># 组 ID</span>
+</span></span><span style="display:flex;"><span>        rid = 0 <span style="color:#f00;font-style:italic"># 节点 ID</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> ingress_port in interfaces_to_port.values():
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            port_list = interfaces_to_port.values()[:]
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">del</span>(port_list[port_list.index(ingress_port)])
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic"># 增加一个组播的小组</span>
+</span></span><span style="display:flex;"><span>            self.controller.mc_mgrp_create(mc_grp_id)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic"># 增加一个组播的节点</span>
+</span></span><span style="display:flex;"><span>            handle = self.controller.mc_node_create(rid, port_list)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic"># 把组播的小组和节点关联起来</span>
+</span></span><span style="display:flex;"><span>            self.controller.mc_node_associate(mc_grp_id, handle)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic"># 把 ingress_port 和组播的组映射关系加进表里</span>
+</span></span><span style="display:flex;"><span>            self.controller.table_add(<span style="color:#009c00">&#34;broadcast&#34;</span>, <span style="color:#009c00">&#34;set_mcast_grp&#34;</span>, [str(ingress_port)], [str(mc_grp_id)])
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            mc_grp_id +=1
+</span></span><span style="display:flex;"><span>            rid +=1
+</span></span></code></pre></div><p>主循环的部分，要一直监听来自 cpu 端口的 packet，我们就选择用 scapy 的 <code>sniff</code>。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">recv_msg_cpu</span>(self, pkt):
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        packet = Ether(str(pkt))
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> packet.type == 0x1234:   <span style="color:#f00;font-style:italic"># 只查看 EtherType 是 0x1234 的 packet</span>
+</span></span><span style="display:flex;"><span>            cpu_header = CpuHeader(bytes(packet.payload)) <span style="color:#f00;font-style:italic"># 解析 ethernet header 后面的 cpu header</span>
+</span></span><span style="display:flex;"><span>            self.learn([(cpu_header.macAddr, cpu_header.ingress_port)]) <span style="color:#f00;font-style:italic"># 我们需要完成的 learn 函数</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">run_cpu_port_loop</span>(self):    <span style="color:#f00;font-style:italic"># 主循环函数</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        cpu_port_intf = str(self.topo.get_cpu_port_intf(self.sw_name).replace(<span style="color:#009c00">&#34;eth0&#34;</span>, <span style="color:#009c00">&#34;eth1&#34;</span>))
+</span></span><span style="display:flex;"><span>        sniff(iface=cpu_port_intf, prn=self.recv_msg_cpu)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> __name__ == <span style="color:#009c00">&#34;__main__&#34;</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">import</span> sys
+</span></span><span style="display:flex;"><span>    sw_name = sys.argv[1]
+</span></span><span style="display:flex;"><span>    receive_from = sys.argv[2]
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> receive_from == <span style="color:#009c00">&#34;cpu&#34;</span>:
+</span></span><span style="display:flex;"><span>        controller = L2Controller(sw_name).run_cpu_port_loop()
+</span></span></code></pre></div><p>最后，我们需要完成的就是 <code>learn</code> 这个函数，有了 <code>self.controller</code>，其实我们需要做的就和 CLI 里面的是一样的，但要注意 match 的 key 和对应的 value 分别是什么。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">learn</span>(self, learning_data):
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> mac_addr, ingress_port in learning_data:
+</span></span><span style="display:flex;"><span>            print <span style="color:#009c00">&#34;mac: </span><span style="color:#009c00">%012X</span><span style="color:#009c00"> ingress_port: </span><span style="color:#009c00">%s</span><span style="color:#009c00"> &#34;</span> % (mac_addr, ingress_port)
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic"># 和 CLI 中的 table_add &lt;table_name&gt; &lt;action_name&gt; &lt;key&gt; &lt;value&gt; 一样</span>
+</span></span><span style="display:flex;"><span>            self.controller.table_add(<span style="color:#009c00">&#34;smac&#34;</span>, <span style="color:#009c00">&#34;NoAction&#34;</span>, [str(mac_addr)])  <span style="color:#f00;font-style:italic"># 在 smac 中加入我们已经见过的 source MAC addr</span>
+</span></span><span style="display:flex;"><span>            self.controller.table_add(<span style="color:#009c00">&#34;dmac&#34;</span>, <span style="color:#009c00">&#34;forward&#34;</span>, [str(mac_addr)], [str(ingress_port)]) <span style="color:#f00;font-style:italic"># 在 dmac 中注册 MAC addr -&gt; ingress_port 的映射 </span>
+</span></span></code></pre></div><p>到这里，我们就终于可以测试了！跑上 <code>sudo p4run</code>，然后再在另一个终端跑上 <code>sudo python l2_learning_controller.py s1 cpu</code>，就可以试试 <code>pingall</code> 了：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>mininet&gt; pingall
+</span></span><span style="display:flex;"><span>*** Ping: testing ping reachability
+</span></span><span style="display:flex;"><span>h1 -&gt; h2 h3 h4
+</span></span><span style="display:flex;"><span>h2 -&gt; h1 h3 h4
+</span></span><span style="display:flex;"><span>h3 -&gt; h1 h2 h4
+</span></span><span style="display:flex;"><span>h4 -&gt; h1 h2 h3
+</span></span><span style="display:flex;"><span>*** Results: 0% dropped (12/12 received)
+</span></span></code></pre></div><p>如果要看看 <code>dmac</code> 的表有没有被自动填充好，可以用下面这个命令：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-text" data-lang="text"><span style="display:flex;"><span>$ simple_switch_CLI --thrift-port 9090
+</span></span><span style="display:flex;"><span>Obtaining JSON from switch...
+</span></span><span style="display:flex;"><span>Done
+</span></span><span style="display:flex;"><span>Control utility for runtime P4 table manipulation
+</span></span><span style="display:flex;"><span>RuntimeCmd: table_dump dmac
+</span></span></code></pre></div><blockquote>
 <p>小结：做完这个练习，我们在复习了表的操作和之外，学会了如何使用 clone 的方式和 controller 通讯来自动填好交换机上的表的实现，同时，我们也看了如何使用 p4utils 来自动化之前 s1-commands.txt 的部分。</p>
 </blockquote>
 <h3 id="digest">Digest</h3>
 <p>和 controller 的通讯过程，还可以用 <code>digest</code> 来实现。就像 <code>digest</code> 的名字一样，我们不会克隆整个 packet，而是取 packet 的一部分作为信息发给 controller。比如我们现在其实只需要 packet 的 <code>srcAddr</code> 和 <code>ingress_port</code>，别的部分都不需要，有的时候能节约很多空间。Digest 是基于 <a href="https://link.zhihu.com/?target=https%3A//nanomsg.org">nanomsg</a> 实现的一个 <code>extern</code> 函数，但其实用 digest 并不一定比 clone 快，因为使用 nanomsg 要在 payload 前面加上一个 control header，而且 controller 每收到一个 message，都要回复一个 ACK，证明自己收到了，防止收到重复的 message。</p>
 <p>P4 部分的实现方式如下（和 clone 部分相同的就省略了）：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">struct</span> learn_t {    <span style="color:#f00;font-style:italic">// digest 的 payload 部分
-</span><span style="color:#f00;font-style:italic"></span>    bit&lt;48&gt; srcAddr;
-    bit&lt;16&gt;  ingress_port; <span style="color:#f00;font-style:italic">// 记得加上 padding 变成 16 bits
-</span><span style="color:#f00;font-style:italic"></span>}
-
-<span style="color:#00f">struct</span> metadata {
-    learn_t learn;  <span style="color:#f00;font-style:italic">// 加入进我们的自定义 metadata 部分
-</span><span style="color:#f00;font-style:italic"></span>}
-
-<span style="color:#00f">struct</span> headers {
-    ethernet_t   ethernet;  <span style="color:#f00;font-style:italic">// headers 里不再需要 cpu header 了
-</span><span style="color:#f00;font-style:italic"></span>}
-
-...
-
-control MyIngress(inout headers hdr,
-                  inout metadata meta,
-                  inout standard_metadata_t standard_metadata) {
-
-    ...
-
-    action mac_learn(){ <span style="color:#f00;font-style:italic">// 这个函数中，我们把 digest 的信息填充好，发给 controller
-</span><span style="color:#f00;font-style:italic"></span>        meta.learn.srcAddr = hdr.ethernet.srcAddr;
-        meta.learn.ingress_port = (bit&lt;16&gt;)standard_metadata.ingress_port; <span style="color:#f00;font-style:italic">// 记得转换数据类型
-</span><span style="color:#f00;font-style:italic"></span>        digest(1, meta.learn);  <span style="color:#f00;font-style:italic">// digest 的第一个参数永远是 1，第二个参数是我们的 digest payload
-</span><span style="color:#f00;font-style:italic"></span>    }
-
-    ...
-
-control MyEgress(inout headers hdr,
-                 inout metadata meta,
-                 inout standard_metadata_t standard_metadata) {
-    apply {  }  <span style="color:#f00;font-style:italic">// Egress 部分不需要再做任何处理了
-</span><span style="color:#f00;font-style:italic"></span>}
-
-...
-</code></pre></div><p>controller 部分，只要加下面这几个函数和主循环，最底层还是用上面写好的 <code>learn</code> 函数：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-python" data-lang="python"><span style="color:#00f">class</span> <span style="color:#007575">L2Controller</span>(object):
-    
-    ...
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">unpack_digest</span>(self, msg, num_samples):
-        <span style="color:#009c00">&#39;&#39;&#39;
-</span><span style="color:#009c00">        msg = | control header | sample0 | sample1 | ... | sample#{num_samples-1} | 
-</span><span style="color:#009c00">
-</span><span style="color:#009c00">        @参数：
-</span><span style="color:#009c00">            msg - 原本的 message
-</span><span style="color:#009c00">            num_samples - control header 后面的 sample 数
-</span><span style="color:#009c00">        &#39;&#39;&#39;</span>
-
-        digest = []
-        print len(msg), num_samples
-        starting_index = 32 <span style="color:#f00;font-style:italic"># 跳过 control header 的部分</span>
-        <span style="color:#00f">for</span> sample in range(num_samples): <span style="color:#f00;font-style:italic"># 每一个 sample 都解析到 digest 的列表中</span>
-            mac0, mac1, ingress_port = struct.unpack(<span style="color:#009c00">&#34;&gt;LHH&#34;</span>, msg[starting_index:starting_index+8]) <span style="color:#f00;font-style:italic"># srcAddr (48 bits) + ingress_port (16 bits) = 64 bits = 8 bytes</span>
-            starting_index +=8
-            mac_addr = (mac0 &lt;&lt; 16) + mac1 <span style="color:#f00;font-style:italic"># 把 mac0 (32 bits) 和 mac1 (16 bits) 叠加在一起</span>
-            digest.append((mac_addr, ingress_port))
-
-        <span style="color:#00f">return</span> digest
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">recv_msg_digest</span>(self, msg):
-
-        topic, device_id, ctx_id, list_id, buffer_id, num = struct.unpack(<span style="color:#009c00">&#34;&lt;iQiiQi&#34;</span>, msg[:32]) <span style="color:#f00;font-style:italic"># nanomsg 的 control header</span>
-        digest = self.unpack_digest(msg, num) <span style="color:#f00;font-style:italic"># 解析 digest 的 payload</span>
-        self.learn(digest)
-
-        <span style="color:#f00;font-style:italic"># 发送 ACK 告诉交换机已经收到了信息</span>
-        self.controller.client.bm_learning_ack_buffer(ctx_id, list_id, buffer_id)
-
-
-    <span style="color:#00f">def</span> <span style="color:#c34e00">run_digest_loop</span>(self):  <span style="color:#f00;font-style:italic"># digest 的主循环</span>
-
-        <span style="color:#f00;font-style:italic"># 建立 nanomsg 的 socket connection</span>
-        sub = nnpy.Socket(nnpy.AF_SP, nnpy.SUB)
-        notifications_socket = self.controller.client.bm_mgmt_get_info().notifications_socket
-        sub.connect(notifications_socket)
-        sub.setsockopt(nnpy.SUB, nnpy.SUB_SUBSCRIBE, <span style="color:#009c00">&#39;&#39;</span>)
-
-        <span style="color:#00f">while</span> <span style="color:#00f">True</span>: <span style="color:#f00;font-style:italic"># 持续接收 nanomsg 的信息</span>
-            msg = sub.recv()
-            self.recv_msg_digest(msg)
-
-<span style="color:#00f">if</span> __name__ == <span style="color:#009c00">&#34;__main__&#34;</span>:
-    <span style="color:#00f">import</span> sys
-    sw_name = sys.argv[1]
-    receive_from = sys.argv[2]
-    <span style="color:#00f">if</span> receive_from == <span style="color:#009c00">&#34;digest&#34;</span>:
-        controller = L2Controller(sw_name).run_digest_loop()
-    <span style="color:#00f">elif</span> receive_from == <span style="color:#009c00">&#34;cpu&#34;</span>:
-        controller = L2Controller(sw_name).run_cpu_port_loop()
-</code></pre></div><p>完成了这两个部分，我们就可以按照 clone 的测试方式检验结果了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> learn_t {    <span style="color:#f00;font-style:italic">// digest 的 payload 部分
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    bit&lt;48&gt; srcAddr;
+</span></span><span style="display:flex;"><span>    bit&lt;16&gt;  ingress_port; <span style="color:#f00;font-style:italic">// 记得加上 padding 变成 16 bits
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> metadata {
+</span></span><span style="display:flex;"><span>    learn_t learn;  <span style="color:#f00;font-style:italic">// 加入进我们的自定义 metadata 部分
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> headers {
+</span></span><span style="display:flex;"><span>    ethernet_t   ethernet;  <span style="color:#f00;font-style:italic">// headers 里不再需要 cpu header 了
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>control MyIngress(inout headers hdr,
+</span></span><span style="display:flex;"><span>                  inout metadata meta,
+</span></span><span style="display:flex;"><span>                  inout standard_metadata_t standard_metadata) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    action mac_learn(){ <span style="color:#f00;font-style:italic">// 这个函数中，我们把 digest 的信息填充好，发给 controller
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        meta.learn.srcAddr = hdr.ethernet.srcAddr;
+</span></span><span style="display:flex;"><span>        meta.learn.ingress_port = (bit&lt;16&gt;)standard_metadata.ingress_port; <span style="color:#f00;font-style:italic">// 记得转换数据类型
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        digest(1, meta.learn);  <span style="color:#f00;font-style:italic">// digest 的第一个参数永远是 1，第二个参数是我们的 digest payload
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>control MyEgress(inout headers hdr,
+</span></span><span style="display:flex;"><span>                 inout metadata meta,
+</span></span><span style="display:flex;"><span>                 inout standard_metadata_t standard_metadata) {
+</span></span><span style="display:flex;"><span>    apply {  }  <span style="color:#f00;font-style:italic">// Egress 部分不需要再做任何处理了
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>...
+</span></span></code></pre></div><p>controller 部分，只要加下面这几个函数和主循环，最底层还是用上面写好的 <code>learn</code> 函数：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#00f">class</span> <span style="color:#007575">L2Controller</span>(object):
+</span></span><span style="display:flex;"><span>    
+</span></span><span style="display:flex;"><span>    ...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">unpack_digest</span>(self, msg, num_samples):
+</span></span><span style="display:flex;"><span>        <span style="color:#009c00">&#39;&#39;&#39;
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">        msg = | control header | sample0 | sample1 | ... | sample#{num_samples-1} | 
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">        @参数：
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">            msg - 原本的 message
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">            num_samples - control header 后面的 sample 数
+</span></span></span><span style="display:flex;"><span><span style="color:#009c00">        &#39;&#39;&#39;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        digest = []
+</span></span><span style="display:flex;"><span>        print len(msg), num_samples
+</span></span><span style="display:flex;"><span>        starting_index = 32 <span style="color:#f00;font-style:italic"># 跳过 control header 的部分</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">for</span> sample in range(num_samples): <span style="color:#f00;font-style:italic"># 每一个 sample 都解析到 digest 的列表中</span>
+</span></span><span style="display:flex;"><span>            mac0, mac1, ingress_port = struct.unpack(<span style="color:#009c00">&#34;&gt;LHH&#34;</span>, msg[starting_index:starting_index+8]) <span style="color:#f00;font-style:italic"># srcAddr (48 bits) + ingress_port (16 bits) = 64 bits = 8 bytes</span>
+</span></span><span style="display:flex;"><span>            starting_index +=8
+</span></span><span style="display:flex;"><span>            mac_addr = (mac0 &lt;&lt; 16) + mac1 <span style="color:#f00;font-style:italic"># 把 mac0 (32 bits) 和 mac1 (16 bits) 叠加在一起</span>
+</span></span><span style="display:flex;"><span>            digest.append((mac_addr, ingress_port))
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> digest
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">recv_msg_digest</span>(self, msg):
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        topic, device_id, ctx_id, list_id, buffer_id, num = struct.unpack(<span style="color:#009c00">&#34;&lt;iQiiQi&#34;</span>, msg[:32]) <span style="color:#f00;font-style:italic"># nanomsg 的 control header</span>
+</span></span><span style="display:flex;"><span>        digest = self.unpack_digest(msg, num) <span style="color:#f00;font-style:italic"># 解析 digest 的 payload</span>
+</span></span><span style="display:flex;"><span>        self.learn(digest)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic"># 发送 ACK 告诉交换机已经收到了信息</span>
+</span></span><span style="display:flex;"><span>        self.controller.client.bm_learning_ack_buffer(ctx_id, list_id, buffer_id)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">def</span> <span style="color:#c34e00">run_digest_loop</span>(self):  <span style="color:#f00;font-style:italic"># digest 的主循环</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic"># 建立 nanomsg 的 socket connection</span>
+</span></span><span style="display:flex;"><span>        sub = nnpy.Socket(nnpy.AF_SP, nnpy.SUB)
+</span></span><span style="display:flex;"><span>        notifications_socket = self.controller.client.bm_mgmt_get_info().notifications_socket
+</span></span><span style="display:flex;"><span>        sub.connect(notifications_socket)
+</span></span><span style="display:flex;"><span>        sub.setsockopt(nnpy.SUB, nnpy.SUB_SUBSCRIBE, <span style="color:#009c00">&#39;&#39;</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">while</span> <span style="color:#00f">True</span>: <span style="color:#f00;font-style:italic"># 持续接收 nanomsg 的信息</span>
+</span></span><span style="display:flex;"><span>            msg = sub.recv()
+</span></span><span style="display:flex;"><span>            self.recv_msg_digest(msg)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> __name__ == <span style="color:#009c00">&#34;__main__&#34;</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">import</span> sys
+</span></span><span style="display:flex;"><span>    sw_name = sys.argv[1]
+</span></span><span style="display:flex;"><span>    receive_from = sys.argv[2]
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> receive_from == <span style="color:#009c00">&#34;digest&#34;</span>:
+</span></span><span style="display:flex;"><span>        controller = L2Controller(sw_name).run_digest_loop()
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">elif</span> receive_from == <span style="color:#009c00">&#34;cpu&#34;</span>:
+</span></span><span style="display:flex;"><span>        controller = L2Controller(sw_name).run_cpu_port_loop()
+</span></span></code></pre></div><p>完成了这两个部分，我们就可以按照 clone 的测试方式检验结果了。</p>
 <h2 id="p4-netfpga">P4-&gt;NetFPGA</h2>
 <blockquote>
 <p>偶然在<a href="https://link.zhihu.com/?target=https%3A//p4.org/assets/p4_d2_2017_p4_netfpga_tutorial.pdf">这里</a>看到 NetFPGA 平台上 Learning Switch 的实现方式，也在这个地方记录一下。</p>
@@ -818,26 +818,26 @@ control MyEgress(inout headers hdr,
 </blockquote>
 <p><img src="http://shanks.link/img/p4/v2-ce9ce8707d5ea7909ae3b596c83ec122_1440w.webp" alt="img"></p>
 <p>SUME 的 Pipeline</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;core.p4&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;simple_sume_switch.p4&#34; // 这个 tutorial 里面自己定义了更加简单的结构，正常的话要 #include &lt;sume_switch.p4&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#f00;font-style:italic">/* standard sume switch metadata */</span>
-<span style="color:#00f">struct</span> sume_metadata_t {
-    bit&lt;16&gt; pkt_len; <span style="color:#f00;font-style:italic">// unsigned int
-</span><span style="color:#f00;font-style:italic"></span>    port_t src_port; <span style="color:#f00;font-style:italic">// one-hot encoded
-</span><span style="color:#f00;font-style:italic"></span>    port_t dst_port; <span style="color:#f00;font-style:italic">// one-hot encoded
-</span><span style="color:#f00;font-style:italic"></span>    bit&lt;8&gt; drop;
-    bit&lt;8&gt; send_dig_to_cpu; <span style="color:#f00;font-style:italic">// send digest_data to CPU
-</span><span style="color:#f00;font-style:italic"></span>    digest_metadata_t digest_data;
-}
-
-<span style="color:#f00;font-style:italic">// digest metadata to send to CPU
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> digest_metadata_t {
-    bit&lt;8&gt; src_port;
-    bit&lt;48&gt; eth_src_addr;
-    bit&lt;24&gt; unused;
-}
-</code></pre></div><p>我们之前使用的，都是 NetFPGA 是一个不同于我们之前使用的 v1model 的另一个目标架构（target），他们之间最主要的区别，可能就是 P4-&gt;NetFPGA 的架构更简单粗暴，比如上图中间的 Match Action Pipeline 把 Ingress 和 Egress 都合并了，然后自带的 metadata 不太一样，但可以实现在 FPGA 硬件的板子上。关于各种不同的目标架构的异同，之后我会找机会单独记录一下。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;core.p4&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;simple_sume_switch.p4&#34; // 这个 tutorial 里面自己定义了更加简单的结构，正常的话要 #include &lt;sume_switch.p4&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* standard sume switch metadata */</span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> sume_metadata_t {
+</span></span><span style="display:flex;"><span>    bit&lt;16&gt; pkt_len; <span style="color:#f00;font-style:italic">// unsigned int
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    port_t src_port; <span style="color:#f00;font-style:italic">// one-hot encoded
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    port_t dst_port; <span style="color:#f00;font-style:italic">// one-hot encoded
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    bit&lt;8&gt; drop;
+</span></span><span style="display:flex;"><span>    bit&lt;8&gt; send_dig_to_cpu; <span style="color:#f00;font-style:italic">// send digest_data to CPU
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    digest_metadata_t digest_data;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// digest metadata to send to CPU
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> digest_metadata_t {
+</span></span><span style="display:flex;"><span>    bit&lt;8&gt; src_port;
+</span></span><span style="display:flex;"><span>    bit&lt;48&gt; eth_src_addr;
+</span></span><span style="display:flex;"><span>    bit&lt;24&gt; unused;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们之前使用的，都是 NetFPGA 是一个不同于我们之前使用的 v1model 的另一个目标架构（target），他们之间最主要的区别，可能就是 P4-&gt;NetFPGA 的架构更简单粗暴，比如上图中间的 Match Action Pipeline 把 Ingress 和 Egress 都合并了，然后自带的 metadata 不太一样，但可以实现在 FPGA 硬件的板子上。关于各种不同的目标架构的异同，之后我会找机会单独记录一下。</p>
 <p>在看 NetFPGA 的实现之前，我们先简单回顾并且总结一下 Learning Switch 要做的事情：</p>
 <ul>
 <li>解析头文件</li>
@@ -847,156 +847,156 @@ control MyEgress(inout headers hdr,
 <li>如果 <code>src_addr</code> 还没有见过的话，就发给 control plane，然后把这个 <code>src_addr</code> 加进表里</li>
 </ul>
 <p>主要的代码部分如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">/* 定义可以解析的 Packet 数据结构 */</span>
-
-<span style="color:#f00;font-style:italic">// standard Ethernet header
-</span><span style="color:#f00;font-style:italic"></span>header Ethernet_h {
-    EthernetAddress dstAddr;
-    EthernetAddress srcAddr;
-    bit&lt;16&gt; etherType;
-}
-
-<span style="color:#f00;font-style:italic">// IPv4 header without options
-</span><span style="color:#f00;font-style:italic"></span>header IPv4_h {
-    bit&lt;4&gt; version;
-    bit&lt;4&gt; ihl;
-    bit&lt;8&gt; diffserv;
-    bit&lt;16&gt; totalLen;
-    bit&lt;16&gt; identification;
-    bit&lt;3&gt; flags;
-    bit&lt;13&gt; fragOffset;
-    bit&lt;8&gt; ttl;
-    bit&lt;8&gt; protocol;
-    bit&lt;16&gt; hdrChecksum;
-    IPv4Address srcAddr;
-    IPv4Address dstAddr;
-}
-
-<span style="color:#f00;font-style:italic">// List of all recognized headers
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> Parsed_packet {
-    Ethernet_h ethernet;
-    IPv4_h ip;
-}
-
-<span style="color:#f00;font-style:italic">/* 定义 Parser */</span>
-parser TopParser(packet_in b,
-                 out Parsed_packet p,
-                 out user_metadata_t user_metadata,
-                 inout sume_metadata_t sume_metadata) {
-    state start {
-        b.extract(p.ethernet);
-        transition <span style="color:#c34e00">select</span>(p.ethernet.etherType) {
-            IPV4_TYPE: parse_ipv4;
-            <span style="color:#00f">default</span>: reject;
-        }
-    }
-
-    state parse_ipv4 {
-        b.extract(p.ip);
-        transition: accept;
-    }
-}
-
-<span style="color:#f00;font-style:italic">/* 定义 Control Flow */</span>
-control ... {
-
-    <span style="color:#f00;font-style:italic">// 第一个 forward 表
-</span><span style="color:#f00;font-style:italic"></span>    action set_output_port(port_t port) {
-        sume_metadata.dst_port = port;
-    }
-
-    table forward() {
-        key = {
-            headers.ethernet.dstAddr: exact;
-        }
-        actions = {
-            set_output_port;
-        }
-        size = 64;
-        default_action = nop;
-    }
-
-    <span style="color:#f00;font-style:italic">// 第二个 broadcast 表
-</span><span style="color:#f00;font-style:italic"></span>    action set_broadcast(port_t port) {
-        sume_metadata.dst_port = port;
-    }
-
-    table broadcast() {
-        key = {
-            sume_metadata.src_port: exact;
-        }
-
-        actions = {
-            set_broadcast;
-            nop;
-        }
-        size = 64;
-        default_action = nop;
-    }
-
-    <span style="color:#f00;font-style:italic">// 第三个 smac 表
-</span><span style="color:#f00;font-style:italic"></span>    table smac() {
-        key = {
-            headers.ethernet.srcAddr: exact;
-        }
-
-        actions = {
-            nop;
-        }
-        size = 64;
-        default_action = nop;
-    }
-
-    <span style="color:#f00;font-style:italic">// 定义发送给 CPU 的操作
-</span><span style="color:#f00;font-style:italic"></span>    action send_to_control() {
-        sume_metadata.digest_data.src_port = sume_metadata.src_port;
-        sume_metadata.digest_data.eth_src_addr = headers.ethernet.srcAddr;
-        sume_metadata.send_dig_to_cpu = 1;
-    }
-
-    apply {
-        <span style="color:#f00;font-style:italic">// 尝试 forward
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (!forward.apply().hit) {
-            <span style="color:#f00;font-style:italic">// dst_addr 未知的话，就广播
-</span><span style="color:#f00;font-style:italic"></span>            broadcast.apply();
-        }
-
-        <span style="color:#f00;font-style:italic">// 判断是否需要学习 src_addr
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (!smac.apply().hit) {
-            <span style="color:#f00;font-style:italic">// src_addr 未知的话，发给 CPU
-</span><span style="color:#f00;font-style:italic"></span>            send_to_control();
-        }
-    }
-}
-
-<span style="color:#f00;font-style:italic">/* 定义 Deparser */</span>
-control TopDeparser(packet_out b,
-                    in Parsed_packet p,
-                    in user_metadata_t user_metadata,
-                    inout sume_metadata_t sume_metadata) {
-    apply {
-        b.emit(p.ethernet);
-        b.emit(p.ip);
-    }
-}
-</code></pre></div><p>然后 control plane 也是用 python 来处理 digest：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-py" data-lang="py">...
-
-<span style="color:#00f">def</span> <span style="color:#c34e00">learn_digest</span>(pkt):
-    dig_pkt = Digest_data(str(pkt))
-    add_to_tables(dig_pkt)
-
-<span style="color:#00f">def</span> <span style="color:#c34e00">add_to_tables</span>(dig_pkt):
-    src_port = dig_pkt.src_port
-    src_addr = dig_pkt.eth_src_addr
-    (found, val) = table_cam_read_entry(<span style="color:#009c00">&#39;forward&#39;</span>, [src_addr]) <span style="color:#f00;font-style:italic"># 内置的查表函数</span>
-    <span style="color:#00f">if</span> (!found):
-        table_cam_add_entry(<span style="color:#009c00">&#39;forward&#39;</span>, [src_addr], <span style="color:#009c00">&#39;set_output_port&#39;</span>, [src_port]) <span style="color:#f00;font-style:italic"># 内置的在表里添加 entry 的函数</span>
-        table_cam_add_entry(<span style="color:#009c00">&#39;smac&#39;</span>, [src_addr], <span style="color:#009c00">&#39;nop&#39;</span>, [])
-
-<span style="color:#00f">def</span> <span style="color:#c34e00">main</span>():
-    sniff(iface=DMA_IFACE, prn=learn_digest, count=0)
-</code></pre></div><h2 id="小结">小结</h2>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 定义可以解析的 Packet 数据结构 */</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// standard Ethernet header
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>header Ethernet_h {
+</span></span><span style="display:flex;"><span>    EthernetAddress dstAddr;
+</span></span><span style="display:flex;"><span>    EthernetAddress srcAddr;
+</span></span><span style="display:flex;"><span>    bit&lt;16&gt; etherType;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// IPv4 header without options
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>header IPv4_h {
+</span></span><span style="display:flex;"><span>    bit&lt;4&gt; version;
+</span></span><span style="display:flex;"><span>    bit&lt;4&gt; ihl;
+</span></span><span style="display:flex;"><span>    bit&lt;8&gt; diffserv;
+</span></span><span style="display:flex;"><span>    bit&lt;16&gt; totalLen;
+</span></span><span style="display:flex;"><span>    bit&lt;16&gt; identification;
+</span></span><span style="display:flex;"><span>    bit&lt;3&gt; flags;
+</span></span><span style="display:flex;"><span>    bit&lt;13&gt; fragOffset;
+</span></span><span style="display:flex;"><span>    bit&lt;8&gt; ttl;
+</span></span><span style="display:flex;"><span>    bit&lt;8&gt; protocol;
+</span></span><span style="display:flex;"><span>    bit&lt;16&gt; hdrChecksum;
+</span></span><span style="display:flex;"><span>    IPv4Address srcAddr;
+</span></span><span style="display:flex;"><span>    IPv4Address dstAddr;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// List of all recognized headers
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">struct</span> Parsed_packet {
+</span></span><span style="display:flex;"><span>    Ethernet_h ethernet;
+</span></span><span style="display:flex;"><span>    IPv4_h ip;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 定义 Parser */</span>
+</span></span><span style="display:flex;"><span>parser TopParser(packet_in b,
+</span></span><span style="display:flex;"><span>                 out Parsed_packet p,
+</span></span><span style="display:flex;"><span>                 out user_metadata_t user_metadata,
+</span></span><span style="display:flex;"><span>                 inout sume_metadata_t sume_metadata) {
+</span></span><span style="display:flex;"><span>    state start {
+</span></span><span style="display:flex;"><span>        b.extract(p.ethernet);
+</span></span><span style="display:flex;"><span>        transition <span style="color:#c34e00">select</span>(p.ethernet.etherType) {
+</span></span><span style="display:flex;"><span>            IPV4_TYPE: parse_ipv4;
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">default</span>: reject;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    state parse_ipv4 {
+</span></span><span style="display:flex;"><span>        b.extract(p.ip);
+</span></span><span style="display:flex;"><span>        transition: accept;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 定义 Control Flow */</span>
+</span></span><span style="display:flex;"><span>control ... {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 第一个 forward 表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    action set_output_port(port_t port) {
+</span></span><span style="display:flex;"><span>        sume_metadata.dst_port = port;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    table forward() {
+</span></span><span style="display:flex;"><span>        key = {
+</span></span><span style="display:flex;"><span>            headers.ethernet.dstAddr: exact;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        actions = {
+</span></span><span style="display:flex;"><span>            set_output_port;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        size = 64;
+</span></span><span style="display:flex;"><span>        default_action = nop;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 第二个 broadcast 表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    action set_broadcast(port_t port) {
+</span></span><span style="display:flex;"><span>        sume_metadata.dst_port = port;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    table broadcast() {
+</span></span><span style="display:flex;"><span>        key = {
+</span></span><span style="display:flex;"><span>            sume_metadata.src_port: exact;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        actions = {
+</span></span><span style="display:flex;"><span>            set_broadcast;
+</span></span><span style="display:flex;"><span>            nop;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        size = 64;
+</span></span><span style="display:flex;"><span>        default_action = nop;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 第三个 smac 表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    table smac() {
+</span></span><span style="display:flex;"><span>        key = {
+</span></span><span style="display:flex;"><span>            headers.ethernet.srcAddr: exact;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        actions = {
+</span></span><span style="display:flex;"><span>            nop;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        size = 64;
+</span></span><span style="display:flex;"><span>        default_action = nop;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 定义发送给 CPU 的操作
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    action send_to_control() {
+</span></span><span style="display:flex;"><span>        sume_metadata.digest_data.src_port = sume_metadata.src_port;
+</span></span><span style="display:flex;"><span>        sume_metadata.digest_data.eth_src_addr = headers.ethernet.srcAddr;
+</span></span><span style="display:flex;"><span>        sume_metadata.send_dig_to_cpu = 1;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    apply {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 尝试 forward
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (!forward.apply().hit) {
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// dst_addr 未知的话，就广播
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            broadcast.apply();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 判断是否需要学习 src_addr
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (!smac.apply().hit) {
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// src_addr 未知的话，发给 CPU
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            send_to_control();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 定义 Deparser */</span>
+</span></span><span style="display:flex;"><span>control TopDeparser(packet_out b,
+</span></span><span style="display:flex;"><span>                    in Parsed_packet p,
+</span></span><span style="display:flex;"><span>                    in user_metadata_t user_metadata,
+</span></span><span style="display:flex;"><span>                    inout sume_metadata_t sume_metadata) {
+</span></span><span style="display:flex;"><span>    apply {
+</span></span><span style="display:flex;"><span>        b.emit(p.ethernet);
+</span></span><span style="display:flex;"><span>        b.emit(p.ip);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>然后 control plane 也是用 python 来处理 digest：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-py" data-lang="py"><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">def</span> <span style="color:#c34e00">learn_digest</span>(pkt):
+</span></span><span style="display:flex;"><span>    dig_pkt = Digest_data(str(pkt))
+</span></span><span style="display:flex;"><span>    add_to_tables(dig_pkt)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">def</span> <span style="color:#c34e00">add_to_tables</span>(dig_pkt):
+</span></span><span style="display:flex;"><span>    src_port = dig_pkt.src_port
+</span></span><span style="display:flex;"><span>    src_addr = dig_pkt.eth_src_addr
+</span></span><span style="display:flex;"><span>    (found, val) = table_cam_read_entry(<span style="color:#009c00">&#39;forward&#39;</span>, [src_addr]) <span style="color:#f00;font-style:italic"># 内置的查表函数</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (!found):
+</span></span><span style="display:flex;"><span>        table_cam_add_entry(<span style="color:#009c00">&#39;forward&#39;</span>, [src_addr], <span style="color:#009c00">&#39;set_output_port&#39;</span>, [src_port]) <span style="color:#f00;font-style:italic"># 内置的在表里添加 entry 的函数</span>
+</span></span><span style="display:flex;"><span>        table_cam_add_entry(<span style="color:#009c00">&#39;smac&#39;</span>, [src_addr], <span style="color:#009c00">&#39;nop&#39;</span>, [])
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">def</span> <span style="color:#c34e00">main</span>():
+</span></span><span style="display:flex;"><span>    sniff(iface=DMA_IFACE, prn=learn_digest, count=0)
+</span></span></code></pre></div><h2 id="小结">小结</h2>
 <p>这篇文章，我们用 P4 分三步实现了链路层的自学习交换机。复习了表的使用，学习了多个表的协同、<code>p4utils</code> 的自动化过程、还有通过 <code>clone</code> 和 <code>digest</code> 两种方式和 controller 通讯的模式。</p>
 <ul>
 <li><a href="https://zhuanlan.zhihu.com/p/350287119">相关内容转载自本链接</a></li>

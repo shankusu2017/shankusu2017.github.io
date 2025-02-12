@@ -319,80 +319,80 @@
 <p>这种拓扑其实上上述两种的综合。拓扑图就不再画了吧。 这样子，OpenVPN虚拟交换机需要学习的MAC地址信息完全取决于各个VPN节点所在的主机是怎么配置的。</p>
 <p>理解了上述的拓扑，继续下去就简单了。我们知道在OpenVPN中有一个multi.c文件，里面有一个multi_process_incoming_link函数，该函数中有两个逻辑，其中之一是处理TUN模式的逻辑，这个一会儿再说，另一个就是处理TAP模式，这个正是我们现在要分析的。该函数处理网络上过来的使用OpenVPN协议封装的加密流量，将之解密，然后写入到虚拟网卡或者经由其它multi_instance加密发送给其它的OpenVPN客户端。</p>
 <p>在分析代码之前，首先要明白的是，对于TAP模式，OpenVPN实现的虚拟设备主要处理虚拟交换机的MAC-“端口(multi_instance)”映射，而对于TUN模式，OpenVPN主要处理路由缓存，其实就是内部路由所体现的一张虚拟的路由表。不管是tap模式还是tun模式，路由信息都是保存在一个hash表中的，在OpenVPN的server模式中，这个hash表为multi_context的vhash字段。在multi_process_incoming_link中，处理TAP模式的逻辑如下(不考虑内部包过滤)：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">else</span> <span style="color:#c34e00">if</span> (TUNNEL_TYPE (m-&gt;top.c1.tuntap) == DEV_TYPE_TAP) {
-    <span style="color:#f00;font-style:italic">//从解密后的载荷包中解析中源MAC地址和目标MAC地址
-</span><span style="color:#f00;font-style:italic"></span>    mroute_flags = mroute_extract_addr_from_packet (&amp;src,
-                            &amp;dest,
-                            NULL,
-                            NULL,
-                            &amp;c-&gt;c2.to_tun,
-                            DEV_TYPE_TAP);
-    <span style="color:#00f">if</span> (mroute_flags &amp; MROUTE_EXTRACT_SUCCEEDED) {
-        <span style="color:#f00;font-style:italic">//虚拟交换机的学习，和物理交换机的学习机制一样
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (multi_learn_addr (m, m-&gt;pending, &amp;src, 0) == m-&gt;pending) {
-            <span style="color:#00f">if</span> (m-&gt;enable_c2c) {
-                <span style="color:#00f">if</span> (mroute_flags &amp; (需要广播的标识)) {
-                    multi_bcast (m, &amp;c-&gt;c2.to_tun, m-&gt;pending, NULL);
-                } <span style="color:#00f">else</span> {
-                    mi = multi_get_instance_by_virtual_addr (m, &amp;dest, false);
-                  <span style="color:#f00;font-style:italic">/* 如果目的地址对应另外一个multi_instance，那么就直接将数据“路由”到该客户端，不再往虚拟网卡中写  */</span>
-                    <span style="color:#00f">if</span> (mi) {
-                        multi_unicast (m, &amp;c-&gt;c2.to_tun, mi);
-                        register_activity (c, BLEN(&amp;c-&gt;c2.to_tun));
-                        c-&gt;c2.to_tun.len = 0;
-                    }
-                }
-            }
-        } <span style="color:#00f">else</span> {
-            msg (bad source address);
-            c-&gt;c2.to_tun.len = 0;
-        }
-    } <span style="color:#00f">else</span> {
-        c-&gt;c2.to_tun.len = 0;
-    }
-}
-</code></pre></div><p>在mroute_extract_addr_from_packet中解析出该数据包的目的地址(此时数据包已经被解密了)，将其保存到dest变量，接下来就要地址学习了，和物理交换机一样，此时虚拟交换机学习的是发送该数据包的源地址，所谓的学习过程很简单：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">else</span> <span style="color:#c34e00">if</span> (TUNNEL_TYPE (m-&gt;top.c1.tuntap) == DEV_TYPE_TAP) {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//从解密后的载荷包中解析中源MAC地址和目标MAC地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    mroute_flags = mroute_extract_addr_from_packet (&amp;src,
+</span></span><span style="display:flex;"><span>                            &amp;dest,
+</span></span><span style="display:flex;"><span>                            NULL,
+</span></span><span style="display:flex;"><span>                            NULL,
+</span></span><span style="display:flex;"><span>                            &amp;c-&gt;c2.to_tun,
+</span></span><span style="display:flex;"><span>                            DEV_TYPE_TAP);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (mroute_flags &amp; MROUTE_EXTRACT_SUCCEEDED) {
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//虚拟交换机的学习，和物理交换机的学习机制一样
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (multi_learn_addr (m, m-&gt;pending, &amp;src, 0) == m-&gt;pending) {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> (m-&gt;enable_c2c) {
+</span></span><span style="display:flex;"><span>                <span style="color:#00f">if</span> (mroute_flags &amp; (需要广播的标识)) {
+</span></span><span style="display:flex;"><span>                    multi_bcast (m, &amp;c-&gt;c2.to_tun, m-&gt;pending, NULL);
+</span></span><span style="display:flex;"><span>                } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>                    mi = multi_get_instance_by_virtual_addr (m, &amp;dest, false);
+</span></span><span style="display:flex;"><span>                  <span style="color:#f00;font-style:italic">/* 如果目的地址对应另外一个multi_instance，那么就直接将数据“路由”到该客户端，不再往虚拟网卡中写  */</span>
+</span></span><span style="display:flex;"><span>                    <span style="color:#00f">if</span> (mi) {
+</span></span><span style="display:flex;"><span>                        multi_unicast (m, &amp;c-&gt;c2.to_tun, mi);
+</span></span><span style="display:flex;"><span>                        register_activity (c, BLEN(&amp;c-&gt;c2.to_tun));
+</span></span><span style="display:flex;"><span>                        c-&gt;c2.to_tun.len = 0;
+</span></span><span style="display:flex;"><span>                    }
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>            msg (bad source address);
+</span></span><span style="display:flex;"><span>            c-&gt;c2.to_tun.len = 0;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>        c-&gt;c2.to_tun.len = 0;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在mroute_extract_addr_from_packet中解析出该数据包的目的地址(此时数据包已经被解密了)，将其保存到dest变量，接下来就要地址学习了，和物理交换机一样，此时虚拟交换机学习的是发送该数据包的源地址，所谓的学习过程很简单：</p>
 <ol>
 <li>在vhash中查找这个src，如果没有找到则添加，同时和该src的multi_instance关联；</li>
 <li>在vhash中查找这个src，如果找到了，则更新vhash的对应项。 在地址学习之后，接下来调用multi_get_instance_by_virtual_addr试图找到目的地址对应的multi_instance，注意，这个对应关系也是虚拟交换机学习得到的，在multi_get_instance_by_virtual_addr函数中，实际上是在同一个vhash中进行查找的，就是刚才虚拟交换机地址学习时更新的那个vhash。如果找到了，则直接将数据包路由给对应的multi_instance，也就不再往虚拟网卡中写了，否则就写入虚拟网卡。</li>
 </ol>
 <p>值得注意的是，前一段的一句话“如果找到了，则直接将数据包路由给对应的multi_instance”，为什么不是“对应的OpenVPN客户端”而是“对应的multi_instance”呢？这是因为在tap模式下，如果有虚拟网卡和物理网卡桥接的情况，那么实际上OpenVPN节点后面的节点也处于同一个虚拟以太网中，此时对应的目的地址就不再是OpenVPN客户端本身了，而是该OpenVPN客户端后面的一台主机。在tap模式下，主要有两个函数调用值得注意，一个是multi_learn_addr，另一个是multi_get_instance_by_virtual_addr，前者学习MAC地址和multi_instance的映射，以src作为输入，后者根据学者学习的结果，从OpenVPN的虚拟交换机的映射表中取出和dest对应的multi_instance，以dest作为输入，learn函数将一个项插入这个映射表，而get函数则试图从这个表中取出一项，其实就是查表的过程。</p>
 <p>对于TUN模式，情况比较复杂，因为全部要通过路由走，这里的路由分为三部分：第一部分是OpenVPN客户端和OpenVPN服务器之间建立连接时两个TUN网卡之间的点对点路由，这个路由是很显然的；第二部分是为了和VPN节点之外的目的网络通信而设置的系统路由，该路由要push到OpenVPN客户端；第三部分是服务器进行client-to-client路由以及验证数据包IP地址或者从服务器端主动发起向客户端访问时使用的OpenVPN内部路由。其中内部路由是最复杂的，内部路由不光可以限制数据包的发起地，还可以路由从服务器端以及其后发起的数据包到客户端或者客户端后面，这段代码体现在multi_process_incoming_tun中：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c">multi_set_pending (m, multi_get_instance_by_virtual_addr (m, &amp;dest, dev_type == DEV_TYPE_TUN));
-</code></pre></div><p>可见，只要服务器从tun字符设备读取了IP数据报(该数据报通过系统路由到达tun网卡并从中发出，而该系统路由要么通过手工配置，要么通过客户端push-peer-info推送至服务器端)，就会以目的地址为输入调用get_instance函数，如果该目的地址就是OpenVPN的客户端虚拟地址或者某个客户端的iroute可达的地址，那么就会找到相应的multi_instance，找到的这个映射关系也会被加入到内部路由缓存中，实际上OpenVPN通过tun直连路由和iroute配置的路由生成了一张内部路由表，即使没有缓存，每次查询这个路由表也会得到正确的结果的，只是每次都执行最长掩码匹配效率会大打折扣，这正如Cisco以及很多高端路由器将路由表和转发表分开是一样的道理。在看tun路由学习实现之前先看看tun模式的拓扑图：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span>multi_set_pending (m, multi_get_instance_by_virtual_addr (m, &amp;dest, dev_type == DEV_TYPE_TUN));
+</span></span></code></pre></div><p>可见，只要服务器从tun字符设备读取了IP数据报(该数据报通过系统路由到达tun网卡并从中发出，而该系统路由要么通过手工配置，要么通过客户端push-peer-info推送至服务器端)，就会以目的地址为输入调用get_instance函数，如果该目的地址就是OpenVPN的客户端虚拟地址或者某个客户端的iroute可达的地址，那么就会找到相应的multi_instance，找到的这个映射关系也会被加入到内部路由缓存中，实际上OpenVPN通过tun直连路由和iroute配置的路由生成了一张内部路由表，即使没有缓存，每次查询这个路由表也会得到正确的结果的，只是每次都执行最长掩码匹配效率会大打折扣，这正如Cisco以及很多高端路由器将路由表和转发表分开是一样的道理。在看tun路由学习实现之前先看看tun模式的拓扑图：</p>
 <p><img src="https://p1-jj.byteimg.com/tos-cn-i-t2oaga2asx/gold-user-assets/2018/12/14/167abfef30b17f21~tplv-t2oaga2asx-zoom-in-crop-mark:3024:0:0:0.awebp" alt="img"></p>
 <p>下面看一下TUN模式的内部路由实现，还是multi_process_incoming_link函数中，不过这次处理的是另外一个分支：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">if</span> (TUNNEL_TYPE (m-&gt;top.c1.tuntap) == DEV_TYPE_TUN) {
-    <span style="color:#f00;font-style:italic">//同tap模式一样，从解密后的载荷包中解析中源地址和目的地址，不过这次是IP地址
-</span><span style="color:#f00;font-style:italic"></span>    mroute_flags = mroute_extract_addr_from_packet (&amp;src,
-                            &amp;dest,
-                            NULL,
-                            NULL,
-                            &amp;c-&gt;c2.to_tun,
-                            DEV_TYPE_TUN);
-    <span style="color:#00f">if</span> (!(mroute_flags &amp; MROUTE_EXTRACT_SUCCEEDED)) {
-        c-&gt;c2.to_tun.len = 0;
-        <span style="color:#f00;font-style:italic">//以src作为输入调用get_instance函数，学习路由缓存
-</span><span style="color:#f00;font-style:italic"></span>    } <span style="color:#00f">else</span> <span style="color:#00f">if</span> (multi_get_instance_by_virtual_addr (m, &amp;src, true) != m-&gt;pending) {
-        msg (D_MULTI_DROPPED, <span style="color:#009c00">&#34;MULTI: bad source address from client [%s], packet dropped&#34;</span>,
-               mroute_addr_print (&amp;src, &amp;gc));
-        c-&gt;c2.to_tun.len = 0;
-    } <span style="color:#00f">else</span> <span style="color:#00f">if</span> (m-&gt;enable_c2c) {
-        <span style="color:#00f">if</span> (mroute_flags &amp; MROUTE_EXTRACT_MCAST) {
-            multi_bcast (m, &amp;c-&gt;c2.to_tun, m-&gt;pending, NULL);
-        } <span style="color:#00f">else</span> {
-            ASSERT (!(mroute_flags &amp; MROUTE_EXTRACT_BCAST));
-            <span style="color:#f00;font-style:italic">//以dest作为输入调用get_instance函数，得到路由项
-</span><span style="color:#f00;font-style:italic"></span>            mi = multi_get_instance_by_virtual_addr (m, &amp;dest, true);
-            <span style="color:#00f">if</span> (mi) {
-                multi_unicast (m, &amp;c-&gt;c2.to_tun, mi);
-                register_activity (c, BLEN(&amp;c-&gt;c2.to_tun));
-                c-&gt;c2.to_tun.len = 0;
-            }
-        }
-    }
-}
-</code></pre></div><p>大体上，tun模式的处理过程和tap的很类似，然而处理更对称了，学习过程和get_instance过程都是调用同一个函数。代码虽然比较一致，然而tun的处理过程更加复杂，本来IP路由就比以太网的路由模型复杂得多。OpenVPN的tun模式中，完全靠路由来通信，这些路由来自三个地方，第一个地方就是OpenVPN服务器本身维护的客户端到服务器的直接点对点的路由，也就是两个tun网卡之间的点对点路由；第二个地方是用户通过每用户的iroute指令配置的针对每一个用户后面挂接网络的内部路由；第三个地方就是服务器push到客户端的服务器后面挂接网络的路由。其中第二个地方的路由需要用户手工配置，然而修改了OpenVPN代码后，利用push-peer-info指令，这些路由也可以由客户端推送过来，详见《OpenVPN高级路由技术-反向推送信息》，不过一定要慎用这个功能，一定要对客户端反推上来的路由进行仔细鉴别之后再添加。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">if</span> (TUNNEL_TYPE (m-&gt;top.c1.tuntap) == DEV_TYPE_TUN) {
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//同tap模式一样，从解密后的载荷包中解析中源地址和目的地址，不过这次是IP地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    mroute_flags = mroute_extract_addr_from_packet (&amp;src,
+</span></span><span style="display:flex;"><span>                            &amp;dest,
+</span></span><span style="display:flex;"><span>                            NULL,
+</span></span><span style="display:flex;"><span>                            NULL,
+</span></span><span style="display:flex;"><span>                            &amp;c-&gt;c2.to_tun,
+</span></span><span style="display:flex;"><span>                            DEV_TYPE_TUN);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (!(mroute_flags &amp; MROUTE_EXTRACT_SUCCEEDED)) {
+</span></span><span style="display:flex;"><span>        c-&gt;c2.to_tun.len = 0;
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//以src作为输入调用get_instance函数，学习路由缓存
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    } <span style="color:#00f">else</span> <span style="color:#00f">if</span> (multi_get_instance_by_virtual_addr (m, &amp;src, true) != m-&gt;pending) {
+</span></span><span style="display:flex;"><span>        msg (D_MULTI_DROPPED, <span style="color:#009c00">&#34;MULTI: bad source address from client [%s], packet dropped&#34;</span>,
+</span></span><span style="display:flex;"><span>               mroute_addr_print (&amp;src, &amp;gc));
+</span></span><span style="display:flex;"><span>        c-&gt;c2.to_tun.len = 0;
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> <span style="color:#00f">if</span> (m-&gt;enable_c2c) {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (mroute_flags &amp; MROUTE_EXTRACT_MCAST) {
+</span></span><span style="display:flex;"><span>            multi_bcast (m, &amp;c-&gt;c2.to_tun, m-&gt;pending, NULL);
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>            ASSERT (!(mroute_flags &amp; MROUTE_EXTRACT_BCAST));
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">//以dest作为输入调用get_instance函数，得到路由项
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            mi = multi_get_instance_by_virtual_addr (m, &amp;dest, true);
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> (mi) {
+</span></span><span style="display:flex;"><span>                multi_unicast (m, &amp;c-&gt;c2.to_tun, mi);
+</span></span><span style="display:flex;"><span>                register_activity (c, BLEN(&amp;c-&gt;c2.to_tun));
+</span></span><span style="display:flex;"><span>                c-&gt;c2.to_tun.len = 0;
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>大体上，tun模式的处理过程和tap的很类似，然而处理更对称了，学习过程和get_instance过程都是调用同一个函数。代码虽然比较一致，然而tun的处理过程更加复杂，本来IP路由就比以太网的路由模型复杂得多。OpenVPN的tun模式中，完全靠路由来通信，这些路由来自三个地方，第一个地方就是OpenVPN服务器本身维护的客户端到服务器的直接点对点的路由，也就是两个tun网卡之间的点对点路由；第二个地方是用户通过每用户的iroute指令配置的针对每一个用户后面挂接网络的内部路由；第三个地方就是服务器push到客户端的服务器后面挂接网络的路由。其中第二个地方的路由需要用户手工配置，然而修改了OpenVPN代码后，利用push-peer-info指令，这些路由也可以由客户端推送过来，详见《OpenVPN高级路由技术-反向推送信息》，不过一定要慎用这个功能，一定要对客户端反推上来的路由进行仔细鉴别之后再添加。</p>
 <p>总的来讲，OpenVPN在以src作为参数调用multi_get_instance_by_virtual_addr的时候，一定要确保src要么是OpenVPN客户端本身的虚拟IP地址，要么来自管理员显式的iroute配置，后者体现在multi_get_instance_by_virtual_addr函数中CIDR匹配。如果找到了这么一个CIDR路由，那么就算学习了一个路由缓存项，这个项可能会被以后以此为目的地址的IP数据报寻址时用到，而这个基于内部路由的寻址过程体现在上面代码片段的第二次multi_get_instance_by_virtual_addr的调用处，这次调用使用dest为输入，查询OpenVPN的tun直接点对点路由或者通过第一次调用get_instance时learn到的路由。</p>
 <p>最终，总结起来就是：OpenVPN实现了两类的虚拟设备，这两类设备处于两个协议层，分别是：</p>
 <p><strong>1. TAP模式下的虚拟交换机实现</strong></p>

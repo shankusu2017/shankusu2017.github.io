@@ -301,59 +301,59 @@
 name	args	desc
 OP_NEWTABLE	A B C	R(A) := {} (size = B,C)
 NEWTABLE在寄存器A处创建一个table对象。B和C分别用来存储这个table数组部分和hash部分的初始大小。初始大小是在编译期计算出来并生成到这个指令中的，目的是使接下来对table的初始化填充不会造成rehash而影响效率。B和C使用“floating point byte”的方法来表示成(eeeeexxx)的二进制形式，其实际值为(1xxx) * 2^(eeeee-1)。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-lua" data-lang="lua"><span style="color:#00f">local</span> a = {};
-</code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">	1	[1]	NEWTABLE 	0 0 0
-	2	[1]	RETURN   	0 1 
-</code></pre></div><p>上面代码生成一个空的table，放入local变量a，B和C参数都为0。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-lua" data-lang="lua"><span style="display:flex;"><span><span style="color:#00f">local</span> a = {};
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>	1	[1]	NEWTABLE 	0 0 0
+</span></span><span style="display:flex;"><span>	2	[1]	RETURN   	0 1 
+</span></span></code></pre></div><p>上面代码生成一个空的table，放入local变量a，B和C参数都为0。</p>
 <p>name	args	desc
 OP_SETLIST	A B C	R(A)[(C-1)*FPF+i] := R(A+i), 1 &lt;= i &lt;= B
 SETLIST用来配合NEWTABLE，初始化表的数组部分使用的。A为保存待设置表的寄存器，SETLIST要将A下面紧接着的寄存器列表(1&ndash;B)中的值逐个设置给表的数组部分。</p>
 <p>当表需要初始化数组元素数量比较小的情况下，例如:</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-lua" data-lang="lua"><span style="color:#00f">local</span> a = {1,1,1};
-</code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">	1	[1]	NEWTABLE 	0 3 0
-	2	[1]	LOADK    	1 -1	; 1
-	3	[1]	LOADK    	2 -1	; 1
-	4	[1]	LOADK    	3 -1	; 1
-	5	[1]	SETLIST  	0 3 1	; 1
-	6	[1]	RETURN   	0 1
-constants (1) <span style="color:#00f">for</span> 0x80048eb0:
-	1	1 
-</code></pre></div><p>第1行先用NEWTABLE构建一个具有3个数组元素的表，让到寄存器0中；然后使用3个LOADK向下面3个寄存器装入常量1；最后使用SETLIST设置表的1~3为寄存器1~寄存器3。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-lua" data-lang="lua"><span style="display:flex;"><span><span style="color:#00f">local</span> a = {1,1,1};
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>	1	[1]	NEWTABLE 	0 3 0
+</span></span><span style="display:flex;"><span>	2	[1]	LOADK    	1 -1	; 1
+</span></span><span style="display:flex;"><span>	3	[1]	LOADK    	2 -1	; 1
+</span></span><span style="display:flex;"><span>	4	[1]	LOADK    	3 -1	; 1
+</span></span><span style="display:flex;"><span>	5	[1]	SETLIST  	0 3 1	; 1
+</span></span><span style="display:flex;"><span>	6	[1]	RETURN   	0 1
+</span></span><span style="display:flex;"><span>constants (1) <span style="color:#00f">for</span> 0x80048eb0:
+</span></span><span style="display:flex;"><span>	1	1 
+</span></span></code></pre></div><p>第1行先用NEWTABLE构建一个具有3个数组元素的表，让到寄存器0中；然后使用3个LOADK向下面3个寄存器装入常量1；最后使用SETLIST设置表的1~3为寄存器1~寄存器3。
 如果需要创建一个很大的表，其中包含很多的数组元素，使用如上方法就会遇到一个问题。将这些指按顺序放到寄存器时，会超出寄存器的范围。解决的办法就是按照一个固定大小，将这些数组元素分批进行设置。在Lua中，每批的数量由lopcodes.h中的LFIELDS_PER_FLUSH定义，数量为50。所以，大数量的设置会按照50个一批，先将值设置到表下面的寄存器，然后设置给对应的表项。C代表的就是这一次调用SETLIST设置的是第几批。回到上面的例子，因为只有3个表项，所以1批就搞定了，C的值为1。</p>
 <p>下面是一个大表的设置：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-lua" data-lang="lua"><span style="color:#00f">local</span> a = 
-{
-	1,2,3,4,5,6,7,8,9,0,
-	1,2,3,4,5,6,7,8,9,0,
-	1,2,3,4,5,6,7,8,9,0,
-	1,2,3,4,5,6,7,8,9,0,
-	1,2,3,4,5,6,7,8,9,0,
-	1,2,3
-};
-</code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">	1	[1]	NEWTABLE 	0 30 0
-	2	[3]	LOADK    	1 -1	; 1
-	3	[3]	LOADK    	2 -2	; 2 
-...
-	50	[7]	LOADK    	49 -9	; 9
-	51	[7]	LOADK    	50 -10	; 0
-	52	[7]	SETLIST  	0 50 1	; 1
-	53	[8]	LOADK    	1 -1	; 1
-	54	[8]	LOADK    	2 -2	; 2
-	55	[9]	LOADK    	3 -3	; 3
-	56	[9]	SETLIST  	0 3 2	; 2
-	57	[9]	RETURN   	0 1
-constants (10) <span style="color:#00f">for</span> 0x80048eb0:
-	1	1
-	2	2
-	3	3
-	4	4
-	5	5
-	6	6
-	7	7
-	8	8
-	9	9
-	10	0 
-</code></pre></div><p>可以看到，这个表的初始化使用了两个SETLIST指令。第一个处理前50个，C为1，设置id从(C-1)*50 + 1开始，也就是1。第二个处理余下的3个，C为2，设置的id从(C-1)*50 + 1开始，也就是51。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-lua" data-lang="lua"><span style="display:flex;"><span><span style="color:#00f">local</span> a = 
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>	1,2,3,4,5,6,7,8,9,0,
+</span></span><span style="display:flex;"><span>	1,2,3,4,5,6,7,8,9,0,
+</span></span><span style="display:flex;"><span>	1,2,3,4,5,6,7,8,9,0,
+</span></span><span style="display:flex;"><span>	1,2,3,4,5,6,7,8,9,0,
+</span></span><span style="display:flex;"><span>	1,2,3,4,5,6,7,8,9,0,
+</span></span><span style="display:flex;"><span>	1,2,3
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>	1	[1]	NEWTABLE 	0 30 0
+</span></span><span style="display:flex;"><span>	2	[3]	LOADK    	1 -1	; 1
+</span></span><span style="display:flex;"><span>	3	[3]	LOADK    	2 -2	; 2 
+</span></span><span style="display:flex;"><span>...
+</span></span><span style="display:flex;"><span>	50	[7]	LOADK    	49 -9	; 9
+</span></span><span style="display:flex;"><span>	51	[7]	LOADK    	50 -10	; 0
+</span></span><span style="display:flex;"><span>	52	[7]	SETLIST  	0 50 1	; 1
+</span></span><span style="display:flex;"><span>	53	[8]	LOADK    	1 -1	; 1
+</span></span><span style="display:flex;"><span>	54	[8]	LOADK    	2 -2	; 2
+</span></span><span style="display:flex;"><span>	55	[9]	LOADK    	3 -3	; 3
+</span></span><span style="display:flex;"><span>	56	[9]	SETLIST  	0 3 2	; 2
+</span></span><span style="display:flex;"><span>	57	[9]	RETURN   	0 1
+</span></span><span style="display:flex;"><span>constants (10) <span style="color:#00f">for</span> 0x80048eb0:
+</span></span><span style="display:flex;"><span>	1	1
+</span></span><span style="display:flex;"><span>	2	2
+</span></span><span style="display:flex;"><span>	3	3
+</span></span><span style="display:flex;"><span>	4	4
+</span></span><span style="display:flex;"><span>	5	5
+</span></span><span style="display:flex;"><span>	6	6
+</span></span><span style="display:flex;"><span>	7	7
+</span></span><span style="display:flex;"><span>	8	8
+</span></span><span style="display:flex;"><span>	9	9
+</span></span><span style="display:flex;"><span>	10	0 
+</span></span></code></pre></div><p>可以看到，这个表的初始化使用了两个SETLIST指令。第一个处理前50个，C为1，设置id从(C-1)*50 + 1开始，也就是1。第二个处理余下的3个，C为2，设置的id从(C-1)*50 + 1开始，也就是51。
 如果数据非常大，导致需要的批次超出了C的表示范围，那么C会被设置成0，然后在SETLIST指令后面生成一个EXTRAARG指令，并用其Ax来存储批次。这与前面说到的LOADKX的处理方法一样，都是为处理超大数据服务的。</p>
 <p>如果使用核能产生多个返回值的表达式（&hellip; 和 函数调用）初始化数组项，如果这个初始化不是表构造的最后一项，那么只有第一个返回值会被设置到数组项；如果是最后一项，那么SETLIST中的B会被设置为0，表示从A+1到当前栈顶都用来设置。</p>
 <p>SETLIST只负责初始化表的数组部分，对于hash部分，还是通过SETTABLE来初始化。</p>
@@ -361,14 +361,14 @@ constants (10) <span style="color:#00f">for</span> 0x80048eb0:
 OP_GETTABLE	A B C	R(A) := R(B)[RK(C)]
 OP_SETTABLE	A B C	R(A)[RK(B)] := RK(C)
 GETTABLE使用C表示的key，将寄存器B中的表项值获取到寄存器A中。SETTABLE设置寄存器A的表的B项为C代表的值。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">local a = {};
-a.x = 1;
-local b = a.x;
-</code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">	1	[1]	NEWTABLE 	0 0 0
-	2	[2]	SETTABLE 	0 -1 -2	; <span style="color:#009c00">&#34;x&#34;</span> 1
-	3	[3]	GETTABLE 	1 0 -1	; <span style="color:#009c00">&#34;x&#34;</span>
-	4	[3]	RETURN   	0 1 
-</code></pre></div>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>local a = {};
+</span></span><span style="display:flex;"><span>a.x = 1;
+</span></span><span style="display:flex;"><span>local b = a.x;
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>	1	[1]	NEWTABLE 	0 0 0
+</span></span><span style="display:flex;"><span>	2	[2]	SETTABLE 	0 -1 -2	; <span style="color:#009c00">&#34;x&#34;</span> 1
+</span></span><span style="display:flex;"><span>	3	[3]	GETTABLE 	1 0 -1	; <span style="color:#009c00">&#34;x&#34;</span>
+</span></span><span style="display:flex;"><span>	4	[3]	RETURN   	0 1 
+</span></span></code></pre></div>
     </div>
     <footer class="post-footer">
      

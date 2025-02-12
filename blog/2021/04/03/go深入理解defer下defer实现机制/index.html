@@ -300,226 +300,226 @@
     <p>原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/iEtMbRXW4yYyCG0TTW5y9g">源码游记</a> 2019-06-17</p>
 <p>上一篇文章我们主要从使用的角度介绍了 defer 的基础知识，本文我们来分析一下 defer 的实现机制。</p>
 <p>还是从一个例子程序开始。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">package</span> main
- 
-<span style="color:#00f">import</span> <span style="color:#009c00">&#34;fmt&#34;</span>
- 
-<span style="color:#00f">func</span> <span style="color:#c34e00">sum</span>(a, b <span style="color:#00f">int</span>) {
-    c := a + b
-    fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;sum:&#34;</span> , c)
-}
- 
-<span style="color:#00f">func</span> <span style="color:#c34e00">f</span>(a, b <span style="color:#00f">int</span>) {
-    <span style="color:#00f">defer</span> <span style="color:#c34e00">sum</span>(a, b)
- 
-    fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;a: %d, b: %d\n&#34;</span>, a, b)
-}
- 
-<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-    a, b := 1, 2
-    <span style="color:#c34e00">f</span>(a, b)
-}
-</code></pre></div><p>从前一篇文章我们得知，编译器会把 defer 语句翻译成对 deferproc 函数的调用，同时，编译器也会在使用了 defer 语句的 go 函数的末尾插入对 deferreturn 函数的调用，下面我们来看一下这两个函数的实现代码。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">package</span> main
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">import</span> <span style="color:#009c00">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">sum</span>(a, b <span style="color:#00f">int</span>) {
+</span></span><span style="display:flex;"><span>    c := a + b
+</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;sum:&#34;</span> , c)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">f</span>(a, b <span style="color:#00f">int</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">defer</span> <span style="color:#c34e00">sum</span>(a, b)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;a: %d, b: %d\n&#34;</span>, a, b)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>    a, b := 1, 2
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">f</span>(a, b)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>从前一篇文章我们得知，编译器会把 defer 语句翻译成对 deferproc 函数的调用，同时，编译器也会在使用了 defer 语句的 go 函数的末尾插入对 deferreturn 函数的调用，下面我们来看一下这两个函数的实现代码。</p>
 <p>deferproc 函数</p>
 <p>先来看看 deferproc 的函数原型：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/panic.<span style="color:#00f">go</span> : 89
-
-<span style="color:#f00;font-style:italic">// Create a new deferred function fn with siz bytes of arguments.
-</span><span style="color:#f00;font-style:italic">// The compiler turns a defer statement into a call to this.
-</span><span style="color:#f00;font-style:italic">//go:nosplit
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">deferproc</span>(siz <span style="color:#00f">int32</span>, fn *funcval)
-deferproc 函数的第一个参数 siz 是 defered 函数（比如本例中的 sum 函数）的参数以字节为单位的大小，第二个参数 funcval 是一个变长结构体：
-
-proc/runtime2.<span style="color:#00f">go</span> : 139
-
-<span style="color:#00f">type</span> funcval <span style="color:#00f">struct</span> {
-    fn <span style="color:#00f">uintptr</span>
-    <span style="color:#f00;font-style:italic">// variable-size, fn-specific data here
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>于是，在64位系统中本文例子中的 defer sum(a, b) 大致等价于</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/panic.<span style="color:#00f">go</span> : 89
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Create a new deferred function fn with siz bytes of arguments.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// The compiler turns a defer statement into a call to this.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//go:nosplit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">deferproc</span>(siz <span style="color:#00f">int32</span>, fn *funcval)
+</span></span><span style="display:flex;"><span>deferproc 函数的第一个参数 siz 是 defered 函数（比如本例中的 sum 函数）的参数以字节为单位的大小，第二个参数 funcval 是一个变长结构体：
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>proc/runtime2.<span style="color:#00f">go</span> : 139
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">type</span> funcval <span style="color:#00f">struct</span> {
+</span></span><span style="display:flex;"><span>    fn <span style="color:#00f">uintptr</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// variable-size, fn-specific data here
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p>于是，在64位系统中本文例子中的 defer sum(a, b) 大致等价于</p>
 <p>deferproc(16, &amp;funcval{sum})
 因为 sum 函数有 2 个 int 型的参数共 16 字节，所以在调用 deferproc 函数时第一个参数为16，第二个参数 funcval 结构体对象的 fn 成员为 sum 函数的地址。我们可以先想一下为什么需要把 sum 函数的参数大小传递给 deferproc() 函数？另外为什么没看到 sum 函数需要的两个参数呢？</p>
 <p>为了搞清楚编译器到底会怎么翻译 defer 关键字，我们需要看一下 f() 函数的汇编代码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-asm" data-lang="asm">0<span style="color:#c34e00">x0000000000488de0</span> &lt;+0&gt;: mov   %fs:0xfffffffffffffff8,%rcx
-0<span style="color:#c34e00">x0000000000488de9</span> &lt;+9&gt;: cmp   0x10(%rcx),%rsp
-0<span style="color:#c34e00">x0000000000488ded</span> &lt;+13&gt;: jbe   0x488f10 &lt;main.f+304&gt;
-0<span style="color:#c34e00">x0000000000488df3</span> &lt;+19&gt;: sub   $0x80,%rsp
-0<span style="color:#c34e00">x0000000000488dfa</span> &lt;+26&gt;: mov   %rbp,0x78(%rsp)
-0<span style="color:#c34e00">x0000000000488dff</span> &lt;+31&gt;: lea   0x78(%rsp),%rbp   <span style="color:#f00;font-style:italic"># 这一条指令以及前面几条指令是函数序言，跟defer无关
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488e04 &lt;+36&gt;: movl   $0x10,(%rsp)     <span style="color:#f00;font-style:italic"># deferproc的第一个参数siz
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488e0b &lt;+43&gt;: lea   0x39076(%rip),%rax      
-0x0000000000488e12 &lt;+50&gt;: mov   %rax,0x8(%rsp)  <span style="color:#f00;font-style:italic"># 第二个参数funcval结构体对象的地址
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488e17 &lt;+55&gt;: mov   0x88(%rsp),%rax
-0<span style="color:#c34e00">x0000000000488e1f</span> &lt;+63&gt;: mov   %rax,0x10(%rsp)  <span style="color:#f00;font-style:italic"># f()函数的第一个参数a，a = 1
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488e24 &lt;+68&gt;: mov   0x90(%rsp),%rcx
-0<span style="color:#c34e00">x0000000000488e2c</span> &lt;+76&gt;: mov   %rcx,0x18(%rsp)  <span style="color:#f00;font-style:italic"># f()函数的第二个参数b, b = 2
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488e31 &lt;+81&gt;: callq   0x426c00 &lt;runtime.deferproc&gt;  <span style="color:#f00;font-style:italic"># 调用deferproc函数
-</span><span style="color:#f00;font-style:italic"># 注意deferproc函数本来是没有返回值的，下面的test指令在检查deferproc的隐性返回值
-</span><span style="color:#f00;font-style:italic"># 这条指令是编译器专门针对deferproc函数而插入的，对其它go函数调用时编译器不会插入该指令
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488e36 &lt;+86&gt;: test   %eax,%eax  
-<span style="color:#f00;font-style:italic"># 如果deferproc返回不为0则直接跳转到函数结尾去执行deferreturn函数
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488e38 &lt;+88&gt;: jne   0x488efd &lt;main.f+285&gt; 
-0x0000000000488e3e &lt;+94&gt;: mov   0x88(%rsp),%rax
-......
-0<span style="color:#c34e00">x0000000000488ee5</span> &lt;+261&gt;: callq  0x480b20 &lt;fmt.Fprintf&gt;  <span style="color:#f00;font-style:italic">#输出a b的值
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488eea &lt;+266&gt;: nop
-<span style="color:#f00;font-style:italic">#调用deferreturn函数完成对sum函数的延迟调用
-</span><span style="color:#f00;font-style:italic"></span>0<span style="color:#c34e00">x0000000000488eeb</span> &lt;+267&gt;: callq   0x427490 &lt;runtime.deferreturn&gt;  
-0x0000000000488ef0 &lt;+272&gt;: mov   0x78(%rsp),%rbp
-0<span style="color:#c34e00">x0000000000488ef5</span> &lt;+277&gt;: add   $0x80,%rsp
-0<span style="color:#c34e00">x0000000000488efc</span> &lt;+284&gt;: retq 
-0x0000000000488efd &lt;+285&gt;: nop
-0<span style="color:#c34e00">x0000000000488efe</span> &lt;+286&gt;: callq   0x427490 &lt;runtime.deferreturn&gt;
-0<span style="color:#c34e00">x0000000000488f03</span> &lt;+291&gt;: mov   0x78(%rsp),%rbp
-0<span style="color:#c34e00">x0000000000488f08</span> &lt;+296&gt;: add   $0x80,%rsp
-0<span style="color:#c34e00">x0000000000488f0f</span> &lt;+303&gt;: retq   
-0x0000000000488f10 &lt;+304&gt;: callq  0x44f300 &lt;runtime.morestack_noctxt&gt; <span style="color:#f00;font-style:italic">#扩栈处理
-</span><span style="color:#f00;font-style:italic"></span>0x0000000000488f15 &lt;+309&gt;: jmpq   0x488de0 &lt;main.f&gt;
-</code></pre></div><p>从 f() 函数的汇编代码可以看出，在调用 runtime.deferproc 时，栈上除了保存了 deferproc 函数需要的两个参数之外，还保存了 defered 函数所需要的参数（我们这个例子中 defered 函数是 sum 函数，它的2个参数 a 和 b 也都保存在了栈上，它们紧邻 deferproc 函数的第二个参数），也就是说，在执行 defer 语句时，defer 后面的函数的参数已经确定了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-asm" data-lang="asm"><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488de0</span> &lt;+0&gt;: mov   %fs:0xfffffffffffffff8,%rcx
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488de9</span> &lt;+9&gt;: cmp   0x10(%rcx),%rsp
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488ded</span> &lt;+13&gt;: jbe   0x488f10 &lt;main.f+304&gt;
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488df3</span> &lt;+19&gt;: sub   $0x80,%rsp
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488dfa</span> &lt;+26&gt;: mov   %rbp,0x78(%rsp)
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488dff</span> &lt;+31&gt;: lea   0x78(%rsp),%rbp   <span style="color:#f00;font-style:italic"># 这一条指令以及前面几条指令是函数序言，跟defer无关
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488e04 &lt;+36&gt;: movl   $0x10,(%rsp)     <span style="color:#f00;font-style:italic"># deferproc的第一个参数siz
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488e0b &lt;+43&gt;: lea   0x39076(%rip),%rax      
+</span></span><span style="display:flex;"><span>0x0000000000488e12 &lt;+50&gt;: mov   %rax,0x8(%rsp)  <span style="color:#f00;font-style:italic"># 第二个参数funcval结构体对象的地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488e17 &lt;+55&gt;: mov   0x88(%rsp),%rax
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488e1f</span> &lt;+63&gt;: mov   %rax,0x10(%rsp)  <span style="color:#f00;font-style:italic"># f()函数的第一个参数a，a = 1
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488e24 &lt;+68&gt;: mov   0x90(%rsp),%rcx
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488e2c</span> &lt;+76&gt;: mov   %rcx,0x18(%rsp)  <span style="color:#f00;font-style:italic"># f()函数的第二个参数b, b = 2
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488e31 &lt;+81&gt;: callq   0x426c00 &lt;runtime.deferproc&gt;  <span style="color:#f00;font-style:italic"># 调用deferproc函数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># 注意deferproc函数本来是没有返回值的，下面的test指令在检查deferproc的隐性返回值
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># 这条指令是编译器专门针对deferproc函数而插入的，对其它go函数调用时编译器不会插入该指令
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488e36 &lt;+86&gt;: test   %eax,%eax  
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"># 如果deferproc返回不为0则直接跳转到函数结尾去执行deferreturn函数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488e38 &lt;+88&gt;: jne   0x488efd &lt;main.f+285&gt; 
+</span></span><span style="display:flex;"><span>0x0000000000488e3e &lt;+94&gt;: mov   0x88(%rsp),%rax
+</span></span><span style="display:flex;"><span>......
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488ee5</span> &lt;+261&gt;: callq  0x480b20 &lt;fmt.Fprintf&gt;  <span style="color:#f00;font-style:italic">#输出a b的值
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488eea &lt;+266&gt;: nop
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#调用deferreturn函数完成对sum函数的延迟调用
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0<span style="color:#c34e00">x0000000000488eeb</span> &lt;+267&gt;: callq   0x427490 &lt;runtime.deferreturn&gt;  
+</span></span><span style="display:flex;"><span>0x0000000000488ef0 &lt;+272&gt;: mov   0x78(%rsp),%rbp
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488ef5</span> &lt;+277&gt;: add   $0x80,%rsp
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488efc</span> &lt;+284&gt;: retq 
+</span></span><span style="display:flex;"><span>0x0000000000488efd &lt;+285&gt;: nop
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488efe</span> &lt;+286&gt;: callq   0x427490 &lt;runtime.deferreturn&gt;
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488f03</span> &lt;+291&gt;: mov   0x78(%rsp),%rbp
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488f08</span> &lt;+296&gt;: add   $0x80,%rsp
+</span></span><span style="display:flex;"><span>0<span style="color:#c34e00">x0000000000488f0f</span> &lt;+303&gt;: retq   
+</span></span><span style="display:flex;"><span>0x0000000000488f10 &lt;+304&gt;: callq  0x44f300 &lt;runtime.morestack_noctxt&gt; <span style="color:#f00;font-style:italic">#扩栈处理
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>0x0000000000488f15 &lt;+309&gt;: jmpq   0x488de0 &lt;main.f&gt;
+</span></span></code></pre></div><p>从 f() 函数的汇编代码可以看出，在调用 runtime.deferproc 时，栈上除了保存了 deferproc 函数需要的两个参数之外，还保存了 defered 函数所需要的参数（我们这个例子中 defered 函数是 sum 函数，它的2个参数 a 和 b 也都保存在了栈上，它们紧邻 deferproc 函数的第二个参数），也就是说，在执行 defer 语句时，defer 后面的函数的参数已经确定了。</p>
 <p>另外需要注意的是，从 deferproc 函数的原型可以知道它并没有返回值，但上面的汇编代码在调用了 deferproc 函数之后却检查了 rax 寄存器的值是否为0(0x0000000000488e36 &lt;+86&gt;: test   %eax,%eax)，也就是说 deferproc 函数实际上会通过 rax 寄存器返回一个隐性的返回值！</p>
 <p>接着我们继续看 deferproc 函数的实现:</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">proc/panic.<span style="color:#00f">go</span> : 89
-
-<span style="color:#f00;font-style:italic">// Create a new deferred function fn with siz bytes of arguments.
-</span><span style="color:#f00;font-style:italic">// The compiler turns a defer statement into a call to this.
-</span><span style="color:#f00;font-style:italic">//go:nosplit
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">deferproc</span>(siz <span style="color:#00f">int32</span>, fn *funcval) { <span style="color:#f00;font-style:italic">// arguments of fn follow fn
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> <span style="color:#c34e00">getg</span>().m.curg != <span style="color:#c34e00">getg</span>() {  <span style="color:#f00;font-style:italic">//用户goroutine才能使用defer
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// go code on the system stack can&#39;t defer
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;defer on system stack&#34;</span>)
-    }
- 
-    <span style="color:#f00;font-style:italic">// the arguments of fn are in a perilous state. The stack map
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// for deferproc does not describe them. So we can&#39;t let garbage
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// collection or stack copying trigger until we&#39;ve copied them out
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// to somewhere safe. The memmove below does that.
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// Until the copy completes, we can only call nosplit routines.
-</span><span style="color:#f00;font-style:italic"></span> 
-    <span style="color:#f00;font-style:italic">// 对getcallersp()和getcallerpc() 函数的分析可以参考本公众号的其它文章
-</span><span style="color:#f00;font-style:italic"></span>    sp := <span style="color:#c34e00">getcallersp</span>() <span style="color:#f00;font-style:italic">//sp = 调用deferproc之前的rsp寄存器的值
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// argp指向defer函数的第一个参数，本例为sum函数的参数a
-</span><span style="color:#f00;font-style:italic"></span>    argp := uintptr(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;fn)) + unsafe.<span style="color:#c34e00">Sizeof</span>(fn)
-    callerpc := <span style="color:#c34e00">getcallerpc</span>() <span style="color:#f00;font-style:italic">// deferproc函数的返回地址
-</span><span style="color:#f00;font-style:italic"></span> 
-    d := <span style="color:#c34e00">newdefer</span>(siz)
-    <span style="color:#00f">if</span> d._panic != <span style="color:#00f">nil</span> {
-        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;deferproc: d.panic != nil after newdefer&#34;</span>)
-    }
-    d.fn = fn <span style="color:#f00;font-style:italic">//需要延迟执行的函数
-</span><span style="color:#f00;font-style:italic"></span>    d.pc = callerpc  <span style="color:#f00;font-style:italic">//记录deferproc函数的返回地址，主要用于panic/recover
-</span><span style="color:#f00;font-style:italic"></span>    d.sp = sp <span style="color:#f00;font-style:italic">//调用deferproc之前rsp寄存器的值
-</span><span style="color:#f00;font-style:italic"></span> 
-    <span style="color:#f00;font-style:italic">//把defer函数需要用到的参数拷贝到d结构体后面，下面的deferrArgs返回的是一个地址
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//deferArgs(d) = d + sizeof(d) ，newdefer返回的内存空间 &gt;= deferArgs(d)
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">switch</span> siz {
-    <span style="color:#00f">case</span> 0:
-        <span style="color:#f00;font-style:italic">// Do nothing.
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">case</span> sys.PtrSize: <span style="color:#f00;font-style:italic">//如果defered函数的参数只有指针大小则直接通过赋值来拷贝参数
-</span><span style="color:#f00;font-style:italic"></span>        *(*<span style="color:#00f">uintptr</span>)(<span style="color:#c34e00">deferArgs</span>(d)) = *(*<span style="color:#00f">uintptr</span>)(unsafe.<span style="color:#c34e00">Pointer</span>(argp))
-    <span style="color:#00f">default</span>: <span style="color:#f00;font-style:italic">//通过memmove拷贝defered函数的参数
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">memmove</span>(<span style="color:#c34e00">deferArgs</span>(d), unsafe.<span style="color:#c34e00">Pointer</span>(argp), uintptr(siz))
-  }
- 
-    <span style="color:#f00;font-style:italic">// deferproc returns 0 normally.
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// a deferred func that stops a panic
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// makes the deferproc return 1.
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// the code the compiler generates always
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// checks the return value and jumps to the
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// end of the function if deferproc returns != 0.
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">return0</span>()  <span style="color:#f00;font-style:italic">//通过汇编指令设置rax = 0
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// No code can go here - the C return register has
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// been set and must not be clobbered.
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>deferproc 函数流程很清晰，它首先通过 newdefer 函数分配一个 _defer 结构体对象，然后把需要延迟执行的函数以及该函数需要用到的参数、调用 deferproc 函数时的 rsp 寄存器的值以及 deferproc 函数的返回地址保存在  _defer 结构体对象之中，最后通过 return0() 设置 rax 寄存器的值为 0 隐性的给调用者返回一个 0 值。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>proc/panic.<span style="color:#00f">go</span> : 89
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Create a new deferred function fn with siz bytes of arguments.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// The compiler turns a defer statement into a call to this.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//go:nosplit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">deferproc</span>(siz <span style="color:#00f">int32</span>, fn *funcval) { <span style="color:#f00;font-style:italic">// arguments of fn follow fn
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> <span style="color:#c34e00">getg</span>().m.curg != <span style="color:#c34e00">getg</span>() {  <span style="color:#f00;font-style:italic">//用户goroutine才能使用defer
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// go code on the system stack can&#39;t defer
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;defer on system stack&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// the arguments of fn are in a perilous state. The stack map
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// for deferproc does not describe them. So we can&#39;t let garbage
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// collection or stack copying trigger until we&#39;ve copied them out
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// to somewhere safe. The memmove below does that.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// Until the copy completes, we can only call nosplit routines.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 对getcallersp()和getcallerpc() 函数的分析可以参考本公众号的其它文章
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    sp := <span style="color:#c34e00">getcallersp</span>() <span style="color:#f00;font-style:italic">//sp = 调用deferproc之前的rsp寄存器的值
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// argp指向defer函数的第一个参数，本例为sum函数的参数a
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    argp := uintptr(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;fn)) + unsafe.<span style="color:#c34e00">Sizeof</span>(fn)
+</span></span><span style="display:flex;"><span>    callerpc := <span style="color:#c34e00">getcallerpc</span>() <span style="color:#f00;font-style:italic">// deferproc函数的返回地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>    d := <span style="color:#c34e00">newdefer</span>(siz)
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> d._panic != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">throw</span>(<span style="color:#009c00">&#34;deferproc: d.panic != nil after newdefer&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    d.fn = fn <span style="color:#f00;font-style:italic">//需要延迟执行的函数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    d.pc = callerpc  <span style="color:#f00;font-style:italic">//记录deferproc函数的返回地址，主要用于panic/recover
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    d.sp = sp <span style="color:#f00;font-style:italic">//调用deferproc之前rsp寄存器的值
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//把defer函数需要用到的参数拷贝到d结构体后面，下面的deferrArgs返回的是一个地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//deferArgs(d) = d + sizeof(d) ，newdefer返回的内存空间 &gt;= deferArgs(d)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">switch</span> siz {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> 0:
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// Do nothing.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">case</span> sys.PtrSize: <span style="color:#f00;font-style:italic">//如果defered函数的参数只有指针大小则直接通过赋值来拷贝参数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        *(*<span style="color:#00f">uintptr</span>)(<span style="color:#c34e00">deferArgs</span>(d)) = *(*<span style="color:#00f">uintptr</span>)(unsafe.<span style="color:#c34e00">Pointer</span>(argp))
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">default</span>: <span style="color:#f00;font-style:italic">//通过memmove拷贝defered函数的参数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">memmove</span>(<span style="color:#c34e00">deferArgs</span>(d), unsafe.<span style="color:#c34e00">Pointer</span>(argp), uintptr(siz))
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// deferproc returns 0 normally.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// a deferred func that stops a panic
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// makes the deferproc return 1.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// the code the compiler generates always
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// checks the return value and jumps to the
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// end of the function if deferproc returns != 0.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">return0</span>()  <span style="color:#f00;font-style:italic">//通过汇编指令设置rax = 0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// No code can go here - the C return register has
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// been set and must not be clobbered.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p>deferproc 函数流程很清晰，它首先通过 newdefer 函数分配一个 _defer 结构体对象，然后把需要延迟执行的函数以及该函数需要用到的参数、调用 deferproc 函数时的 rsp 寄存器的值以及 deferproc 函数的返回地址保存在  _defer 结构体对象之中，最后通过 return0() 设置 rax 寄存器的值为 0 隐性的给调用者返回一个 0 值。</p>
 <p>不知道大家是否会觉得很奇怪，deferproc 明明只会隐性的返回 0 值，但为什么上面的 f() 函数在调用了 deferproc 之后还用了一条指令来判断返回值是否是 0 呢，这不多此一举吗？事实上这里主要与 panic 和 recover 的实现机制有关，当程序发生 panic 之后，程序会“再次从 deferproc 函数返回”，这种情况下返回值就不是 0 了，因为 panic/recover 机制这一块比较复杂，所以我们以后会专门写一篇文章来分析，现在略过。</p>
 <p>回到主题，_defer 结构体的定义为：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/runtime2.<span style="color:#00f">go</span> : 727
-
-<span style="color:#f00;font-style:italic">// A _defer holds an entry on the list of deferred calls.
-</span><span style="color:#f00;font-style:italic">// If you add a field here, add code to clear it in freedefer.
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">type</span> _defer <span style="color:#00f">struct</span> {
-    siz           <span style="color:#00f">int32</span>  <span style="color:#f00;font-style:italic">//defer函数的参数大小
-</span><span style="color:#f00;font-style:italic"></span>    started    <span style="color:#00f">bool</span>
-    sp           <span style="color:#00f">uintptr</span>  <span style="color:#f00;font-style:italic">// sp at time of defer
-</span><span style="color:#f00;font-style:italic"></span>    pc           <span style="color:#00f">uintptr</span>  <span style="color:#f00;font-style:italic">// defer语句下一条语句的地址
-</span><span style="color:#f00;font-style:italic"></span>    fn           *funcval  <span style="color:#f00;font-style:italic">//需要被延迟执行的函数
-</span><span style="color:#f00;font-style:italic"></span>    _panic    *_panic  <span style="color:#f00;font-style:italic">// panic that is running defer
-</span><span style="color:#f00;font-style:italic"></span>    link         *_defer  <span style="color:#f00;font-style:italic">//同一个goroutine所有被延迟执行的函数通过该成员链在一起形成一个链表
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>该结构中的 sp、pc以及 _panic 成员主要与 panic/recover 有关，这里我们无需过多关注（ sp 成员还会被用来判断 _defer 结构体对象中保存的延迟执行函数是否应该在当前函数结束时执行，后面我们会分析到）。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/runtime2.<span style="color:#00f">go</span> : 727
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// A _defer holds an entry on the list of deferred calls.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// If you add a field here, add code to clear it in freedefer.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">type</span> _defer <span style="color:#00f">struct</span> {
+</span></span><span style="display:flex;"><span>    siz           <span style="color:#00f">int32</span>  <span style="color:#f00;font-style:italic">//defer函数的参数大小
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    started    <span style="color:#00f">bool</span>
+</span></span><span style="display:flex;"><span>    sp           <span style="color:#00f">uintptr</span>  <span style="color:#f00;font-style:italic">// sp at time of defer
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    pc           <span style="color:#00f">uintptr</span>  <span style="color:#f00;font-style:italic">// defer语句下一条语句的地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    fn           *funcval  <span style="color:#f00;font-style:italic">//需要被延迟执行的函数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    _panic    *_panic  <span style="color:#f00;font-style:italic">// panic that is running defer
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    link         *_defer  <span style="color:#f00;font-style:italic">//同一个goroutine所有被延迟执行的函数通过该成员链在一起形成一个链表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p>该结构中的 sp、pc以及 _panic 成员主要与 panic/recover 有关，这里我们无需过多关注（ sp 成员还会被用来判断 _defer 结构体对象中保存的延迟执行函数是否应该在当前函数结束时执行，后面我们会分析到）。</p>
 <p>对于本文的例子，初始化完成后的 _defer 结构体对象各成员的值大致如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">d.siz = 16
-d.started = <span style="color:#00f">false</span>
-d.sp = 调用deferproc函数之前的rsp寄存器的值
-d.pc = 0x0000000000488e36
-d.fn = &amp;funcval{sum}
-d._panic = <span style="color:#00f">nil</span>
-d._defer = <span style="color:#00f">nil</span>
-</code></pre></div><p>sum函数的参数a
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>d.siz = 16
+</span></span><span style="display:flex;"><span>d.started = <span style="color:#00f">false</span>
+</span></span><span style="display:flex;"><span>d.sp = 调用deferproc函数之前的rsp寄存器的值
+</span></span><span style="display:flex;"><span>d.pc = 0x0000000000488e36
+</span></span><span style="display:flex;"><span>d.fn = &amp;funcval{sum}
+</span></span><span style="display:flex;"><span>d._panic = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>d._defer = <span style="color:#00f">nil</span>
+</span></span></code></pre></div><p>sum函数的参数a
 sum函数的参数b
 注意，defered 函数的参数并未在 _defer 结构体中定义，它所需要的参数在内存中紧跟在 _defer 结构体对象的后面。</p>
 <p>我们接着看 newdefer 是如何分配 _defer 结构体对象的：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">proc/panic.<span style="color:#00f">go</span> : 205
-
-<span style="color:#f00;font-style:italic">// Allocate a Defer, usually using per-P pool.
-</span><span style="color:#f00;font-style:italic">// Each defer must be released with freedefer.
-</span><span style="color:#f00;font-style:italic">//
-</span><span style="color:#f00;font-style:italic">// This must not grow the stack because there may be a frame without
-</span><span style="color:#f00;font-style:italic">// stack map information when this is called.
-</span><span style="color:#f00;font-style:italic">//
-</span><span style="color:#f00;font-style:italic">//go:nosplit
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">newdefer</span>(siz <span style="color:#00f">int32</span>) *_defer {
-    <span style="color:#00f">var</span> d *_defer
-    sc := <span style="color:#c34e00">deferclass</span>(uintptr(siz))
-    gp := <span style="color:#c34e00">getg</span>()  <span style="color:#f00;font-style:italic">//获取当前goroutine的g结构体对象
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> sc &lt; uintptr(len(p{}.deferpool)) {
-        pp := gp.m.p.<span style="color:#c34e00">ptr</span>()  <span style="color:#f00;font-style:italic">//与当前工作线程绑定的p
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> len(pp.deferpool[sc]) == 0 &amp;&amp; sched.deferpool[sc] != <span style="color:#00f">nil</span> {
-            <span style="color:#f00;font-style:italic">// Take the slow path on the system stack so
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// we don&#39;t grow newdefer&#39;s stack.
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">systemstack</span>(<span style="color:#00f">func</span>() { <span style="color:#f00;font-style:italic">//切换到系统栈
-</span><span style="color:#f00;font-style:italic"></span>                <span style="color:#c34e00">lock</span>(&amp;sched.deferlock)
-                <span style="color:#f00;font-style:italic">//从全局_defer对象池拿一些到p的本地_defer对象池
-</span><span style="color:#f00;font-style:italic"></span>                <span style="color:#00f">for</span> len(pp.deferpool[sc]) &lt; cap(pp.deferpool[sc])/2 &amp;&amp; sched.deferpool[sc] != <span style="color:#00f">nil</span> {
-                    d := sched.deferpool[sc]
-                    sched.deferpool[sc] = d.link
-                    d.link = <span style="color:#00f">nil</span>
-                    pp.deferpool[sc] = append(pp.deferpool[sc], d)
-                }
-                <span style="color:#c34e00">unlock</span>(&amp;sched.deferlock)
-            })
-        }
-        <span style="color:#00f">if</span> n := len(pp.deferpool[sc]); n &gt; 0 {
-            d = pp.deferpool[sc][n-1]
-            pp.deferpool[sc][n-1] = <span style="color:#00f">nil</span>
-            pp.deferpool[sc] = pp.deferpool[sc][:n-1]
-        }
-    }
-    <span style="color:#00f">if</span> d == <span style="color:#00f">nil</span> { <span style="color:#f00;font-style:italic">//如果p的缓存中没有可用的_defer结构体对象则从堆上分配
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// Allocate new defer+args.
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//因为roundupsize以及mallocgc函数都不会处理扩栈，所以需要切换到系统栈执行
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">systemstack</span>(<span style="color:#00f">func</span>() { 
-            total := <span style="color:#c34e00">roundupsize</span>(<span style="color:#c34e00">totaldefersize</span>(uintptr(siz)))
-            d = (*_defer)(<span style="color:#c34e00">mallocgc</span>(total, deferType, <span style="color:#00f">true</span>))
-        })
-        <span style="color:#00f">if</span> debugCachedWork {
-            <span style="color:#f00;font-style:italic">// Duplicate the tail below so if there&#39;s a
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// crash in checkPut we can tell if d was just
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// allocated or came from the pool.
-</span><span style="color:#f00;font-style:italic"></span>            d.siz = siz
-            <span style="color:#f00;font-style:italic">//把新分配出来的d放入当前goroutine的_defer链表头
-</span><span style="color:#f00;font-style:italic"></span>            d.link = gp._defer
-            gp._defer = d
-            <span style="color:#00f">return</span> d
-        }
-    }
-    d.siz = siz
-    <span style="color:#f00;font-style:italic">//把新分配出来的d放入当前goroutine的_defer链表头
-</span><span style="color:#f00;font-style:italic"></span>    d.link = gp._defer
-    gp._defer = d  <span style="color:#f00;font-style:italic">//把新分配出来的d放入当前goroutine的_defer链表头
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">return</span> d
-}
-</code></pre></div><p>newdefer 函数比较长，大家可以参考上面的代码和注释加以理解。newdefer 函数首先会尝试从与当前工作线程绑定的 p 的 _defer 对象池和全局对象池中获取一个满足大小要求(sizeof(_defer) + siz向上取整至16的倍数)的 _defer 结构体对象，如果没有能够满足要求的空闲 _defer 对象则从堆上分一个，最后把分配到的对象链入当前 goroutine 的 _defer 链表的表头。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>proc/panic.<span style="color:#00f">go</span> : 205
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Allocate a Defer, usually using per-P pool.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Each defer must be released with freedefer.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// This must not grow the stack because there may be a frame without
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// stack map information when this is called.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//go:nosplit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">newdefer</span>(siz <span style="color:#00f">int32</span>) *_defer {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">var</span> d *_defer
+</span></span><span style="display:flex;"><span>    sc := <span style="color:#c34e00">deferclass</span>(uintptr(siz))
+</span></span><span style="display:flex;"><span>    gp := <span style="color:#c34e00">getg</span>()  <span style="color:#f00;font-style:italic">//获取当前goroutine的g结构体对象
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> sc &lt; uintptr(len(p{}.deferpool)) {
+</span></span><span style="display:flex;"><span>        pp := gp.m.p.<span style="color:#c34e00">ptr</span>()  <span style="color:#f00;font-style:italic">//与当前工作线程绑定的p
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> len(pp.deferpool[sc]) == 0 &amp;&amp; sched.deferpool[sc] != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// Take the slow path on the system stack so
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// we don&#39;t grow newdefer&#39;s stack.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">systemstack</span>(<span style="color:#00f">func</span>() { <span style="color:#f00;font-style:italic">//切换到系统栈
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                <span style="color:#c34e00">lock</span>(&amp;sched.deferlock)
+</span></span><span style="display:flex;"><span>                <span style="color:#f00;font-style:italic">//从全局_defer对象池拿一些到p的本地_defer对象池
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>                <span style="color:#00f">for</span> len(pp.deferpool[sc]) &lt; cap(pp.deferpool[sc])/2 &amp;&amp; sched.deferpool[sc] != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>                    d := sched.deferpool[sc]
+</span></span><span style="display:flex;"><span>                    sched.deferpool[sc] = d.link
+</span></span><span style="display:flex;"><span>                    d.link = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>                    pp.deferpool[sc] = append(pp.deferpool[sc], d)
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>                <span style="color:#c34e00">unlock</span>(&amp;sched.deferlock)
+</span></span><span style="display:flex;"><span>            })
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> n := len(pp.deferpool[sc]); n &gt; 0 {
+</span></span><span style="display:flex;"><span>            d = pp.deferpool[sc][n-1]
+</span></span><span style="display:flex;"><span>            pp.deferpool[sc][n-1] = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>            pp.deferpool[sc] = pp.deferpool[sc][:n-1]
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> d == <span style="color:#00f">nil</span> { <span style="color:#f00;font-style:italic">//如果p的缓存中没有可用的_defer结构体对象则从堆上分配
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// Allocate new defer+args.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//因为roundupsize以及mallocgc函数都不会处理扩栈，所以需要切换到系统栈执行
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">systemstack</span>(<span style="color:#00f">func</span>() { 
+</span></span><span style="display:flex;"><span>            total := <span style="color:#c34e00">roundupsize</span>(<span style="color:#c34e00">totaldefersize</span>(uintptr(siz)))
+</span></span><span style="display:flex;"><span>            d = (*_defer)(<span style="color:#c34e00">mallocgc</span>(total, deferType, <span style="color:#00f">true</span>))
+</span></span><span style="display:flex;"><span>        })
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> debugCachedWork {
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// Duplicate the tail below so if there&#39;s a
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// crash in checkPut we can tell if d was just
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// allocated or came from the pool.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            d.siz = siz
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">//把新分配出来的d放入当前goroutine的_defer链表头
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            d.link = gp._defer
+</span></span><span style="display:flex;"><span>            gp._defer = d
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> d
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    d.siz = siz
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//把新分配出来的d放入当前goroutine的_defer链表头
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    d.link = gp._defer
+</span></span><span style="display:flex;"><span>    gp._defer = d  <span style="color:#f00;font-style:italic">//把新分配出来的d放入当前goroutine的_defer链表头
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">return</span> d
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>newdefer 函数比较长，大家可以参考上面的代码和注释加以理解。newdefer 函数首先会尝试从与当前工作线程绑定的 p 的 _defer 对象池和全局对象池中获取一个满足大小要求(sizeof(_defer) + siz向上取整至16的倍数)的 _defer 结构体对象，如果没有能够满足要求的空闲 _defer 对象则从堆上分一个，最后把分配到的对象链入当前 goroutine 的 _defer 链表的表头。</p>
 <p>到此 defer 语句中被延迟执行的函数已经挂入当前 goroutine 的 _defer 链表，我们来简单的总结一下这个过程：</p>
 <p>编译器会把 go 代码中 defer 语句翻译成对 deferproc 函数的调用；</p>
 <p>deferproc 函数通过 newdefer 函数分配一个 _defer 结构体对象并放入当前 goroutine 的 _defer 链表的表头；</p>
@@ -527,62 +527,62 @@ sum函数的参数b
 <p>返回到调用 deferproc 的函数继续执行后面的代码。</p>
 <p>deferreturn 函数</p>
 <p>分析完 deferproc，我们接着分析 deferreturn：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/panic.<span style="color:#00f">go</span> : 331
-
-<span style="color:#f00;font-style:italic">// Run a deferred function if there is one.
-</span><span style="color:#f00;font-style:italic">// The compiler inserts a call to this at the end of any
-</span><span style="color:#f00;font-style:italic">// function which calls defer.
-</span><span style="color:#f00;font-style:italic">// If there is a deferred function, this will call runtime·jmpdefer,
-</span><span style="color:#f00;font-style:italic">// which will jump to the deferred function such that it appears
-</span><span style="color:#f00;font-style:italic">// to have been called by the caller of deferreturn at the point
-</span><span style="color:#f00;font-style:italic">// just before deferreturn was called. The effect is that deferreturn
-</span><span style="color:#f00;font-style:italic">// is called again and again until there are no more deferred functions.
-</span><span style="color:#f00;font-style:italic">// Cannot split the stack because we reuse the caller&#39;s frame to
-</span><span style="color:#f00;font-style:italic">// call the deferred function.
-</span><span style="color:#f00;font-style:italic"></span> 
-<span style="color:#f00;font-style:italic">// The single argument isn&#39;t actually used - it just has its address
-</span><span style="color:#f00;font-style:italic">// taken so it can be matched against pending defers.
-</span><span style="color:#f00;font-style:italic">//go:nosplit
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">deferreturn</span>(arg0 <span style="color:#00f">uintptr</span>) {
-    gp := <span style="color:#c34e00">getg</span>()  <span style="color:#f00;font-style:italic">//获取当前goroutine对应的g结构体对象
-</span><span style="color:#f00;font-style:italic"></span>    d := gp._defer <span style="color:#f00;font-style:italic">//defer函数链表
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> d == <span style="color:#00f">nil</span> { 
-        <span style="color:#f00;font-style:italic">//没有需要执行的函数直接返回，deferreturn和deferproc是配对使用的
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//为什么这里d可能为nil？因为deferreturn其实是一个递归调用，这个是递归结束条件之一
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">return</span>
-    }
-    sp := <span style="color:#c34e00">getcallersp</span>()  <span style="color:#f00;font-style:italic">//获取调用deferreturn时的栈顶位置
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> d.sp != sp {  <span style="color:#f00;font-style:italic">//递归结束条件之二
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//如果保存在_defer对象中的sp值与调用deferretuen时的栈顶位置不一样，直接返回
-</span><span style="color:#f00;font-style:italic"></span>       <span style="color:#f00;font-style:italic">//因为sp不一样表示d代表的是在其他函数中通过defer注册的延迟调用函数，比如:
-</span><span style="color:#f00;font-style:italic"></span>       <span style="color:#f00;font-style:italic">//a()-&gt;b()-&gt;c()它们都通过defer注册了延迟函数，那么当c()执行完时只能执行在c中注册的函数
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">return</span>
-    }
- 
-    <span style="color:#f00;font-style:italic">// Moving arguments around.
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// Everything called after this point must be recursively
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// nosplit because the garbage collector won&#39;t know the form
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// of the arguments until the jmpdefer can flip the PC over to
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// fn.
-</span><span style="color:#f00;font-style:italic"></span>   <span style="color:#f00;font-style:italic">//把保存在_defer对象中的fn函数需要用到的参数拷贝到栈上，准备调用fn
-</span><span style="color:#f00;font-style:italic"></span>   <span style="color:#f00;font-style:italic">//注意fn的参数放在了调用调用者的栈帧中，而不是此函数的栈帧中
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">switch</span> d.siz {
-        <span style="color:#00f">case</span> 0:
-            <span style="color:#f00;font-style:italic">// Do nothing.
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">case</span> sys.PtrSize:
-            *(*<span style="color:#00f">uintptr</span>)(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;arg0)) = *(*<span style="color:#00f">uintptr</span>)(<span style="color:#c34e00">deferArgs</span>(d))
-        <span style="color:#00f">default</span>:
-            <span style="color:#c34e00">memmove</span>(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;arg0), <span style="color:#c34e00">deferArgs</span>(d), uintptr(d.siz))
-    }
-    fn := d.fn
-    d.fn = <span style="color:#00f">nil</span>
-    gp._defer = d.link <span style="color:#f00;font-style:italic">//使gp._defer指向下一个_defer结构体对象
-</span><span style="color:#f00;font-style:italic"></span>   <span style="color:#f00;font-style:italic">//因为需要调用的函数d.fn已经保存在了fn变量中，它的参数也已经拷贝到了栈上，所以释放_defer结构体对象
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">freedefer</span>(d) 
-    <span style="color:#c34e00">jmpdefer</span>(fn, uintptr(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;arg0)))  <span style="color:#f00;font-style:italic">//调用fn
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>deferreturn 函数主要流程为：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/panic.<span style="color:#00f">go</span> : 331
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Run a deferred function if there is one.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// The compiler inserts a call to this at the end of any
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// function which calls defer.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// If there is a deferred function, this will call runtime·jmpdefer,
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// which will jump to the deferred function such that it appears
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// to have been called by the caller of deferreturn at the point
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// just before deferreturn was called. The effect is that deferreturn
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// is called again and again until there are no more deferred functions.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// Cannot split the stack because we reuse the caller&#39;s frame to
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// call the deferred function.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// The single argument isn&#39;t actually used - it just has its address
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// taken so it can be matched against pending defers.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//go:nosplit
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#00f">func</span> <span style="color:#c34e00">deferreturn</span>(arg0 <span style="color:#00f">uintptr</span>) {
+</span></span><span style="display:flex;"><span>    gp := <span style="color:#c34e00">getg</span>()  <span style="color:#f00;font-style:italic">//获取当前goroutine对应的g结构体对象
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    d := gp._defer <span style="color:#f00;font-style:italic">//defer函数链表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> d == <span style="color:#00f">nil</span> { 
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">//没有需要执行的函数直接返回，deferreturn和deferproc是配对使用的
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//为什么这里d可能为nil？因为deferreturn其实是一个递归调用，这个是递归结束条件之一
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">return</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    sp := <span style="color:#c34e00">getcallersp</span>()  <span style="color:#f00;font-style:italic">//获取调用deferreturn时的栈顶位置
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> d.sp != sp {  <span style="color:#f00;font-style:italic">//递归结束条件之二
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">//如果保存在_defer对象中的sp值与调用deferretuen时的栈顶位置不一样，直接返回
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>       <span style="color:#f00;font-style:italic">//因为sp不一样表示d代表的是在其他函数中通过defer注册的延迟调用函数，比如:
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>       <span style="color:#f00;font-style:italic">//a()-&gt;b()-&gt;c()它们都通过defer注册了延迟函数，那么当c()执行完时只能执行在c中注册的函数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">return</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Moving arguments around.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// Everything called after this point must be recursively
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// nosplit because the garbage collector won&#39;t know the form
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// of the arguments until the jmpdefer can flip the PC over to
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">// fn.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>   <span style="color:#f00;font-style:italic">//把保存在_defer对象中的fn函数需要用到的参数拷贝到栈上，准备调用fn
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>   <span style="color:#f00;font-style:italic">//注意fn的参数放在了调用调用者的栈帧中，而不是此函数的栈帧中
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">switch</span> d.siz {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">case</span> 0:
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// Do nothing.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">case</span> sys.PtrSize:
+</span></span><span style="display:flex;"><span>            *(*<span style="color:#00f">uintptr</span>)(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;arg0)) = *(*<span style="color:#00f">uintptr</span>)(<span style="color:#c34e00">deferArgs</span>(d))
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">default</span>:
+</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">memmove</span>(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;arg0), <span style="color:#c34e00">deferArgs</span>(d), uintptr(d.siz))
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    fn := d.fn
+</span></span><span style="display:flex;"><span>    d.fn = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>    gp._defer = d.link <span style="color:#f00;font-style:italic">//使gp._defer指向下一个_defer结构体对象
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>   <span style="color:#f00;font-style:italic">//因为需要调用的函数d.fn已经保存在了fn变量中，它的参数也已经拷贝到了栈上，所以释放_defer结构体对象
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">freedefer</span>(d) 
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">jmpdefer</span>(fn, uintptr(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;arg0)))  <span style="color:#f00;font-style:italic">//调用fn
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>}
+</span></span></code></pre></div><p>deferreturn 函数主要流程为：</p>
 <p>通过当前 goroutine 对应的 g 结构体对象的 _defer 链表判断是否有需要执行的 defered 函数，如果没有（g._defer == nil 或则 defered 函数不是在 deferreturn 的 caller 函数中注册的函数）则直接返回；</p>
 <p>从 _defer 对象中把 defered 函数需要的参数拷贝到栈上；</p>
 <p>释放 _defer 结构体对象；</p>
@@ -593,23 +593,23 @@ sum函数的参数b
 <p><img src="https://img-blog.csdnimg.cn/img_convert/3820c64f460811abdab0e3a135deda76.png" alt=""></p>
 <p>jmpdefer 函数</p>
 <p>下面我们来看 jmpdefer 函数，该函数使用了些技巧实现了一个对 deferreturn 函数的递归调用：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 560
-
-<span style="color:#f00;font-style:italic">// func jmpdefer(fv *funcval, argp uintptr)
-</span><span style="color:#f00;font-style:italic">// argp is a caller SP.
-</span><span style="color:#f00;font-style:italic">// called from deferreturn.
-</span><span style="color:#f00;font-style:italic">// 1. pop the caller
-</span><span style="color:#f00;font-style:italic">// 2. sub 5 bytes from the callers return
-</span><span style="color:#f00;font-style:italic">// 3. jmp to the argument
-</span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">jmpdefer</span>(SB), NOSPLIT, $0-16
-    MOVQ  fv+0(FP), DX  # fn，fn.fn = sum函数的地址
-    MOVQ  argp+8(FP), BX  # caller sp
-    LEAQ  -8(BX), SP  # caller sp after CALL
-    MOVQ  -8(SP), BP  # restore BP as <span style="color:#00f">if</span> deferreturn <span style="color:#c34e00">returned</span> (harmless <span style="color:#00f">if</span> framepointers not in use)
-    SUBQ  $5, (SP)  # <span style="color:#00f">return</span> to CALL again
-    MOVQ  0(DX), BX  
-    JMP  BX  # but first run the deferred function
-</code></pre></div><p>要理解这个函数的功能，需要对函数调用栈及函数调用过程有比较清晰的认识，如果对这部分不熟悉，可以先去看一下网上的资料或本公众号之前写的文章。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 560
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// func jmpdefer(fv *funcval, argp uintptr)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// argp is a caller SP.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// called from deferreturn.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 1. pop the caller
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 2. sub 5 bytes from the callers return
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 3. jmp to the argument
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">jmpdefer</span>(SB), NOSPLIT, $0-16
+</span></span><span style="display:flex;"><span>    MOVQ  fv+0(FP), DX  # fn，fn.fn = sum函数的地址
+</span></span><span style="display:flex;"><span>    MOVQ  argp+8(FP), BX  # caller sp
+</span></span><span style="display:flex;"><span>    LEAQ  -8(BX), SP  # caller sp after CALL
+</span></span><span style="display:flex;"><span>    MOVQ  -8(SP), BP  # restore BP as <span style="color:#00f">if</span> deferreturn <span style="color:#c34e00">returned</span> (harmless <span style="color:#00f">if</span> framepointers not in use)
+</span></span><span style="display:flex;"><span>    SUBQ  $5, (SP)  # <span style="color:#00f">return</span> to CALL again
+</span></span><span style="display:flex;"><span>    MOVQ  0(DX), BX  
+</span></span><span style="display:flex;"><span>    JMP  BX  # but first run the deferred function
+</span></span></code></pre></div><p>要理解这个函数的功能，需要对函数调用栈及函数调用过程有比较清晰的认识，如果对这部分不熟悉，可以先去看一下网上的资料或本公众号之前写的文章。</p>
 <p>下面我们结合本文前面的例子程序来逐条分析 jmpdefer 函数的 7 条汇编指令。</p>
 <p>第1条指令：</p>
 <p>MOVQ  fv+0(FP), DX  # fn，fn.fn = sum函数的地址

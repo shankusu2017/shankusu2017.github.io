@@ -292,7 +292,7 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">3926 字 ~8分钟</span>
+<span class="leancloud-visitors-count">3932 字 ~8分钟</span>
 </span>
       </div>
     </header>
@@ -314,18 +314,18 @@
 <p>每一次为了确认是否以上原因导致问题，我们经常需要浪费很多的时间。因此有必要开发一款工具专门可以定位这种原因导致的网络延迟问题。我们并不是只求案发现场，我们还要抓住元凶。我们需要知道哪个进程在代码什么位置关闭中断，这很有助于我们高效地解决问题。</p>
 <h1 id="3-是否有现成的方案">3. 是否有现成的方案</h1>
 <p>我们的目的很简单，跟踪 hardirq/softirq 关闭时间。我们有什么办法做到呢？最简单直观的方法应该是在内核开关中断的地方加入 hook 函数，统计开关时间戳即可得到差值，差值即关闭时间。Linux 内核提供打开关闭中断的 API 如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f00;font-style:italic">/* hardirq enable/disable api */</span>
-
-<span style="color:#c34e00">local_irq_disable</span>()
-<span style="color:#c34e00">local_irq_enable</span>()
-<span style="color:#c34e00">local_irq_save</span>()
-<span style="color:#c34e00">local_irq_restore</span>()
-<span style="color:#f00;font-style:italic">/* softirq enable/disable api */</span>
-<span style="color:#c34e00">local_bh_disable</span>()
-<span style="color:#c34e00">local_bh_enable</span>()
-</code></pre></div><p>没错，hardirq 关闭跟踪 Linux 内核中已经有现成的实现方案，我们只需要配置以下 config 选项即可。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">CONFIG_IRQSOFF_TRACER=y
-</code></pre></div><p>好了，似乎我们什么都不用做直接使用即可。看起来是这样的，但是这里存在 2 个问题。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* hardirq enable/disable api */</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">local_irq_disable</span>()
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">local_irq_enable</span>()
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">local_irq_save</span>()
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">local_irq_restore</span>()
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* softirq enable/disable api */</span>
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">local_bh_disable</span>()
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">local_bh_enable</span>()
+</span></span></code></pre></div><p>没错，hardirq 关闭跟踪 Linux 内核中已经有现成的实现方案，我们只需要配置以下 config 选项即可。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>CONFIG_IRQSOFF_TRACER=y
+</span></span></code></pre></div><p>好了，似乎我们什么都不用做直接使用即可。看起来是这样的，但是这里存在 2 个问题。</p>
 <ul>
 <li>CONFIG_IRQSOFF_TRACER 默认是关闭的，如果需要这么做我们需要重新编译内核，还要重装，最后等待问题复现。这不是我们想要的。</li>
 <li>Linux 内核里面中断开关频繁。即使方案可行，overhead 也会很高。所以再一次不是我们想要的。</li>
@@ -338,21 +338,21 @@
 <p>针对 hardirq 关闭情况。当进程在关闭和打开中断之间发生了定时器中断，此时虽不会响应中断，但是硬件会置位 pending。当进程打开中断时，与此同时会响应中断。hardirq handle 会被调用。当前的进程根本没有机会调度，所以这一定是现场，而且当前进程一定是元凶。</p>
 <h4 id="52-softirq">5.2 softirq</h4>
 <p>针对 softirq 关闭情况，是否满足上述前提呢？进程调用 local_bh_enable()打开 softirq。精简下打开下半部的函数如下：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">void <span style="color:#c34e00">__local_bh_enable_ip</span>(unsigned long ip, unsigned <span style="color:#00f">int</span> cnt)
-
-{
-        <span style="color:#f00;font-style:italic">/*
-</span><span style="color:#f00;font-style:italic">         * Keep preemption disabled until we are done with
-</span><span style="color:#f00;font-style:italic">         * softirq processing:
-</span><span style="color:#f00;font-style:italic">         */</span>
-        <span style="color:#c34e00">preempt_count_sub</span>(cnt - 1);
-        <span style="color:#00f">if</span> (<span style="color:#c34e00">unlikely</span>(!<span style="color:#c34e00">in_interrupt</span>() &amp;&amp; <span style="color:#c34e00">local_softirq_pending</span>())) {
-
-                <span style="color:#c34e00">do_softirq</span>();
-        }
-        <span style="color:#c34e00">preempt_count_dec</span>();
-}
-</code></pre></div><p>我们可以看到如果有 softirq pending 的话，do_softirq()会负责在当前进程上下文处理 softirq。并其他抢占是关闭的状态。所以我们不会调度出去，并且调用 local_bh_enable() 会立刻响应普通定时器 timer。所以这也满足以上条件。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>void <span style="color:#c34e00">__local_bh_enable_ip</span>(unsigned long ip, unsigned <span style="color:#00f">int</span> cnt)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         * Keep preemption disabled until we are done with
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         * softirq processing:
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">         */</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">preempt_count_sub</span>(cnt - 1);
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (<span style="color:#c34e00">unlikely</span>(!<span style="color:#c34e00">in_interrupt</span>() &amp;&amp; <span style="color:#c34e00">local_softirq_pending</span>())) {
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>                <span style="color:#c34e00">do_softirq</span>();
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">preempt_count_dec</span>();
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们可以看到如果有 softirq pending 的话，do_softirq()会负责在当前进程上下文处理 softirq。并其他抢占是关闭的状态。所以我们不会调度出去，并且调用 local_bh_enable() 会立刻响应普通定时器 timer。所以这也满足以上条件。</p>
 <h1 id="6-softirq-的特殊">6. softirq 的特殊</h1>
 <p>我先回忆下触发 softirq 的执行场景。一共会有 3 个地方。</p>
 <ul>
@@ -363,165 +363,165 @@
 <p>当中断返回时会检查 softirq pending，这是大部分执行 softirq 的场景，由于中断的特殊性，在 timer handle 里面记录当前 CPU 的栈是有效的。local_bh_enable()的情况上面已经讨论，可以抓住元凶。但是第 3 种情况下，却不能。这是为什么呢？我们是在 timer handle 里面记录堆栈信息，如果 irq_exit 时 softirq 执行时间过长，会被安排到 ksoftirqd 进程执行。那我们记录的栈信息是什么？仅仅是 ksoftirqd 进程的栈，ksoftirq 并不是元凶。记录是没有用的。所以针对 ksoftirqd 执行的场景，我们需要特殊的处理。我们借助 hrtimer handle。hrtimer 除了测量两次 hardirq 间隔外，还测量 softirq 多长时间没有执行，在合适的时候记录栈。hrtimer 执行的时候，顺便会检测 softirqirq 多长时间没有更新时间戳，如果操作阈值我们也会记录栈信息，这是因为后续如果 softirq 被推迟到 ksoftirqd 进程执行的话，由 softirq 的 timer 记录的栈就没有价值了。</p>
 <h1 id="7-如何安装">7. 如何安装</h1>
 <p>安装 trace-irqoff 工具很简单，git clone 代码后执行如下命令即可安装。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">make -j8
-make install
-</code></pre></div><h1 id="8-如何使用">8. 如何使用</h1>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>make -j8
+</span></span><span style="display:flex;"><span>make install
+</span></span></code></pre></div><h1 id="8-如何使用">8. 如何使用</h1>
 <p>安装 trace-irqoff 工具成功后。会创建如下 /proc/trace_irqoff 目录。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_irqoff# ls
-
-distribute  enable  sampling_period  trace_latency
-</code></pre></div><p>/proc/trace_irqoff 目录下存在 4 个文件，分别：distribute, enable, sampling_period 和 trace_latency。工具安装后，默认是关闭状态，我们需要手动打开 trace。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_irqoff# ls
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>distribute  enable  sampling_period  trace_latency
+</span></span></code></pre></div><p>/proc/trace_irqoff 目录下存在 4 个文件，分别：distribute, enable, sampling_period 和 trace_latency。工具安装后，默认是关闭状态，我们需要手动打开 trace。</p>
 <h4 id="81-打开-trace">8.1 打开 trace</h4>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 1 &gt; /proc/trace_irqoff/enable
-</code></pre></div><h4 id="82-关闭-trace">8.2 关闭 trace</h4>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 0 &gt; /proc/trace_irqoff/enable
-</code></pre></div><h4 id="83-设置-trace-阈值">8.3 设置 trace 阈值</h4>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 1 &gt; /proc/trace_irqoff/enable
+</span></span></code></pre></div><h4 id="82-关闭-trace">8.2 关闭 trace</h4>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 0 &gt; /proc/trace_irqoff/enable
+</span></span></code></pre></div><h4 id="83-设置-trace-阈值">8.3 设置 trace 阈值</h4>
 <p>trace-irqoff 工具只会针对关闭中断或者软中断时间超过阈值的情况下记录堆栈信息。因此我们可以通过如下命令查看当前 trace 的阈值：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_irqoff# cat /proc/trace_irqoff/trace_latency
-trace_irqoff_latency: 50ms
- hardirq:
- softirq:
-</code></pre></div><p>默认阈值是 50ms，如第 2 行所示。第 4 行输出 hardirq: 代表下面的栈是可能关闭中断超过阈值的栈。同理，第 6 行是软中断关闭时间超过阈值的栈。如果需要修改阈值至 100ms 可通过如下命令（写入值单位是 ms）：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 100 &gt; /proc/trace_irqoff/trace_latency
-</code></pre></div><h4 id="84-清除栈信息">8.4 清除栈信息</h4>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_irqoff# cat /proc/trace_irqoff/trace_latency
+</span></span><span style="display:flex;"><span>trace_irqoff_latency: 50ms
+</span></span><span style="display:flex;"><span> hardirq:
+</span></span><span style="display:flex;"><span> softirq:
+</span></span></code></pre></div><p>默认阈值是 50ms，如第 2 行所示。第 4 行输出 hardirq: 代表下面的栈是可能关闭中断超过阈值的栈。同理，第 6 行是软中断关闭时间超过阈值的栈。如果需要修改阈值至 100ms 可通过如下命令（写入值单位是 ms）：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 100 &gt; /proc/trace_irqoff/trace_latency
+</span></span></code></pre></div><h4 id="84-清除栈信息">8.4 清除栈信息</h4>
 <p>当然如果需要清除 /proc/trace_irqoff 记录的栈信息。可以执行如下命令（不会修改阈值为 0）：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">echo 0 &gt; /proc/trace_irqoff/trace_latency
-</code></pre></div><h4 id="85-查看中断关闭次数的统计信息">8.5 查看中断关闭次数的统计信息</h4>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>echo 0 &gt; /proc/trace_irqoff/trace_latency
+</span></span></code></pre></div><h4 id="85-查看中断关闭次数的统计信息">8.5 查看中断关闭次数的统计信息</h4>
 <p>如果我们需要知道中断被关闭一定的时间的次数，可以通过如下命令获取统计信息：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_irqoff# cat distribute
-
-hardirq-off:
-         msecs           : count     distribution
-        20 -&gt; 39         : 1        |**********                              |
-        40 -&gt; 79         : 0        |                                        |
-        80 -&gt; 159        : 4        |****************************************|
-       160 -&gt; 319        : 2        |********************                    |
-       320 -&gt; 639        : 1        |**********                              |
-
-softirq-off:
-         msecs           : count     distribution
-        20 -&gt; 39         : 0        |                                        |
-        40 -&gt; 79         : 0        |                                        |
-        80 -&gt; 159        : 0        |                                        |
-       160 -&gt; 319        : 1        |****************************************|
-</code></pre></div><blockquote>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_irqoff# cat distribute
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>hardirq-off:
+</span></span><span style="display:flex;"><span>         msecs           : count     distribution
+</span></span><span style="display:flex;"><span>        20 -&gt; 39         : 1        |**********                              |
+</span></span><span style="display:flex;"><span>        40 -&gt; 79         : 0        |                                        |
+</span></span><span style="display:flex;"><span>        80 -&gt; 159        : 4        |****************************************|
+</span></span><span style="display:flex;"><span>       160 -&gt; 319        : 2        |********************                    |
+</span></span><span style="display:flex;"><span>       320 -&gt; 639        : 1        |**********                              |
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>softirq-off:
+</span></span><span style="display:flex;"><span>         msecs           : count     distribution
+</span></span><span style="display:flex;"><span>        20 -&gt; 39         : 0        |                                        |
+</span></span><span style="display:flex;"><span>        40 -&gt; 79         : 0        |                                        |
+</span></span><span style="display:flex;"><span>        80 -&gt; 159        : 0        |                                        |
+</span></span><span style="display:flex;"><span>       160 -&gt; 319        : 1        |****************************************|
+</span></span></code></pre></div><blockquote>
 <p>在这个例子中，我们看到 hardirq 被关闭时间 x ∈ [80, 159] ms，次数 4 次。softirq 被关闭时间 x ∈ [160, 319] ms，次数 1 次 如果没有任何信息输出，这说明没有任何地方关闭中断时间超过 20ms。</p>
 </blockquote>
 <h4 id="86-修改采样周期">8.6 修改采样周期</h4>
 <p>从上面一节我们可以看到，中断关闭时间分布图最小粒度是 20ms。这是因为采样周期是 10ms。根据采样定理，大于等于 2 倍采样周期时间才能反映真实情况。如果需要提高统计粒度，可修改采样周期时间。例如修改采样周期为 1ms，可执行如下命令（必须在 tracer 关闭的情况下操作有效）：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"># 单位 ms，可设置最小的采样周期是 1ms。
-echo 1 &gt; /proc/trace_irqoff/sampling_period
-</code></pre></div><h1 id="9-案例分析">9. 案例分析</h1>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span># 单位 ms，可设置最小的采样周期是 1ms。
+</span></span><span style="display:flex;"><span>echo 1 &gt; /proc/trace_irqoff/sampling_period
+</span></span></code></pre></div><h1 id="9-案例分析">9. 案例分析</h1>
 <h4 id="91-hardirq-关闭">9.1 hardirq 关闭</h4>
 <p>我们使用如下示意测试程序，关闭中断 100ms。查看 trace_irqoff 文件内容。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">static void <span style="color:#c34e00">disable_hardirq</span>(unsigned long latency)
-{
-        <span style="color:#c34e00">local_irq_disable</span>();
-        <span style="color:#c34e00">mdelay</span>(latency);
-        <span style="color:#c34e00">local_irq_enanle</span>();
-}
-</code></pre></div><p>通过模块测试以上代码，然后查看栈信息。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_irqoff# cat trace_latency
-trace_irqoff_latency: 50ms
- hardirq:
- cpu: 17
-     COMMAND: bash PID: 22840 LATENCY: 107ms
-     trace_irqoff_hrtimer_handler+0x39/0x99 [trace_irqoff]
-     __hrtimer_run_queues+0xfa/0x270
-     hrtimer_interrupt+0x101/0x240
-     smp_apic_timer_interrupt+0x5e/0x120
-     apic_timer_interrupt+0xf/0x20
-     disable_hardirq+0x5b/0x70
-     proc_reg_write+0x36/0x60
-     __vfs_write+0x33/0x190
-     vfs_write+0xb0/0x190
-     ksys_write+0x52/0xc0
-     do_syscall_64+0x4f/0xe0
-     entry_SYSCALL_64_after_hwframe+0x44/0xa9
-
- softirq:
-</code></pre></div><p>我们可以看到 hardirq 一栏记录 cpu17 执行 bash 命令，关闭中断 107ms（误差 10ms 之内）。其栈信息对应 disable_hardirq() 函数中。第 20 行 softirq 一栏没有信息，说明没有记录 softirq 被关闭的栈。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>static void <span style="color:#c34e00">disable_hardirq</span>(unsigned long latency)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">local_irq_disable</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">mdelay</span>(latency);
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">local_irq_enanle</span>();
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>通过模块测试以上代码，然后查看栈信息。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_irqoff# cat trace_latency
+</span></span><span style="display:flex;"><span>trace_irqoff_latency: 50ms
+</span></span><span style="display:flex;"><span> hardirq:
+</span></span><span style="display:flex;"><span> cpu: 17
+</span></span><span style="display:flex;"><span>     COMMAND: bash PID: 22840 LATENCY: 107ms
+</span></span><span style="display:flex;"><span>     trace_irqoff_hrtimer_handler+0x39/0x99 [trace_irqoff]
+</span></span><span style="display:flex;"><span>     __hrtimer_run_queues+0xfa/0x270
+</span></span><span style="display:flex;"><span>     hrtimer_interrupt+0x101/0x240
+</span></span><span style="display:flex;"><span>     smp_apic_timer_interrupt+0x5e/0x120
+</span></span><span style="display:flex;"><span>     apic_timer_interrupt+0xf/0x20
+</span></span><span style="display:flex;"><span>     disable_hardirq+0x5b/0x70
+</span></span><span style="display:flex;"><span>     proc_reg_write+0x36/0x60
+</span></span><span style="display:flex;"><span>     __vfs_write+0x33/0x190
+</span></span><span style="display:flex;"><span>     vfs_write+0xb0/0x190
+</span></span><span style="display:flex;"><span>     ksys_write+0x52/0xc0
+</span></span><span style="display:flex;"><span>     do_syscall_64+0x4f/0xe0
+</span></span><span style="display:flex;"><span>     entry_SYSCALL_64_after_hwframe+0x44/0xa9
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> softirq:
+</span></span></code></pre></div><p>我们可以看到 hardirq 一栏记录 cpu17 执行 bash 命令，关闭中断 107ms（误差 10ms 之内）。其栈信息对应 disable_hardirq() 函数中。第 20 行 softirq 一栏没有信息，说明没有记录 softirq 被关闭的栈。</p>
 <h4 id="92-softirq-关闭">9.2 softirq 关闭</h4>
 <p>我们使用如下示意测试程序，关闭 softirq 100ms。查看 trace_irqoff 文件内容。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">static void <span style="color:#c34e00">disable_softirq</span>(unsigned long latency)
-{
-        <span style="color:#c34e00">local_bh_disable</span>();
-        <span style="color:#c34e00">mdelay</span>(latency);
-        <span style="color:#c34e00">local_bh_enanle</span>();
-}
-</code></pre></div><p>通过模块测试以上代码，然后查看栈信息。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n18-061-206:/proc/trace_irqoff# cat trace_latency
-trace_irqoff_latency: 50ms
- hardirq:
- softirq:
- cpu: 17
-     COMMAND: bash PID: 22840 LATENCY: 51+ms
-     trace_irqoff_hrtimer_handler+0x97/0x99 [trace_irqoff]
-     __hrtimer_run_queues+0xfa/0x270
-     hrtimer_interrupt+0x101/0x240
-     smp_apic_timer_interrupt+0x5e/0x120
-     apic_timer_interrupt+0xf/0x20
-     delay_tsc+0x3c/0x50
-     disable_softirq+0x4b/0x80
-     proc_reg_write+0x36/0x60
-     __vfs_write+0x33/0x190
-     vfs_write+0xb0/0x190
-     ksys_write+0x52/0xc0
-     do_syscall_64+0x4f/0xe0
-     entry_SYSCALL_64_after_hwframe+0x44/0xa9
-
-     COMMAND: bash PID: 22840 LATENCY: 106ms
-     trace_irqoff_timer_handler+0x3a/0x60 [trace_irqoff]
-     call_timer_fn+0x29/0x120
-     run_timer_softirq+0x16c/0x400
-     __do_softirq+0x108/0x2b8
-     do_softirq_own_stack+0x2a/0x40
-     do_softirq.part.21+0x56/0x60
-     __local_bh_enable_ip+0x60/0x70
-     disable_softirq+0x62/0x80
-     proc_reg_write+0x36/0x60
-     __vfs_write+0x33/0x190
-     vfs_write+0xb0/0x190
-     ksys_write+0x52/0xc0
-     do_syscall_64+0x4f/0xe0
-     entry_SYSCALL_64_after_hwframe+0x44/0xa9
-</code></pre></div><p>针对 softirq 关闭情况，有 2 个栈与之对应。我们注意到第 9 行的函数名称和第 24 行的函数名称是不一样的。第 9 行的栈是硬件中断 handler 捕捉到软中断关闭，第 24 行是软中断 handler 捕捉到软中断被关闭。正常情况下，我们以 24 行开始的栈为分析目标即可。当 24 行的栈是无效的时候，可以看第 9 行的栈。这里注意：第 9 行的 lantency 提示信息 51+ms 是阈值信息。并非实际 latency（所以我在后面添加一个'+&lsquo;字符，表示 latency 大于 51ms）。实际的 latency 是第 24 行显示的 106ms。下面就看下为什么 2 个栈是有必要的。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>static void <span style="color:#c34e00">disable_softirq</span>(unsigned long latency)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">local_bh_disable</span>();
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">mdelay</span>(latency);
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">local_bh_enanle</span>();
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>通过模块测试以上代码，然后查看栈信息。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n18-061-206:/proc/trace_irqoff# cat trace_latency
+</span></span><span style="display:flex;"><span>trace_irqoff_latency: 50ms
+</span></span><span style="display:flex;"><span> hardirq:
+</span></span><span style="display:flex;"><span> softirq:
+</span></span><span style="display:flex;"><span> cpu: 17
+</span></span><span style="display:flex;"><span>     COMMAND: bash PID: 22840 LATENCY: 51+ms
+</span></span><span style="display:flex;"><span>     trace_irqoff_hrtimer_handler+0x97/0x99 [trace_irqoff]
+</span></span><span style="display:flex;"><span>     __hrtimer_run_queues+0xfa/0x270
+</span></span><span style="display:flex;"><span>     hrtimer_interrupt+0x101/0x240
+</span></span><span style="display:flex;"><span>     smp_apic_timer_interrupt+0x5e/0x120
+</span></span><span style="display:flex;"><span>     apic_timer_interrupt+0xf/0x20
+</span></span><span style="display:flex;"><span>     delay_tsc+0x3c/0x50
+</span></span><span style="display:flex;"><span>     disable_softirq+0x4b/0x80
+</span></span><span style="display:flex;"><span>     proc_reg_write+0x36/0x60
+</span></span><span style="display:flex;"><span>     __vfs_write+0x33/0x190
+</span></span><span style="display:flex;"><span>     vfs_write+0xb0/0x190
+</span></span><span style="display:flex;"><span>     ksys_write+0x52/0xc0
+</span></span><span style="display:flex;"><span>     do_syscall_64+0x4f/0xe0
+</span></span><span style="display:flex;"><span>     entry_SYSCALL_64_after_hwframe+0x44/0xa9
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>     COMMAND: bash PID: 22840 LATENCY: 106ms
+</span></span><span style="display:flex;"><span>     trace_irqoff_timer_handler+0x3a/0x60 [trace_irqoff]
+</span></span><span style="display:flex;"><span>     call_timer_fn+0x29/0x120
+</span></span><span style="display:flex;"><span>     run_timer_softirq+0x16c/0x400
+</span></span><span style="display:flex;"><span>     __do_softirq+0x108/0x2b8
+</span></span><span style="display:flex;"><span>     do_softirq_own_stack+0x2a/0x40
+</span></span><span style="display:flex;"><span>     do_softirq.part.21+0x56/0x60
+</span></span><span style="display:flex;"><span>     __local_bh_enable_ip+0x60/0x70
+</span></span><span style="display:flex;"><span>     disable_softirq+0x62/0x80
+</span></span><span style="display:flex;"><span>     proc_reg_write+0x36/0x60
+</span></span><span style="display:flex;"><span>     __vfs_write+0x33/0x190
+</span></span><span style="display:flex;"><span>     vfs_write+0xb0/0x190
+</span></span><span style="display:flex;"><span>     ksys_write+0x52/0xc0
+</span></span><span style="display:flex;"><span>     do_syscall_64+0x4f/0xe0
+</span></span><span style="display:flex;"><span>     entry_SYSCALL_64_after_hwframe+0x44/0xa9
+</span></span></code></pre></div><p>针对 softirq 关闭情况，有 2 个栈与之对应。我们注意到第 9 行的函数名称和第 24 行的函数名称是不一样的。第 9 行的栈是硬件中断 handler 捕捉到软中断关闭，第 24 行是软中断 handler 捕捉到软中断被关闭。正常情况下，我们以 24 行开始的栈为分析目标即可。当 24 行的栈是无效的时候，可以看第 9 行的栈。这里注意：第 9 行的 lantency 提示信息 51+ms 是阈值信息。并非实际 latency（所以我在后面添加一个&rsquo;+&lsquo;字符，表示 latency 大于 51ms）。实际的 latency 是第 24 行显示的 106ms。下面就看下为什么 2 个栈是有必要的。</p>
 <h4 id="93-ksoftirqd-延迟">9.3 ksoftirqd 延迟</h4>
 <p>我们看一个曾经处理的一个实际问题：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">root@n115-081-045:/proc/trace_irqoff# cat trace_latency
-trace_irqoff_latency: 300ms
- hardirq:
- softirq:
- cpu: 4
-
-     COMMAND: lxcfs PID: 4058797 LATENCY: 303+ms
-
-     trace_irqoff_record+0x12b/0x1b0 [trace_irqoff]
-     trace_irqoff_hrtimer_handler+0x97/0x99 [trace_irqoff]
-     __hrtimer_run_queues+0xdc/0x220
-     hrtimer_interrupt+0xa6/0x1f0
-     smp_apic_timer_interrupt+0x62/0x120
-     apic_timer_interrupt+0x7d/0x90
-     memcg_sum_events.isra.26+0x3f/0x60
-     memcg_stat_show+0x323/0x460
-     seq_read+0x11f/0x3f0
-     __vfs_read+0x33/0x160
-     vfs_read+0x91/0x130
-     SyS_read+0x52/0xc0
-     do_syscall_64+0x68/0x100
-     entry_SYSCALL_64_after_hwframe+0x3d/0xa2
-
-     COMMAND: ksoftirqd/4 PID: 34 LATENCY: 409ms
-     trace_irqoff_record+0x12b/0x1b0 [trace_irqoff]
-     trace_irqoff_timer_handler+0x3a/0x60 [trace_irqoff]
-     call_timer_fn+0x2e/0x130
-     run_timer_softirq+0x1d4/0x420
-     __do_softirq+0x108/0x2a9
-     run_ksoftirqd+0x1e/0x40
-     smpboot_thread_fn+0xfe/0x150
-     kthread+0xfc/0x130
-     ret_from_fork+0x1f/0x30
-</code></pre></div><p>我们看到下面的进程 ksoftirqd/4 的栈，延迟时间是 409ms。ksoftirqd 进程是 kernel 中处理 softirq 的进程。因此这段栈对我们是没有意义的，因为元凶已经错过了。所以此时，我们可以借鉴上面的栈信息，我们看到当 softirq 被延迟 303ms 的时候，当前 CPU 正在执行的进程是 lxcfs。并且栈是 memory cgroup 相关。因此，我们基本可以判断 lxcfs 进程执行时间过长，由于 kernel 态不支持抢占，因此导致 ksoftirqd 进程没有机会得到运行。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>root@n115-081-045:/proc/trace_irqoff# cat trace_latency
+</span></span><span style="display:flex;"><span>trace_irqoff_latency: 300ms
+</span></span><span style="display:flex;"><span> hardirq:
+</span></span><span style="display:flex;"><span> softirq:
+</span></span><span style="display:flex;"><span> cpu: 4
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>     COMMAND: lxcfs PID: 4058797 LATENCY: 303+ms
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>     trace_irqoff_record+0x12b/0x1b0 [trace_irqoff]
+</span></span><span style="display:flex;"><span>     trace_irqoff_hrtimer_handler+0x97/0x99 [trace_irqoff]
+</span></span><span style="display:flex;"><span>     __hrtimer_run_queues+0xdc/0x220
+</span></span><span style="display:flex;"><span>     hrtimer_interrupt+0xa6/0x1f0
+</span></span><span style="display:flex;"><span>     smp_apic_timer_interrupt+0x62/0x120
+</span></span><span style="display:flex;"><span>     apic_timer_interrupt+0x7d/0x90
+</span></span><span style="display:flex;"><span>     memcg_sum_events.isra.26+0x3f/0x60
+</span></span><span style="display:flex;"><span>     memcg_stat_show+0x323/0x460
+</span></span><span style="display:flex;"><span>     seq_read+0x11f/0x3f0
+</span></span><span style="display:flex;"><span>     __vfs_read+0x33/0x160
+</span></span><span style="display:flex;"><span>     vfs_read+0x91/0x130
+</span></span><span style="display:flex;"><span>     SyS_read+0x52/0xc0
+</span></span><span style="display:flex;"><span>     do_syscall_64+0x68/0x100
+</span></span><span style="display:flex;"><span>     entry_SYSCALL_64_after_hwframe+0x3d/0xa2
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>     COMMAND: ksoftirqd/4 PID: 34 LATENCY: 409ms
+</span></span><span style="display:flex;"><span>     trace_irqoff_record+0x12b/0x1b0 [trace_irqoff]
+</span></span><span style="display:flex;"><span>     trace_irqoff_timer_handler+0x3a/0x60 [trace_irqoff]
+</span></span><span style="display:flex;"><span>     call_timer_fn+0x2e/0x130
+</span></span><span style="display:flex;"><span>     run_timer_softirq+0x1d4/0x420
+</span></span><span style="display:flex;"><span>     __do_softirq+0x108/0x2a9
+</span></span><span style="display:flex;"><span>     run_ksoftirqd+0x1e/0x40
+</span></span><span style="display:flex;"><span>     smpboot_thread_fn+0xfe/0x150
+</span></span><span style="display:flex;"><span>     kthread+0xfc/0x130
+</span></span><span style="display:flex;"><span>     ret_from_fork+0x1f/0x30
+</span></span></code></pre></div><p>我们看到下面的进程 ksoftirqd/4 的栈，延迟时间是 409ms。ksoftirqd 进程是 kernel 中处理 softirq 的进程。因此这段栈对我们是没有意义的，因为元凶已经错过了。所以此时，我们可以借鉴上面的栈信息，我们看到当 softirq 被延迟 303ms 的时候，当前 CPU 正在执行的进程是 lxcfs。并且栈是 memory cgroup 相关。因此，我们基本可以判断 lxcfs 进程执行时间过长，由于 kernel 态不支持抢占，因此导致 ksoftirqd 进程没有机会得到运行。</p>
 <h1 id="10-总结">10. 总结</h1>
 <p>根据字节内部实践来看，trace-irqoff 安装便捷且使用灵活度高，能将问题定位耗时缩短至分钟级别，使用收益可观，并且已经通过该工具定位很多问题，提高了工作效率。</p>
 <h1 id="更多分享">更多分享</h1>

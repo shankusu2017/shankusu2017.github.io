@@ -311,40 +311,40 @@
 <img src="https://user-gold-cdn.xitu.io/2019/5/17/16ac61a45164982f?imageView2/0/w/1280/h/960/format/webp/ignore-error/1" alt="">
 如果你曾经注意到go程序的追踪栈，你会注意到这些每一行末尾的16进制数字。例如Listing 1里的+0x39和+0x72
 Listing 1</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">goroutine 1 [running]:
-   main.example(0xc000042748, 0x2, 0x4, 0x106abae, 0x5, 0xa)
-       stack_trace/example1/example1.go:13 +0x39                 &lt;- LOOK HERE
-   main.main()
-       stack_trace/example1/example1.go:8 +0x72                  &lt;- LOOK HERE
-</code></pre></div><p>这些数字代表了PC值，也就是从各自函数开始的偏移量。+0x39 PC偏移量代表了程序在还未panic的时候，线程在example方法执行的下一条指令。+0x72 PC偏移量代表如果example函数回到main函数里，main里的下一条指令。指向指令的前一个指针告诉了你现正在执行什么指令
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>goroutine 1 [running]:
+</span></span><span style="display:flex;"><span>   main.example(0xc000042748, 0x2, 0x4, 0x106abae, 0x5, 0xa)
+</span></span><span style="display:flex;"><span>       stack_trace/example1/example1.go:13 +0x39                 &lt;- LOOK HERE
+</span></span><span style="display:flex;"><span>   main.main()
+</span></span><span style="display:flex;"><span>       stack_trace/example1/example1.go:8 +0x72                  &lt;- LOOK HERE
+</span></span></code></pre></div><p>这些数字代表了PC值，也就是从各自函数开始的偏移量。+0x39 PC偏移量代表了程序在还未panic的时候，线程在example方法执行的下一条指令。+0x72 PC偏移量代表如果example函数回到main函数里，main里的下一条指令。指向指令的前一个指针告诉了你现正在执行什么指令
 看一下导致Listing 1 panic的程序
 <strong>Listing 2</strong></p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">07 <span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-08     <span style="color:#c34e00">example</span>(make([]<span style="color:#00f">string</span>, 2, 4), <span style="color:#009c00">&#34;hello&#34;</span>, 10)
-09 }
-
-12 <span style="color:#00f">func</span> <span style="color:#c34e00">example</span>(slice []<span style="color:#00f">string</span>, str <span style="color:#00f">string</span>, i <span style="color:#00f">int</span>) {
-13    panic(<span style="color:#009c00">&#34;Want stack trace&#34;</span>)
-14 }
-</code></pre></div><p>十六进制数+0x39代表了PC偏移量，在example函数里也就是距离函数开头57(10进制)bytes的位置。下面的Listing 3里，你可以通过二进制文件看到example函数的objdump。找到最下面的第12条指令，注意到是它上面一行的指令导致了panic
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>07 <span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>08     <span style="color:#c34e00">example</span>(make([]<span style="color:#00f">string</span>, 2, 4), <span style="color:#009c00">&#34;hello&#34;</span>, 10)
+</span></span><span style="display:flex;"><span>09 }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>12 <span style="color:#00f">func</span> <span style="color:#c34e00">example</span>(slice []<span style="color:#00f">string</span>, str <span style="color:#00f">string</span>, i <span style="color:#00f">int</span>) {
+</span></span><span style="display:flex;"><span>13    panic(<span style="color:#009c00">&#34;Want stack trace&#34;</span>)
+</span></span><span style="display:flex;"><span>14 }
+</span></span></code></pre></div><p>十六进制数+0x39代表了PC偏移量，在example函数里也就是距离函数开头57(10进制)bytes的位置。下面的Listing 3里，你可以通过二进制文件看到example函数的objdump。找到最下面的第12条指令，注意到是它上面一行的指令导致了panic
 <strong>Listing 3</strong></p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">$ go tool objdump -S -s <span style="color:#009c00">&#34;main.example&#34;</span> ./example1
-TEXT main.example(SB) stack_trace/example1/example1.go
-func example(slice []string, str string, i int) {
-  0x104dfa0		65488b0c2530000000	MOVQ GS:0x30, CX
-  0x104dfa9		483b6110		CMPQ 0x10(CX), SP
-  0x104dfad		762c			JBE 0x104dfdb
-  0x104dfaf		4883ec18		SUBQ $0x18, SP
-  0x104dfb3		48896c2410		MOVQ BP, 0x10(SP)
-  0x104dfb8		488d6c2410		LEAQ 0x10(SP), BP
-	panic(<span style="color:#009c00">&#34;Want stack trace&#34;</span>)
-  0x104dfbd		488d059ca20000	LEAQ runtime.types+41504(SB), AX
-  0x104dfc4		48890424		MOVQ AX, 0(SP)
-  0x104dfc8		488d05a1870200	LEAQ main.statictmp_0(SB), AX
-  0x104dfcf		4889442408		MOVQ AX, 0x8(SP)
-  0x104dfd4		e8c735fdff		CALL runtime.gopanic(SB)
-  0x104dfd9		0f0b			UD2              &lt;--- LOOK HERE PC(+0x39)
-</code></pre></div><h2 id="线程状态">注意: PC始终是下一个指令，不是当前指令。Listing 3很好的说明了amd64下面，go线程是如何执行指令序列的。
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>$ go tool objdump -S -s <span style="color:#009c00">&#34;main.example&#34;</span> ./example1
+</span></span><span style="display:flex;"><span>TEXT main.example(SB) stack_trace/example1/example1.go
+</span></span><span style="display:flex;"><span>func example(slice []string, str string, i int) {
+</span></span><span style="display:flex;"><span>  0x104dfa0		65488b0c2530000000	MOVQ GS:0x30, CX
+</span></span><span style="display:flex;"><span>  0x104dfa9		483b6110		CMPQ 0x10(CX), SP
+</span></span><span style="display:flex;"><span>  0x104dfad		762c			JBE 0x104dfdb
+</span></span><span style="display:flex;"><span>  0x104dfaf		4883ec18		SUBQ $0x18, SP
+</span></span><span style="display:flex;"><span>  0x104dfb3		48896c2410		MOVQ BP, 0x10(SP)
+</span></span><span style="display:flex;"><span>  0x104dfb8		488d6c2410		LEAQ 0x10(SP), BP
+</span></span><span style="display:flex;"><span>	panic(<span style="color:#009c00">&#34;Want stack trace&#34;</span>)
+</span></span><span style="display:flex;"><span>  0x104dfbd		488d059ca20000	LEAQ runtime.types+41504(SB), AX
+</span></span><span style="display:flex;"><span>  0x104dfc4		48890424		MOVQ AX, 0(SP)
+</span></span><span style="display:flex;"><span>  0x104dfc8		488d05a1870200	LEAQ main.statictmp_0(SB), AX
+</span></span><span style="display:flex;"><span>  0x104dfcf		4889442408		MOVQ AX, 0x8(SP)
+</span></span><span style="display:flex;"><span>  0x104dfd4		e8c735fdff		CALL runtime.gopanic(SB)
+</span></span><span style="display:flex;"><span>  0x104dfd9		0f0b			UD2              &lt;--- LOOK HERE PC(+0x39)
+</span></span></code></pre></div><h2 id="线程状态">注意: PC始终是下一个指令，不是当前指令。Listing 3很好的说明了amd64下面，go线程是如何执行指令序列的。
 <strong>线程状态</strong></h2>
 <h2 id="工作类型">另一个重要概念就是“线程状态”，线程状态说明了调度器该如何处理此时的线程。线程有三个状态:等待、可运行、执行中。
 <strong>等待(Waiting)：</strong>

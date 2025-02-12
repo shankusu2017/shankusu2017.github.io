@@ -302,182 +302,182 @@
 <p>今天来说说 write barrier 。</p>
 <p>在 GC 的扫描过程中，由于分步执行，难免会出现少描了一半时，那些已经被置黑的对象又被修改，需要重新标记的情况。这就需要在改写对象时，建立 write barrier 。在扫描过程中触发 write barrier 的操作影响的对象被正确染色，或是把需要再染色的对象记录下来，留到 mark 的最后阶段 atomic 完成。</p>
 <p>和 barrier 相关的 API 有四个，定义在 lgc.h 86 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">#define luaC_barrier(L,p,v) { if (valiswhite(v) &amp;&amp; isblack(obj2gco(p)))  \
-    luaC_barrierf(L,obj2gco(p),gcvalue(v)); }
-
-#define luaC_barriert(L,t,v) { if (valiswhite(v) &amp;&amp; isblack(obj2gco(t)))  \
-    luaC_barrierback(L,t); }
-
-#define luaC_objbarrier(L,p,o)  \
-    { if (iswhite(obj2gco(o)) &amp;&amp; isblack(obj2gco(p))) \
-        luaC_barrierf(L,obj2gco(p),obj2gco(o)); }
-
-#define luaC_objbarriert(L,t,o)  \
-   { if (iswhite(obj2gco(o)) &amp;&amp; isblack(obj2gco(t))) luaC_barrierback(L,t); }
-</code></pre></div><p><code>luaC_barrier</code> 和 <code>luaC_objbarrier</code> 功能上相同，只不过前者是针对 TValue 的，后者则针对 GCObject 。它用于把 v 向 p 关联时，当 v 为白色且 p 为黑色时，调用 <code>luaC_barrierf</code> 。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>#define luaC_barrier(L,p,v) { if (valiswhite(v) &amp;&amp; isblack(obj2gco(p)))  \
+</span></span><span style="display:flex;"><span>    luaC_barrierf(L,obj2gco(p),gcvalue(v)); }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>#define luaC_barriert(L,t,v) { if (valiswhite(v) &amp;&amp; isblack(obj2gco(t)))  \
+</span></span><span style="display:flex;"><span>    luaC_barrierback(L,t); }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>#define luaC_objbarrier(L,p,o)  \
+</span></span><span style="display:flex;"><span>    { if (iswhite(obj2gco(o)) &amp;&amp; isblack(obj2gco(p))) \
+</span></span><span style="display:flex;"><span>        luaC_barrierf(L,obj2gco(p),obj2gco(o)); }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>#define luaC_objbarriert(L,t,o)  \
+</span></span><span style="display:flex;"><span>   { if (iswhite(obj2gco(o)) &amp;&amp; isblack(obj2gco(t))) luaC_barrierback(L,t); }
+</span></span></code></pre></div><p><code>luaC_barrier</code> 和 <code>luaC_objbarrier</code> 功能上相同，只不过前者是针对 TValue 的，后者则针对 GCObject 。它用于把 v 向 p 关联时，当 v 为白色且 p 为黑色时，调用 <code>luaC_barrierf</code> 。</p>
 <p><code>luaC_barriert</code> 和 <code>luaC_objbarriert</code> 则是用于将 v 关联到 t 时，调用 <code>luaC_barrierback</code> 。当然前提条件也是 v 为白色，且 t 为黑色。</p>
 <p>为何 table 要被特殊对待？</p>
 <p>因为 table 的引用关系是 1 对 N ，往往修改同一个 table 是很频繁的。而其它对象之间则是有限的联系。分开处理可以减少 barrier 本身的开销。</p>
 <p><code>luaC_barrierf</code> 用于把新建立联系的对象立刻标记。它的实现在 lgc.c 的 663 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">void luaC_barrierf (lua_State *L, GCObject *o, GCObject *v) {
-  global_State *g = G(L);
-  lua_assert(isblack(o) &amp;&amp; iswhite(v) &amp;&amp; !isdead(g, v) &amp;&amp; !isdead(g, o));
-  lua_assert(g-&gt;gcstate != GCSfinalize &amp;&amp; g-&gt;gcstate != GCSpause);
-  lua_assert(ttype(&amp;o-&gt;gch) != LUA_TTABLE);
-  /* must keep invariant? */
-  if (g-&gt;gcstate == GCSpropagate)
-    reallymarkobject(g, v);  /* restore invariant */
-  else  /* don&#39;t mind */
-    makewhite(g, o);  /* mark as white just to avoid other barriers */
-}
-</code></pre></div><p>简而言之，当 GC 处于 GCSpropagate 状态（mark 流程中），就标记 v 。否则，把与之联系的节点 o 从黑色置为白色。前面我们已经说过，lua 的 GC 采用了两种白色标记，乒乓切换。在 mark 流程结束后，白色状态被切换。这个时候调用 makewhite 并不会导致 sweep 过程清除这个节点。同时，由于 o 变为白色，就可以减少 barrier 的开销。即，再有对 o 的修改，不会产生 <code>luaC_barrierf</code> 的函数调用了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>void luaC_barrierf (lua_State *L, GCObject *o, GCObject *v) {
+</span></span><span style="display:flex;"><span>  global_State *g = G(L);
+</span></span><span style="display:flex;"><span>  lua_assert(isblack(o) &amp;&amp; iswhite(v) &amp;&amp; !isdead(g, v) &amp;&amp; !isdead(g, o));
+</span></span><span style="display:flex;"><span>  lua_assert(g-&gt;gcstate != GCSfinalize &amp;&amp; g-&gt;gcstate != GCSpause);
+</span></span><span style="display:flex;"><span>  lua_assert(ttype(&amp;o-&gt;gch) != LUA_TTABLE);
+</span></span><span style="display:flex;"><span>  /* must keep invariant? */
+</span></span><span style="display:flex;"><span>  if (g-&gt;gcstate == GCSpropagate)
+</span></span><span style="display:flex;"><span>    reallymarkobject(g, v);  /* restore invariant */
+</span></span><span style="display:flex;"><span>  else  /* don&#39;t mind */
+</span></span><span style="display:flex;"><span>    makewhite(g, o);  /* mark as white just to avoid other barriers */
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>简而言之，当 GC 处于 GCSpropagate 状态（mark 流程中），就标记 v 。否则，把与之联系的节点 o 从黑色置为白色。前面我们已经说过，lua 的 GC 采用了两种白色标记，乒乓切换。在 mark 流程结束后，白色状态被切换。这个时候调用 makewhite 并不会导致 sweep 过程清除这个节点。同时，由于 o 变为白色，就可以减少 barrier 的开销。即，再有对 o 的修改，不会产生 <code>luaC_barrierf</code> 的函数调用了。</p>
 <p><code>luaC_barrierback</code> 会把要修改的 table 退回 gary 集合，留待将来继续标记。见代码 lgc.c 的 676 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">void luaC_barrierback (lua_State *L, Table *t) {
-  global_State *g = G(L);
-  GCObject *o = obj2gco(t);
-  lua_assert(isblack(o) &amp;&amp; !isdead(g, o));
-  lua_assert(g-&gt;gcstate != GCSfinalize &amp;&amp; g-&gt;gcstate != GCSpause);
-  black2gray(o);  /* make table gray (again) */
-  t-&gt;gclist = g-&gt;grayagain;
-  g-&gt;grayagain = o;
-}
-</code></pre></div><p>这里提到了 grayagain 链，昨天已经看到，这个链表会推迟到 atomic 阶段处理。把 table 设会灰色可使后续对其的修改不再触发 <code>luaC_barrierback</code> 。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>void luaC_barrierback (lua_State *L, Table *t) {
+</span></span><span style="display:flex;"><span>  global_State *g = G(L);
+</span></span><span style="display:flex;"><span>  GCObject *o = obj2gco(t);
+</span></span><span style="display:flex;"><span>  lua_assert(isblack(o) &amp;&amp; !isdead(g, o));
+</span></span><span style="display:flex;"><span>  lua_assert(g-&gt;gcstate != GCSfinalize &amp;&amp; g-&gt;gcstate != GCSpause);
+</span></span><span style="display:flex;"><span>  black2gray(o);  /* make table gray (again) */
+</span></span><span style="display:flex;"><span>  t-&gt;gclist = g-&gt;grayagain;
+</span></span><span style="display:flex;"><span>  g-&gt;grayagain = o;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这里提到了 grayagain 链，昨天已经看到，这个链表会推迟到 atomic 阶段处理。把 table 设会灰色可使后续对其的修改不再触发 <code>luaC_barrierback</code> 。</p>
 <p>注意，对弱表的修改是不会触发 <code>luaC_barrierback</code> 的。因为弱表不会是黑色。弱表也不能触发它。因为每个 GCObject 都只能存在于一个链表上。弱表自己挂接到 weak 链，就不能向 grayagain 挂接。这就解释了 lgc.c 285 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">      if (traversetable(g, h))  /* table is weak? */
-        black2gray(o);  /* keep it gray */
-</code></pre></div><p>为何要把弱表从黑色设回灰色。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>      if (traversetable(g, h))  /* table is weak? */
+</span></span><span style="display:flex;"><span>        black2gray(o);  /* keep it gray */
+</span></span></code></pre></div><p>为何要把弱表从黑色设回灰色。</p>
 <p>因为弱表又分 key weak 和 value weak ，它倒不一定完全都包含了弱引用。在扫描过程中，对弱表的修改又不会触发 barrier 。这会导致最终扫描完成后，某些弱表里可能还藏有一些新建立的强应用关系。到这里，我们便可以解释昨天遗留的另一个问题，弱表为何到了 atomic 节点需要再次 mark 。见 lgc.c 的 533 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  /* remark weak tables */
-  g-&gt;gray = g-&gt;weak;
-  g-&gt;weak = NULL;
-  lua_assert(!iswhite(obj2gco(g-&gt;mainthread)));
-  markobject(g, L);  /* mark running thread */
-  markmt(g);  /* mark basic metatables (again) */
-  propagateall(g);
-</code></pre></div><p>再次 mark basic metatables 的原因是，设置基本类型的全局 metatable 并没有设置 write barrier （这组 metatable 比较特殊，不适合用以上的 barrier 函数）。见 lapi.c 的 710 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  switch (ttype(obj)) {
-    case LUA_TTABLE: {
-      hvalue(obj)-&gt;metatable = mt;
-      if (mt)
-        luaC_objbarriert(L, hvalue(obj), mt);
-      break;
-    }
-    case LUA_TUSERDATA: {
-      uvalue(obj)-&gt;metatable = mt;
-      if (mt)
-        luaC_objbarrier(L, rawuvalue(obj), mt);
-      break;
-    }
-    default: {
-      G(L)-&gt;mt[ttype(obj)] = mt;
-      break;
-    }
-  }
-</code></pre></div><p>这里，修改 table 的 metatable 调用了 <code>luaC_objbarriert</code> ，修改 userdata 的 metatable 调用了 <code>luaC_objbarrier</code> ，修改全局 metatable 是直接进行的。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  /* remark weak tables */
+</span></span><span style="display:flex;"><span>  g-&gt;gray = g-&gt;weak;
+</span></span><span style="display:flex;"><span>  g-&gt;weak = NULL;
+</span></span><span style="display:flex;"><span>  lua_assert(!iswhite(obj2gco(g-&gt;mainthread)));
+</span></span><span style="display:flex;"><span>  markobject(g, L);  /* mark running thread */
+</span></span><span style="display:flex;"><span>  markmt(g);  /* mark basic metatables (again) */
+</span></span><span style="display:flex;"><span>  propagateall(g);
+</span></span></code></pre></div><p>再次 mark basic metatables 的原因是，设置基本类型的全局 metatable 并没有设置 write barrier （这组 metatable 比较特殊，不适合用以上的 barrier 函数）。见 lapi.c 的 710 行：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  switch (ttype(obj)) {
+</span></span><span style="display:flex;"><span>    case LUA_TTABLE: {
+</span></span><span style="display:flex;"><span>      hvalue(obj)-&gt;metatable = mt;
+</span></span><span style="display:flex;"><span>      if (mt)
+</span></span><span style="display:flex;"><span>        luaC_objbarriert(L, hvalue(obj), mt);
+</span></span><span style="display:flex;"><span>      break;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    case LUA_TUSERDATA: {
+</span></span><span style="display:flex;"><span>      uvalue(obj)-&gt;metatable = mt;
+</span></span><span style="display:flex;"><span>      if (mt)
+</span></span><span style="display:flex;"><span>        luaC_objbarrier(L, rawuvalue(obj), mt);
+</span></span><span style="display:flex;"><span>      break;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    default: {
+</span></span><span style="display:flex;"><span>      G(L)-&gt;mt[ttype(obj)] = mt;
+</span></span><span style="display:flex;"><span>      break;
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  }
+</span></span></code></pre></div><p>这里，修改 table 的 metatable 调用了 <code>luaC_objbarriert</code> ，修改 userdata 的 metatable 调用了 <code>luaC_objbarrier</code> ，修改全局 metatable 是直接进行的。</p>
 <p>如果审查所有的代码，会发现 barrier 的调用分布在很多地方。大多数情况下，barrier 的开销并不大，就是一次条件判断。但 barrier 也会被执行很频繁，性能必须有保障，这也是为什么 barrier 相关 api 都用宏来实现的缘故。</p>
 <hr>
 <p>理解了 write barrier 的实现，我们就可以回头来看 propagatemark 过程了。</p>
 <p>propagatemark 每次会标记一个灰色对象所有的关联节点，并把自己置为黑色。见 lgc.c 的 273 行。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">/*
-** traverse one gray object, turning it to black.
-** Returns `quantity&#39; traversed.
-*/
-static l_mem propagatemark (global_State *g) {
-  GCObject *o = g-&gt;gray;
-  lua_assert(isgray(o));
-  gray2black(o);
-  switch (o-&gt;gch.tt) {
-</code></pre></div><p>之后就是对需要迭代标记的具体类型的处理了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/*
+</span></span><span style="display:flex;"><span>** traverse one gray object, turning it to black.
+</span></span><span style="display:flex;"><span>** Returns `quantity&#39; traversed.
+</span></span><span style="display:flex;"><span>*/
+</span></span><span style="display:flex;"><span>static l_mem propagatemark (global_State *g) {
+</span></span><span style="display:flex;"><span>  GCObject *o = g-&gt;gray;
+</span></span><span style="display:flex;"><span>  lua_assert(isgray(o));
+</span></span><span style="display:flex;"><span>  gray2black(o);
+</span></span><span style="display:flex;"><span>  switch (o-&gt;gch.tt) {
+</span></span></code></pre></div><p>之后就是对需要迭代标记的具体类型的处理了。</p>
 <p>对 table 的处理是这样的，见 lgc.c 的 282 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">    case LUA_TTABLE: {
-      Table *h = gco2h(o);
-      g-&gt;gray = h-&gt;gclist;
-      if (traversetable(g, h))  /* table is weak? */
-        black2gray(o);  /* keep it gray */
-      return sizeof(Table) + sizeof(TValue) * h-&gt;sizearray +
-                             sizeof(Node) * sizenode(h);
-    }
-</code></pre></div><p>从 gray 链上取掉当前 table 节点，然后迭代这个 table ，如果是一个弱表，则把其还原为灰色。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>    case LUA_TTABLE: {
+</span></span><span style="display:flex;"><span>      Table *h = gco2h(o);
+</span></span><span style="display:flex;"><span>      g-&gt;gray = h-&gt;gclist;
+</span></span><span style="display:flex;"><span>      if (traversetable(g, h))  /* table is weak? */
+</span></span><span style="display:flex;"><span>        black2gray(o);  /* keep it gray */
+</span></span><span style="display:flex;"><span>      return sizeof(Table) + sizeof(TValue) * h-&gt;sizearray +
+</span></span><span style="display:flex;"><span>                             sizeof(Node) * sizenode(h);
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>从 gray 链上取掉当前 table 节点，然后迭代这个 table ，如果是一个弱表，则把其还原为灰色。</p>
 <p>traversetable 枚举了 table 中的所有引用项。并对弱表做了处理。见 lgc.c 的 166 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  if (mode &amp;&amp; ttisstring(mode)) {  /* is there a weak mode? */
-    weakkey = (strchr(svalue(mode), &#39;k&#39;) != NULL);
-    weakvalue = (strchr(svalue(mode), &#39;v&#39;) != NULL);
-    if (weakkey || weakvalue) {  /* is really weak? */
-      h-&gt;marked &amp;= ~(KEYWEAK | VALUEWEAK);  /* clear bits */
-      h-&gt;marked |= cast_byte((weakkey &lt;&lt; KEYWEAKBIT) |
-                             (weakvalue &lt;&lt; VALUEWEAKBIT));
-      h-&gt;gclist = g-&gt;weak;  /* must be cleared after GC, ... */
-      g-&gt;weak = obj2gco(h);  /* ... so put in the appropriate list */
-    }
-  }
-</code></pre></div><p>被扫描到的弱表把自己挂到了 weak 链上。单独保存一个链表是因为弱表在扫描的最后阶段还需要把里面不存在的弱引用项清理掉。关于清理工作，是由 atomic 函数中对 cleartable 调用完成的。昨天已经讲过，无庸赘述。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  if (mode &amp;&amp; ttisstring(mode)) {  /* is there a weak mode? */
+</span></span><span style="display:flex;"><span>    weakkey = (strchr(svalue(mode), &#39;k&#39;) != NULL);
+</span></span><span style="display:flex;"><span>    weakvalue = (strchr(svalue(mode), &#39;v&#39;) != NULL);
+</span></span><span style="display:flex;"><span>    if (weakkey || weakvalue) {  /* is really weak? */
+</span></span><span style="display:flex;"><span>      h-&gt;marked &amp;= ~(KEYWEAK | VALUEWEAK);  /* clear bits */
+</span></span><span style="display:flex;"><span>      h-&gt;marked |= cast_byte((weakkey &lt;&lt; KEYWEAKBIT) |
+</span></span><span style="display:flex;"><span>                             (weakvalue &lt;&lt; VALUEWEAKBIT));
+</span></span><span style="display:flex;"><span>      h-&gt;gclist = g-&gt;weak;  /* must be cleared after GC, ... */
+</span></span><span style="display:flex;"><span>      g-&gt;weak = obj2gco(h);  /* ... so put in the appropriate list */
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  }
+</span></span></code></pre></div><p>被扫描到的弱表把自己挂到了 weak 链上。单独保存一个链表是因为弱表在扫描的最后阶段还需要把里面不存在的弱引用项清理掉。关于清理工作，是由 atomic 函数中对 cleartable 调用完成的。昨天已经讲过，无庸赘述。</p>
 <p>对 function 的 mark 工作在 traverseclosure 函数中进行，lgc.c 224 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">static void traverseclosure (global_State *g, Closure *cl) {
-  markobject(g, cl-&gt;c.env);
-  if (cl-&gt;c.isC) {
-    int i;
-    for (i=0; ic.nupvalues; i++)  /* mark its upvalues */
-      markvalue(g, &amp;cl-&gt;c.upvalue[i]);
-  }
-  else {
-    int i;
-    lua_assert(cl-&gt;l.nupvalues == cl-&gt;l.p-&gt;nups);
-    markobject(g, cl-&gt;l.p);
-    for (i=0; il.nupvalues; i++)  /* mark its upvalues */
-      markobject(g, cl-&gt;l.upvals[i]);
-  }
-}
-</code></pre></div><p>lua 中 C Function 和 Lua Function 的内部结构是不同的。所以是分别独立的代码。主要就是对 upvalue 以及环境表的标记了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>static void traverseclosure (global_State *g, Closure *cl) {
+</span></span><span style="display:flex;"><span>  markobject(g, cl-&gt;c.env);
+</span></span><span style="display:flex;"><span>  if (cl-&gt;c.isC) {
+</span></span><span style="display:flex;"><span>    int i;
+</span></span><span style="display:flex;"><span>    for (i=0; ic.nupvalues; i++)  /* mark its upvalues */
+</span></span><span style="display:flex;"><span>      markvalue(g, &amp;cl-&gt;c.upvalue[i]);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  else {
+</span></span><span style="display:flex;"><span>    int i;
+</span></span><span style="display:flex;"><span>    lua_assert(cl-&gt;l.nupvalues == cl-&gt;l.p-&gt;nups);
+</span></span><span style="display:flex;"><span>    markobject(g, cl-&gt;l.p);
+</span></span><span style="display:flex;"><span>    for (i=0; il.nupvalues; i++)  /* mark its upvalues */
+</span></span><span style="display:flex;"><span>      markobject(g, cl-&gt;l.upvals[i]);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>lua 中 C Function 和 Lua Function 的内部结构是不同的。所以是分别独立的代码。主要就是对 upvalue 以及环境表的标记了。</p>
 <p>对 thread 的处理相对复杂一点。见 lgc.c 297 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">    case LUA_TTHREAD: {
-      lua_State *th = gco2th(o);
-      g-&gt;gray = th-&gt;gclist;
-      th-&gt;gclist = g-&gt;grayagain;
-      g-&gt;grayagain = o;
-      black2gray(o);
-      traversestack(g, th);
-      return sizeof(lua_State) + sizeof(TValue) * th-&gt;stacksize +
-                                 sizeof(CallInfo) * th-&gt;size_ci;
-    }
-</code></pre></div><p>这里的链表操作可以简述为，把自己从 gray 链上摘下，放到 grayagain 链表中。并把自己保持为灰色状态。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>    case LUA_TTHREAD: {
+</span></span><span style="display:flex;"><span>      lua_State *th = gco2th(o);
+</span></span><span style="display:flex;"><span>      g-&gt;gray = th-&gt;gclist;
+</span></span><span style="display:flex;"><span>      th-&gt;gclist = g-&gt;grayagain;
+</span></span><span style="display:flex;"><span>      g-&gt;grayagain = o;
+</span></span><span style="display:flex;"><span>      black2gray(o);
+</span></span><span style="display:flex;"><span>      traversestack(g, th);
+</span></span><span style="display:flex;"><span>      return sizeof(lua_State) + sizeof(TValue) * th-&gt;stacksize +
+</span></span><span style="display:flex;"><span>                                 sizeof(CallInfo) * th-&gt;size_ci;
+</span></span><span style="display:flex;"><span>    }
+</span></span></code></pre></div><p>这里的链表操作可以简述为，把自己从 gray 链上摘下，放到 grayagain 链表中。并把自己保持为灰色状态。</p>
 <p>这是因为 thread 关联的对象其实是运行堆栈，堆栈是随着运行过程不断变化的。如果目前尚处于 mark 流程没有结束的话，后面发生变化是很有可能的。而 stack 上数据的修改是不经过 write barrier 的。也没有必要为最频繁的 stack 修改做 barrier ，那样对性能影响就很大了。最简单的办法就是把 thread 推迟到 atomic 阶段重扫描一次。</p>
 <p>atomic 函数，lgc.c 537 行的</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  markobject(g, L);  /* mark running thread */
-</code></pre></div><p>也是这个用意。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  markobject(g, L);  /* mark running thread */
+</span></span></code></pre></div><p>也是这个用意。</p>
 <p>ps. lua 的 GC 在实现时，即使要推迟扫描，也要先做一次。都是为了 atomic 阶段尽量短，把有可能遍历的部分先遍历完。</p>
 <p>TPROTO 对象的遍历函数在 lgc.c 的 199 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">/*
-** All marks are conditional because a GC may happen while the
-** prototype is still being created
-*/
-static void traverseproto (global_State *g, Proto *f) {
-  int i;
-  if (f-&gt;source) stringmark(f-&gt;source);
-  for (i=0; isizek; i++)  /* mark literals */
-    markvalue(g, &amp;f-&gt;k[i]);
-  for (i=0; isizeupvalues; i++) {  /* mark upvalue names */
-    if (f-&gt;upvalues[i])
-      stringmark(f-&gt;upvalues[i]);
-  }
-  for (i=0; isizep; i++) {  /* mark nested protos */
-    if (f-&gt;p[i])
-      markobject(g, f-&gt;p[i]);
-  }
-  for (i=0; isizelocvars; i++) {  /* mark local-variable names */
-    if (f-&gt;locvars[i].varname)
-      stringmark(f-&gt;locvars[i].varname);
-  }
-}
-</code></pre></div><p>如注释所言，这里有很多的判断。这缘于 prototype 的创建过程是可能分步的，中间有可能被 GC 打断。prototype 的创建伴随着诸多 GCObject 的创建。新对象的创建（大多数是 string）带来的是新的内存申请，很容易触发自动 GC 的进行。如果对 prototype 的创建过程有兴趣，可以去阅读 lparser.c 的 <code>luaY_parser</code> 函数，以及 lundump.c 中的 <code>luaU_undump</code> 函数。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/*
+</span></span><span style="display:flex;"><span>** All marks are conditional because a GC may happen while the
+</span></span><span style="display:flex;"><span>** prototype is still being created
+</span></span><span style="display:flex;"><span>*/
+</span></span><span style="display:flex;"><span>static void traverseproto (global_State *g, Proto *f) {
+</span></span><span style="display:flex;"><span>  int i;
+</span></span><span style="display:flex;"><span>  if (f-&gt;source) stringmark(f-&gt;source);
+</span></span><span style="display:flex;"><span>  for (i=0; isizek; i++)  /* mark literals */
+</span></span><span style="display:flex;"><span>    markvalue(g, &amp;f-&gt;k[i]);
+</span></span><span style="display:flex;"><span>  for (i=0; isizeupvalues; i++) {  /* mark upvalue names */
+</span></span><span style="display:flex;"><span>    if (f-&gt;upvalues[i])
+</span></span><span style="display:flex;"><span>      stringmark(f-&gt;upvalues[i]);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  for (i=0; isizep; i++) {  /* mark nested protos */
+</span></span><span style="display:flex;"><span>    if (f-&gt;p[i])
+</span></span><span style="display:flex;"><span>      markobject(g, f-&gt;p[i]);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>  for (i=0; isizelocvars; i++) {  /* mark local-variable names */
+</span></span><span style="display:flex;"><span>    if (f-&gt;locvars[i].varname)
+</span></span><span style="display:flex;"><span>      stringmark(f-&gt;locvars[i].varname);
+</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>如注释所言，这里有很多的判断。这缘于 prototype 的创建过程是可能分步的，中间有可能被 GC 打断。prototype 的创建伴随着诸多 GCObject 的创建。新对象的创建（大多数是 string）带来的是新的内存申请，很容易触发自动 GC 的进行。如果对 prototype 的创建过程有兴趣，可以去阅读 lparser.c 的 <code>luaY_parser</code> 函数，以及 lundump.c 中的 <code>luaU_undump</code> 函数。</p>
 <p>以上就是所有需要迭代遍历的数据类型了。</p>
 <p>一切准备妥当后，GC 将切换到 GCSsweepstring 。见 lgc.c 548 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">  /* flip current white */
-  g-&gt;currentwhite = cast_byte(otherwhite(g));
-  g-&gt;sweepstrgc = 0;
-  g-&gt;sweepgc = &amp;g-&gt;rootgc;
-  g-&gt;gcstate = GCSsweepstring;
-  g-&gt;estimate = g-&gt;totalbytes - udsize;  /* first estimate */
-</code></pre></div><p>这时，userdata 的 gc 元方法虽未调用，所有不再有引用的 userdata 不会在这趟 GC 环节中清理出去，但它们占据的空间已经被 estimate 忽略。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>  /* flip current white */
+</span></span><span style="display:flex;"><span>  g-&gt;currentwhite = cast_byte(otherwhite(g));
+</span></span><span style="display:flex;"><span>  g-&gt;sweepstrgc = 0;
+</span></span><span style="display:flex;"><span>  g-&gt;sweepgc = &amp;g-&gt;rootgc;
+</span></span><span style="display:flex;"><span>  g-&gt;gcstate = GCSsweepstring;
+</span></span><span style="display:flex;"><span>  g-&gt;estimate = g-&gt;totalbytes - udsize;  /* first estimate */
+</span></span></code></pre></div><p>这时，userdata 的 gc 元方法虽未调用，所有不再有引用的 userdata 不会在这趟 GC 环节中清理出去，但它们占据的空间已经被 estimate 忽略。</p>
 
     </div>
     <footer class="post-footer">

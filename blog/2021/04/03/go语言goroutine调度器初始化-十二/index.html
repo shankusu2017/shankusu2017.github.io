@@ -300,14 +300,14 @@
     <p>原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/W9D4Sl-6jYfcpczzdPfByQ">源码游记</a> 2019-05-05</p>
 <h2 id="本文是go语言调度器源代码情景分析系列的第12篇也是第二章的第2小节">本文是《Go语言调度器源代码情景分析》系列的第12篇，也是第二章的第2小节。</h2>
 <p>本章将以下面这个简单的Hello World程序为例，通过跟踪其从启动到退出这一完整的运行流程来分析Go语言调度器的初始化、goroutine的创建与退出、工作线程的调度循环以及goroutine的切换等重要内容。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">package</span> main
- 
-<span style="color:#00f">import</span> <span style="color:#009c00">&#34;fmt&#34;</span>
- 
-<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-    fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;Hello World!&#34;</span>)
-}
-</code></pre></div><p>首先我们从程序启动开始分析调度器的初始化。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">package</span> main
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">import</span> <span style="color:#009c00">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;Hello World!&#34;</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>首先我们从程序启动开始分析调度器的初始化。</p>
 <p>在分析程序的启动过程之前，我们首先来看看程序在执行第一条指令之前其栈的初始状态。</p>
 <p>任何一个由编译型语言（不管是C，C++，go还是汇编语言）所编写的程序在被操作系统加载起来运行时都会顺序经过如下几个阶段：</p>
 <p>从磁盘上把可执行程序读入内存；</p>
@@ -320,302 +320,302 @@
 <p>了解了程序的初始状态之后，下面我们正式开始。</p>
 <p>程序入口</p>
 <p>在Linux命令行用 go build 编译hello.go，得到可执行程序hello，然后使用gdb调试，在gdb中我们首先使用 info files 命令找到程序入口（Entry point）地址为0x452270，然后用 b *0x452270 在0x452270地址处下个断点，gdb告诉我们这个入口对应的源代码为 runtime/rt0_linux_amd64.s 文件的第8行。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">bobo@ubuntu:~/study/go$ go build hello.go 
-bobo@ubuntu:~/study/go$ gdb hello
-GNU gdb (GDB) 8.0.1
-(gdb) info files
-Symbols from <span style="color:#009c00">&#34;/home/bobo/study/go/main&#34;</span>.
-Local exec file:
-<span style="color:#009c00">`</span>/home/bobo/study/go/main&#39;, file type elf64-x86-64.
-Entry point: 0x452270
-0x0000000000401000 - 0x0000000000486aac is .text
-0x0000000000487000 - 0x00000000004d1a73 is .rodata
-0x00000000004d1c20 - 0x00000000004d27f0 is .typelink
-0x00000000004d27f0 - 0x00000000004d2838 is .itablink
-0x00000000004d2838 - 0x00000000004d2838 is .gosymtab
-0x00000000004d2840 - 0x00000000005426d9 is .gopclntab
-0x0000000000543000 - 0x000000000054fa9c is .noptrdata
-0x000000000054faa0 - 0x0000000000556790 is .data
-0x00000000005567a0 - 0x0000000000571ef0 is .bss
-0x0000000000571f00 - 0x0000000000574658 is .noptrbss
-0x0000000000400f9c - 0x0000000000401000 is .note.go.buildid
-(gdb) b *0x452270
-Breakpoint 1 at 0x452270: file /usr/local/go/src/runtime/rt0_linux_amd64.s, line 8.
-</code></pre></div><p>打开代码编辑器，找到 runtime/rt0_linx_amd64.s 文件，该文件是用go汇编语言编写而成的源代码文件，我们已经在本书的第一部分讨论过其格式。现在看看第8行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/rt0_linx_amd64.s : 8
-
-TEXT <span style="color:#c34e00">_rt0_amd64_linux</span>(SB),NOSPLIT,$-8
-    <span style="color:#c34e00">JMP_rt0_amd64</span>(SB)
-</code></pre></div><p>上面第一行代码定义了_rt0_amd64_linux这个符号，并不是真正的CPU指令，第二行的JMP指令才是主线程的第一条指令，这条指令简单的跳转到（相当于go语言或c中的goto）_rt0_amd64 这个符号处继续执行，_rt0_amd64 这个符号的定义在runtime/asm_amd64.s 文件中：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 14
-
-TEXT <span style="color:#c34e00">_rt0_amd64</span>(SB),NOSPLIT,$-8
-    <span style="color:#c34e00">MOVQ0</span>(SP), DI<span style="color:#f00;font-style:italic">// argc 
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">LEAQ8</span>(SP), SI <span style="color:#f00;font-style:italic">// argv
-</span><span style="color:#f00;font-style:italic"></span>    JMPruntime·<span style="color:#c34e00">rt0_go</span>(SB)
-</code></pre></div><p>前两行指令把操作系统内核传递过来的参数argc和argv数组的地址分别放在DI和SI寄存器中，第三行指令跳转到 rt0_go 去执行。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>bobo@ubuntu:~/study/go$ go build hello.go 
+</span></span><span style="display:flex;"><span>bobo@ubuntu:~/study/go$ gdb hello
+</span></span><span style="display:flex;"><span>GNU gdb (GDB) 8.0.1
+</span></span><span style="display:flex;"><span>(gdb) info files
+</span></span><span style="display:flex;"><span>Symbols from <span style="color:#009c00">&#34;/home/bobo/study/go/main&#34;</span>.
+</span></span><span style="display:flex;"><span>Local exec file:
+</span></span><span style="display:flex;"><span><span style="color:#009c00">`</span>/home/bobo/study/go/main&#39;, file type elf64-x86-64.
+</span></span><span style="display:flex;"><span>Entry point: 0x452270
+</span></span><span style="display:flex;"><span>0x0000000000401000 - 0x0000000000486aac is .text
+</span></span><span style="display:flex;"><span>0x0000000000487000 - 0x00000000004d1a73 is .rodata
+</span></span><span style="display:flex;"><span>0x00000000004d1c20 - 0x00000000004d27f0 is .typelink
+</span></span><span style="display:flex;"><span>0x00000000004d27f0 - 0x00000000004d2838 is .itablink
+</span></span><span style="display:flex;"><span>0x00000000004d2838 - 0x00000000004d2838 is .gosymtab
+</span></span><span style="display:flex;"><span>0x00000000004d2840 - 0x00000000005426d9 is .gopclntab
+</span></span><span style="display:flex;"><span>0x0000000000543000 - 0x000000000054fa9c is .noptrdata
+</span></span><span style="display:flex;"><span>0x000000000054faa0 - 0x0000000000556790 is .data
+</span></span><span style="display:flex;"><span>0x00000000005567a0 - 0x0000000000571ef0 is .bss
+</span></span><span style="display:flex;"><span>0x0000000000571f00 - 0x0000000000574658 is .noptrbss
+</span></span><span style="display:flex;"><span>0x0000000000400f9c - 0x0000000000401000 is .note.go.buildid
+</span></span><span style="display:flex;"><span>(gdb) b *0x452270
+</span></span><span style="display:flex;"><span>Breakpoint 1 at 0x452270: file /usr/local/go/src/runtime/rt0_linux_amd64.s, line 8.
+</span></span></code></pre></div><p>打开代码编辑器，找到 runtime/rt0_linx_amd64.s 文件，该文件是用go汇编语言编写而成的源代码文件，我们已经在本书的第一部分讨论过其格式。现在看看第8行：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/rt0_linx_amd64.s : 8
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>TEXT <span style="color:#c34e00">_rt0_amd64_linux</span>(SB),NOSPLIT,$-8
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">JMP_rt0_amd64</span>(SB)
+</span></span></code></pre></div><p>上面第一行代码定义了_rt0_amd64_linux这个符号，并不是真正的CPU指令，第二行的JMP指令才是主线程的第一条指令，这条指令简单的跳转到（相当于go语言或c中的goto）_rt0_amd64 这个符号处继续执行，_rt0_amd64 这个符号的定义在runtime/asm_amd64.s 文件中：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 14
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>TEXT <span style="color:#c34e00">_rt0_amd64</span>(SB),NOSPLIT,$-8
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">MOVQ0</span>(SP), DI<span style="color:#f00;font-style:italic">// argc 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#c34e00">LEAQ8</span>(SP), SI <span style="color:#f00;font-style:italic">// argv
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    JMPruntime·<span style="color:#c34e00">rt0_go</span>(SB)
+</span></span></code></pre></div><p>前两行指令把操作系统内核传递过来的参数argc和argv数组的地址分别放在DI和SI寄存器中，第三行指令跳转到 rt0_go 去执行。</p>
 <p>rt0_go函数完成了go程序启动时的所有初始化工作，因此这个函数比较长，也比较繁杂，但这里我们只关注与调度器相关的一些初始化，下面我们分段来看：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 87
-
-TEXT runtime·<span style="color:#c34e00">rt0_go</span>(SB),NOSPLIT,$0
-    <span style="color:#f00;font-style:italic">// copy arguments forward on an even stack
-</span><span style="color:#f00;font-style:italic"></span>    MOVQDI, AX<span style="color:#f00;font-style:italic">// AX = argc
-</span><span style="color:#f00;font-style:italic"></span>    MOVQSI, BX<span style="color:#f00;font-style:italic">// BX = argv
-</span><span style="color:#f00;font-style:italic"></span>    SUBQ$(4*8+7), SP<span style="color:#f00;font-style:italic">// 2args 2auto
-</span><span style="color:#f00;font-style:italic"></span>    ANDQ$~15, SP     <span style="color:#f00;font-style:italic">//调整栈顶寄存器使其按16字节对齐
-</span><span style="color:#f00;font-style:italic"></span>    MOVQAX, 16(SP) <span style="color:#f00;font-style:italic">//argc放在SP + 16字节处
-</span><span style="color:#f00;font-style:italic"></span>    MOVQBX, 24(SP) <span style="color:#f00;font-style:italic">//argv放在SP + 24字节处
-</span></code></pre></div><p>上面的第4条指令用于调整栈顶寄存器的值使其按16字节对齐，也就是让栈顶寄存器SP指向的内存的地址为16的倍数，之所以要按16字节对齐，是因为CPU有一组SSE指令，这些指令中出现的内存地址必须是16的倍数，最后两条指令把argc和argv搬到新的位置。这段代码的其它部分已经做了比较详细的注释，所以这里就不做过多的解释了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 87
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>TEXT runtime·<span style="color:#c34e00">rt0_go</span>(SB),NOSPLIT,$0
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// copy arguments forward on an even stack
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    MOVQDI, AX<span style="color:#f00;font-style:italic">// AX = argc
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    MOVQSI, BX<span style="color:#f00;font-style:italic">// BX = argv
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    SUBQ$(4*8+7), SP<span style="color:#f00;font-style:italic">// 2args 2auto
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    ANDQ$~15, SP     <span style="color:#f00;font-style:italic">//调整栈顶寄存器使其按16字节对齐
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    MOVQAX, 16(SP) <span style="color:#f00;font-style:italic">//argc放在SP + 16字节处
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    MOVQBX, 24(SP) <span style="color:#f00;font-style:italic">//argv放在SP + 24字节处
+</span></span></span></code></pre></div><p>上面的第4条指令用于调整栈顶寄存器的值使其按16字节对齐，也就是让栈顶寄存器SP指向的内存的地址为16的倍数，之所以要按16字节对齐，是因为CPU有一组SSE指令，这些指令中出现的内存地址必须是16的倍数，最后两条指令把argc和argv搬到新的位置。这段代码的其它部分已经做了比较详细的注释，所以这里就不做过多的解释了。</p>
 <p>初始化g0</p>
 <p>继续看后面的代码，下面开始初始化全局变量g0，前面我们说过，g0的主要作用是提供一个栈供runtime代码执行，因此这里主要对g0的几个与栈有关的成员进行了初始化，从这里可以看出g0的栈大约有64K，地址范围为 SP - 64*1024 + 104 ～ SP。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 96
-
-<span style="color:#f00;font-style:italic">// create istack out of the given (operating system) stack.
-</span><span style="color:#f00;font-style:italic">// _cgo_init may update stackguard.
-</span><span style="color:#f00;font-style:italic">//下面这段代码从系统线程的栈空分出一部分当作g0的栈，然后初始化g0的栈信息和stackgard
-</span><span style="color:#f00;font-style:italic"></span>MOVQ$runtime·<span style="color:#c34e00">g0</span>(SB), DI       <span style="color:#f00;font-style:italic">//g0的地址放入DI寄存器
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">LEAQ</span>(-64*1024+104)(SP), BX <span style="color:#f00;font-style:italic">//BX = SP - 64*1024 + 104
-</span><span style="color:#f00;font-style:italic"></span>MOVQBX, <span style="color:#c34e00">g_stackguard0</span>(DI) <span style="color:#f00;font-style:italic">//g0.stackguard0 = SP - 64*1024 + 104
-</span><span style="color:#f00;font-style:italic"></span>MOVQBX, <span style="color:#c34e00">g_stackguard1</span>(DI) <span style="color:#f00;font-style:italic">//g0.stackguard1 = SP - 64*1024 + 104
-</span><span style="color:#f00;font-style:italic"></span>MOVQBX, (g_stack+stack_lo)(DI) <span style="color:#f00;font-style:italic">//g0.stack.lo = SP - 64*1024 + 104
-</span><span style="color:#f00;font-style:italic"></span>MOVQSP, (g_stack+stack_hi)(DI) <span style="color:#f00;font-style:italic">//g0.stack.hi = SP
-</span></code></pre></div><p>运行完上面这几行指令后g0与栈之间的关系如下图所示：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 96
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// create istack out of the given (operating system) stack.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// _cgo_init may update stackguard.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//下面这段代码从系统线程的栈空分出一部分当作g0的栈，然后初始化g0的栈信息和stackgard
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQ$runtime·<span style="color:#c34e00">g0</span>(SB), DI       <span style="color:#f00;font-style:italic">//g0的地址放入DI寄存器
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">LEAQ</span>(-64*1024+104)(SP), BX <span style="color:#f00;font-style:italic">//BX = SP - 64*1024 + 104
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQBX, <span style="color:#c34e00">g_stackguard0</span>(DI) <span style="color:#f00;font-style:italic">//g0.stackguard0 = SP - 64*1024 + 104
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQBX, <span style="color:#c34e00">g_stackguard1</span>(DI) <span style="color:#f00;font-style:italic">//g0.stackguard1 = SP - 64*1024 + 104
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQBX, (g_stack+stack_lo)(DI) <span style="color:#f00;font-style:italic">//g0.stack.lo = SP - 64*1024 + 104
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQSP, (g_stack+stack_hi)(DI) <span style="color:#f00;font-style:italic">//g0.stack.hi = SP
+</span></span></span></code></pre></div><p>运行完上面这几行指令后g0与栈之间的关系如下图所示：</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/846b4e78af61697ea4ab003df5ed3a5d.png" alt=""></p>
 <p>主线程与m0绑定</p>
 <p>设置好g0栈之后，我们跳过CPU型号检查以及cgo初始化相关的代码，直接从164行继续分析。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 164
-
-  <span style="color:#f00;font-style:italic">//下面开始初始化tls(thread local storage,线程本地存储)
-</span><span style="color:#f00;font-style:italic"></span>LEAQruntime·m0+<span style="color:#c34e00">m_tls</span>(SB), DI <span style="color:#f00;font-style:italic">//DI = &amp;m0.tls，取m0的tls成员的地址到DI寄存器
-</span><span style="color:#f00;font-style:italic"></span>CALLruntime·<span style="color:#c34e00">settls</span>(SB) <span style="color:#f00;font-style:italic">//调用settls设置线程本地存储，settls函数的参数在DI寄存器中
-</span><span style="color:#f00;font-style:italic"></span> 
-<span style="color:#f00;font-style:italic">// store through it, to make sure it works
-</span><span style="color:#f00;font-style:italic">//验证settls是否可以正常工作，如果有问题则abort退出程序
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">get_tls</span>(BX) <span style="color:#f00;font-style:italic">//获取fs段基地址并放入BX寄存器，其实就是m0.tls[1]的地址，get_tls的代码由编译器生成
-</span><span style="color:#f00;font-style:italic"></span>MOVQ$0x123, <span style="color:#c34e00">g</span>(BX) <span style="color:#f00;font-style:italic">//把整型常量0x123拷贝到fs段基地址偏移-8的内存位置，也就是m0.tls[0]= 0x123
-</span><span style="color:#f00;font-style:italic"></span>MOVQruntime·m0+<span style="color:#c34e00">m_tls</span>(SB), AX <span style="color:#f00;font-style:italic">//AX = m0.tls[0]
-</span><span style="color:#f00;font-style:italic"></span>CMPQAX, $0x123 <span style="color:#f00;font-style:italic">//检查m0.tls[0]的值是否是通过线程本地存储存入的0x123来验证tls功能是否正常
-</span><span style="color:#f00;font-style:italic"></span>JEQ 2(PC)
-CALLruntime·<span style="color:#c34e00">abort</span>(SB) <span style="color:#f00;font-style:italic">//如果线程本地存储不能正常工作，退出程序
-</span></code></pre></div><p>这段代码首先调用settls函数初始化主线程的线程本地存储(TLS)，目的是把m0与主线程关联在一起，至于为什么要把m和工作线程绑定在一起，我们已经在上一节介绍过了，这里就不再重复。设置了线程本地存储之后接下来的几条指令在于验证TLS功能是否正常，如果不正常则直接abort退出程序。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 164
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">//下面开始初始化tls(thread local storage,线程本地存储)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>LEAQruntime·m0+<span style="color:#c34e00">m_tls</span>(SB), DI <span style="color:#f00;font-style:italic">//DI = &amp;m0.tls，取m0的tls成员的地址到DI寄存器
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>CALLruntime·<span style="color:#c34e00">settls</span>(SB) <span style="color:#f00;font-style:italic">//调用settls设置线程本地存储，settls函数的参数在DI寄存器中
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// store through it, to make sure it works
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//验证settls是否可以正常工作，如果有问题则abort退出程序
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">get_tls</span>(BX) <span style="color:#f00;font-style:italic">//获取fs段基地址并放入BX寄存器，其实就是m0.tls[1]的地址，get_tls的代码由编译器生成
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQ$0x123, <span style="color:#c34e00">g</span>(BX) <span style="color:#f00;font-style:italic">//把整型常量0x123拷贝到fs段基地址偏移-8的内存位置，也就是m0.tls[0]= 0x123
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQruntime·m0+<span style="color:#c34e00">m_tls</span>(SB), AX <span style="color:#f00;font-style:italic">//AX = m0.tls[0]
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>CMPQAX, $0x123 <span style="color:#f00;font-style:italic">//检查m0.tls[0]的值是否是通过线程本地存储存入的0x123来验证tls功能是否正常
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>JEQ 2(PC)
+</span></span><span style="display:flex;"><span>CALLruntime·<span style="color:#c34e00">abort</span>(SB) <span style="color:#f00;font-style:italic">//如果线程本地存储不能正常工作，退出程序
+</span></span></span></code></pre></div><p>这段代码首先调用settls函数初始化主线程的线程本地存储(TLS)，目的是把m0与主线程关联在一起，至于为什么要把m和工作线程绑定在一起，我们已经在上一节介绍过了，这里就不再重复。设置了线程本地存储之后接下来的几条指令在于验证TLS功能是否正常，如果不正常则直接abort退出程序。</p>
 <p>下面我们详细来详细看一下settls函数是如何实现线程私有全局变量的。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/sys_linx_amd64.s : 606
-
-<span style="color:#f00;font-style:italic">// set tls base to DI
-</span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">settls</span>(SB),NOSPLIT,$32
-<span style="color:#f00;font-style:italic">//......
-</span><span style="color:#f00;font-style:italic">//DI寄存器中存放的是m.tls[0]的地址，m的tls成员是一个数组，读者如果忘记了可以回头看一下m结构体的定义
-</span><span style="color:#f00;font-style:italic">//下面这一句代码把DI寄存器中的地址加8，为什么要+8呢，主要跟ELF可执行文件格式中的TLS实现的机制有关
-</span><span style="color:#f00;font-style:italic">//执行下面这句指令之后DI寄存器中的存放的就是m.tls[1]的地址了
-</span><span style="color:#f00;font-style:italic"></span>ADDQ$8, DI<span style="color:#f00;font-style:italic">// ELF wants to use -8(FS)
-</span><span style="color:#f00;font-style:italic"></span> 
-  <span style="color:#f00;font-style:italic">//下面通过arch_prctl系统调用设置FS段基址
-</span><span style="color:#f00;font-style:italic"></span>MOVQDI, SI <span style="color:#f00;font-style:italic">//SI存放arch_prctl系统调用的第二个参数
-</span><span style="color:#f00;font-style:italic"></span>MOVQ$0x1002, DI<span style="color:#f00;font-style:italic">// ARCH_SET_FS //arch_prctl的第一个参数
-</span><span style="color:#f00;font-style:italic"></span>MOVQ$SYS_arch_prctl, AX <span style="color:#f00;font-style:italic">//系统调用编号
-</span><span style="color:#f00;font-style:italic"></span>SYSCALL
-CMPQAX, $0xfffffffffffff001
-<span style="color:#c34e00">JLS2</span>(PC)
-MOVL$0xf1, 0xf1 <span style="color:#f00;font-style:italic">// crash //系统调用失败直接crash
-</span><span style="color:#f00;font-style:italic"></span>RET
-</code></pre></div><p>从代码可以看到，这里通过arch_prctl系统调用把m0.tls[1]的地址设置成了fs段的段基址。CPU中有个叫fs的段寄存器与之对应，而每个线程都有自己的一组CPU寄存器值，操作系统在把线程调离CPU运行时会帮我们把所有寄存器中的值保存在内存中，调度线程起来运行时又会从内存中把这些寄存器的值恢复到CPU，这样，在此之后，工作线程代码就可以通过fs寄存器来找到m.tls，读者可以参考上面初始化tls之后对tls功能验证的代码来理解这一过程。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/sys_linx_amd64.s : 606
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// set tls base to DI
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>TEXT runtime·<span style="color:#c34e00">settls</span>(SB),NOSPLIT,$32
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//......
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//DI寄存器中存放的是m.tls[0]的地址，m的tls成员是一个数组，读者如果忘记了可以回头看一下m结构体的定义
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//下面这一句代码把DI寄存器中的地址加8，为什么要+8呢，主要跟ELF可执行文件格式中的TLS实现的机制有关
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//执行下面这句指令之后DI寄存器中的存放的就是m.tls[1]的地址了
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>ADDQ$8, DI<span style="color:#f00;font-style:italic">// ELF wants to use -8(FS)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">//下面通过arch_prctl系统调用设置FS段基址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQDI, SI <span style="color:#f00;font-style:italic">//SI存放arch_prctl系统调用的第二个参数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQ$0x1002, DI<span style="color:#f00;font-style:italic">// ARCH_SET_FS //arch_prctl的第一个参数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQ$SYS_arch_prctl, AX <span style="color:#f00;font-style:italic">//系统调用编号
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>SYSCALL
+</span></span><span style="display:flex;"><span>CMPQAX, $0xfffffffffffff001
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">JLS2</span>(PC)
+</span></span><span style="display:flex;"><span>MOVL$0xf1, 0xf1 <span style="color:#f00;font-style:italic">// crash //系统调用失败直接crash
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>RET
+</span></span></code></pre></div><p>从代码可以看到，这里通过arch_prctl系统调用把m0.tls[1]的地址设置成了fs段的段基址。CPU中有个叫fs的段寄存器与之对应，而每个线程都有自己的一组CPU寄存器值，操作系统在把线程调离CPU运行时会帮我们把所有寄存器中的值保存在内存中，调度线程起来运行时又会从内存中把这些寄存器的值恢复到CPU，这样，在此之后，工作线程代码就可以通过fs寄存器来找到m.tls，读者可以参考上面初始化tls之后对tls功能验证的代码来理解这一过程。</p>
 <p>下面继续分析rt0_go，</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 174
-
-ok:
-<span style="color:#f00;font-style:italic">// set the per-goroutine and per-mach &#34;registers&#34;
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">get_tls</span>(BX) <span style="color:#f00;font-style:italic">//获取fs段基址到BX寄存器
-</span><span style="color:#f00;font-style:italic"></span>LEAQruntime·<span style="color:#c34e00">g0</span>(SB), CX <span style="color:#f00;font-style:italic">//CX = g0的地址
-</span><span style="color:#f00;font-style:italic"></span>MOVQCX, <span style="color:#c34e00">g</span>(BX) <span style="color:#f00;font-style:italic">//把g0的地址保存在线程本地存储里面，也就是m0.tls[0]=&amp;g0
-</span><span style="color:#f00;font-style:italic"></span>LEAQruntime·<span style="color:#c34e00">m0</span>(SB), AX <span style="color:#f00;font-style:italic">//AX = m0的地址
-</span><span style="color:#f00;font-style:italic"></span> 
-<span style="color:#f00;font-style:italic">//把m0和g0关联起来m0-&gt;g0 = g0，g0-&gt;m = m0
-</span><span style="color:#f00;font-style:italic">// save m-&gt;g0 = g0
-</span><span style="color:#f00;font-style:italic"></span>MOVQCX, <span style="color:#c34e00">m_g0</span>(AX) <span style="color:#f00;font-style:italic">//m0.g0 = g0
-</span><span style="color:#f00;font-style:italic">// save m0 to g0-&gt;m 
-</span><span style="color:#f00;font-style:italic"></span>MOVQAX, <span style="color:#c34e00">g_m</span>(CX) <span style="color:#f00;font-style:italic">//g0.m = m0
-</span></code></pre></div><p>上面的代码首先把g0的地址放入主线程的线程本地存储中，然后通过</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">m0.g0 = &amp;g0
-g0.m = &amp;m0
-</code></pre></div><p>把m0和g0绑定在一起，这样，之后在主线程中通过get_tls可以获取到g0，通过g0的m成员又可以找到m0，于是这里就实现了m0和g0与主线程之间的关联。从这里还可以看到，保存在主线程本地存储中的值是g0的地址，也就是说工作线程的私有全局变量其实是一个指向g的指针而不是指向m的指针，目前这个指针指向g0，表示代码正运行在g0栈。此时，主线程，m0，g0以及g0的栈之间的关系如下图所示：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 174
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>ok:
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// set the per-goroutine and per-mach &#34;registers&#34;
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">get_tls</span>(BX) <span style="color:#f00;font-style:italic">//获取fs段基址到BX寄存器
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>LEAQruntime·<span style="color:#c34e00">g0</span>(SB), CX <span style="color:#f00;font-style:italic">//CX = g0的地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQCX, <span style="color:#c34e00">g</span>(BX) <span style="color:#f00;font-style:italic">//把g0的地址保存在线程本地存储里面，也就是m0.tls[0]=&amp;g0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>LEAQruntime·<span style="color:#c34e00">m0</span>(SB), AX <span style="color:#f00;font-style:italic">//AX = m0的地址
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">//把m0和g0关联起来m0-&gt;g0 = g0，g0-&gt;m = m0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// save m-&gt;g0 = g0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQCX, <span style="color:#c34e00">m_g0</span>(AX) <span style="color:#f00;font-style:italic">//m0.g0 = g0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// save m0 to g0-&gt;m 
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQAX, <span style="color:#c34e00">g_m</span>(CX) <span style="color:#f00;font-style:italic">//g0.m = m0
+</span></span></span></code></pre></div><p>上面的代码首先把g0的地址放入主线程的线程本地存储中，然后通过</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>m0.g0 = &amp;g0
+</span></span><span style="display:flex;"><span>g0.m = &amp;m0
+</span></span></code></pre></div><p>把m0和g0绑定在一起，这样，之后在主线程中通过get_tls可以获取到g0，通过g0的m成员又可以找到m0，于是这里就实现了m0和g0与主线程之间的关联。从这里还可以看到，保存在主线程本地存储中的值是g0的地址，也就是说工作线程的私有全局变量其实是一个指向g的指针而不是指向m的指针，目前这个指针指向g0，表示代码正运行在g0栈。此时，主线程，m0，g0以及g0的栈之间的关系如下图所示：</p>
 <p><img src="https://img-blog.csdnimg.cn/img_convert/bd0bfab9f20d9fa2ac42c317f72315ee.png" alt=""></p>
 <p>初始化m0</p>
 <p>下面代码开始处理命令行参数，这部分我们不关心，所以跳过。命令行参数处理完成后调用osinit函数获取CPU核的数量并保存在全局变量ncpu之中，调度器初始化时需要知道当前系统有多少个CPU核。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/asm_amd64.s : 189
-</code></pre></div><p>//准备调用args函数，前面四条指令把参数放在栈上</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#c34e00">MOVL16</span>(SP), AX<span style="color:#f00;font-style:italic">// AX = argc
-</span><span style="color:#f00;font-style:italic"></span>MOVLAX, 0(SP)       <span style="color:#f00;font-style:italic">// argc放在栈顶
-</span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">MOVQ24</span>(SP), AX<span style="color:#f00;font-style:italic">// AX = argv
-</span><span style="color:#f00;font-style:italic"></span>MOVQAX, 8(SP)       <span style="color:#f00;font-style:italic">// argv放在SP + 8的位置
-</span><span style="color:#f00;font-style:italic"></span>CALLruntime·<span style="color:#c34e00">args</span>(SB)  <span style="color:#f00;font-style:italic">//处理操作系统传递过来的参数和env，不需要关心
-</span></code></pre></div><p>//对于linx来说，osinit唯一功能就是获取CPU的核数并放在global变量ncpu中，
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/asm_amd64.s : 189
+</span></span></code></pre></div><p>//准备调用args函数，前面四条指令把参数放在栈上</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#c34e00">MOVL16</span>(SP), AX<span style="color:#f00;font-style:italic">// AX = argc
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVLAX, 0(SP)       <span style="color:#f00;font-style:italic">// argc放在栈顶
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">MOVQ24</span>(SP), AX<span style="color:#f00;font-style:italic">// AX = argv
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>MOVQAX, 8(SP)       <span style="color:#f00;font-style:italic">// argv放在SP + 8的位置
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>CALLruntime·<span style="color:#c34e00">args</span>(SB)  <span style="color:#f00;font-style:italic">//处理操作系统传递过来的参数和env，不需要关心
+</span></span></span></code></pre></div><p>//对于linx来说，osinit唯一功能就是获取CPU的核数并放在global变量ncpu中，
 //调度器初始化时需要知道当前系统有多少CPU核
 CALLruntime·osinit(SB)  //执行的结果是全局变量 ncpu = CPU核数
 CALLruntime·schedinit(SB) //调度系统初始化
 接下来继续看调度器是如何初始化的。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">runtime/proc.go : 526
-
-func schedinit() {
-// raceinit must be the first call to race detector.
-// In particular, it must be done before mallocinit below calls racemapshadow.
-   
-    //getg函数在源代码中没有对应的定义，由编译器插入类似下面两行代码
-    //get_tls(CX) 
-    //MOVQ g(CX), BX; BX存器里面现在放的是当前g结构体对象的地址
-    _g_ := getg() // _g_ = &amp;g0
- 
-    ......
- 
-    //设置最多启动10000个操作系统线程，也是最多10000个M
-    sched.maxmcount = 10000
- 
-    ......
-   
-    mcommoninit(_g_.m) //初始化m0，因为从前面的代码我们知道g0-&gt;m = &amp;m0
- 
-    ......
- 
-    sched.lastpoll = uint64(nanotime())
-    procs := ncpu  //系统中有多少核，就创建和初始化多少个p结构体对象
-    if n, ok := atoi32(gogetenv(&#34;GOMAXPROCS&#34;)); ok &amp;&amp; n &gt; 0 {
-        procs = n //如果环境变量指定了GOMAXPROCS，则创建指定数量的p
-    }
-    if procresize(procs) != nil {//创建和初始化全局变量allp
-        throw(&#34;unknown runnable goroutine during bootstrap&#34;)
-    }
- 
-    ......
-}
-</code></pre></div><p>前面我们已经看到，g0的地址已经被设置到了线程本地存储之中，schedinit通过getg函数（getg函数是编译器实现的，我们在源代码中是找不到其定义的）从线程本地存储中获取当前正在运行的g，这里获取出来的是g0，然后调用mcommoninit函数对m0(g0.m)进行必要的初始化，对m0初始化完成之后调用procresize初始化系统需要用到的p结构体对象，按照go语言官方的说法，p就是processor的意思，它的数量决定了最多可以有都少个goroutine同时并行运行。schedinit函数除了初始化m0和p，还设置了全局变量sched的maxmcount成员为10000，限制最多可以创建10000个操作系统线程出来工作。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>runtime/proc.go : 526
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>func schedinit() {
+</span></span><span style="display:flex;"><span>// raceinit must be the first call to race detector.
+</span></span><span style="display:flex;"><span>// In particular, it must be done before mallocinit below calls racemapshadow.
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    //getg函数在源代码中没有对应的定义，由编译器插入类似下面两行代码
+</span></span><span style="display:flex;"><span>    //get_tls(CX) 
+</span></span><span style="display:flex;"><span>    //MOVQ g(CX), BX; BX存器里面现在放的是当前g结构体对象的地址
+</span></span><span style="display:flex;"><span>    _g_ := getg() // _g_ = &amp;g0
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    //设置最多启动10000个操作系统线程，也是最多10000个M
+</span></span><span style="display:flex;"><span>    sched.maxmcount = 10000
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    mcommoninit(_g_.m) //初始化m0，因为从前面的代码我们知道g0-&gt;m = &amp;m0
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    sched.lastpoll = uint64(nanotime())
+</span></span><span style="display:flex;"><span>    procs := ncpu  //系统中有多少核，就创建和初始化多少个p结构体对象
+</span></span><span style="display:flex;"><span>    if n, ok := atoi32(gogetenv(&#34;GOMAXPROCS&#34;)); ok &amp;&amp; n &gt; 0 {
+</span></span><span style="display:flex;"><span>        procs = n //如果环境变量指定了GOMAXPROCS，则创建指定数量的p
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    if procresize(procs) != nil {//创建和初始化全局变量allp
+</span></span><span style="display:flex;"><span>        throw(&#34;unknown runnable goroutine during bootstrap&#34;)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>前面我们已经看到，g0的地址已经被设置到了线程本地存储之中，schedinit通过getg函数（getg函数是编译器实现的，我们在源代码中是找不到其定义的）从线程本地存储中获取当前正在运行的g，这里获取出来的是g0，然后调用mcommoninit函数对m0(g0.m)进行必要的初始化，对m0初始化完成之后调用procresize初始化系统需要用到的p结构体对象，按照go语言官方的说法，p就是processor的意思，它的数量决定了最多可以有都少个goroutine同时并行运行。schedinit函数除了初始化m0和p，还设置了全局变量sched的maxmcount成员为10000，限制最多可以创建10000个操作系统线程出来工作。</p>
 <p>这里我们需要重点关注一下mcommoninit如何初始化m0以及procresize函数如何创建和初始化p结构体对象。首先我们深入到mcommoninit函数中一探究竟。这里需要注意的是不只是初始化的时候会执行该函数，在程序运行过程中如果创建了工作线程，也会执行它，所以我们会在函数中看到加锁和检查线程数量是否已经超过最大值等相关的代码。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-fallback" data-lang="fallback">runtime/proc.go : 596
-
-func mcommoninit(mp *m) {
-    _g_ := getg() //初始化过程中_g_ = g0
- 
-    // g0 stack won&#39;t make sense for user (and is not necessary unwindable).
-    if _g_ != _g_.m.g0 {  //函数调用栈traceback，不需要关心
-        callers(1, mp.createstack[:])
-    }
- 
-    lock(&amp;sched.lock)
-    if sched.mnext+1 &lt; sched.mnext {
-        throw(&#34;runtime: thread ID overflow&#34;)
-    }
-    mp.id = sched.mnext
-    sched.mnext++
-    checkmcount() //检查已创建系统线程是否超过了数量限制（10000）
-    //random初始化
-    mp.fastrand[0] = 1597334677 * uint32(mp.id)
-    mp.fastrand[1] = uint32(cputicks())
-    if mp.fastrand[0]|mp.fastrand[1] == 0 {
-        mp.fastrand[1] = 1
-    }
-    //创建用于信号处理的gsignal，只是简单的从堆上分配一个g结构体对象,然后把栈设置好就返回了
-    mpreinit(mp)
-    if mp.gsignal != nil {
-        mp.gsignal.stackguard1 = mp.gsignal.stack.lo + _StackGuard
-    }
-    //把m挂入全局链表allm之中
-    // Add to allm so garbage collector doesn&#39;t free g-&gt;m
-    // when it is just in a register or thread-local storage.
-    mp.alllink = allm 
- 
-    // NumCgoCall() iterates over allm w/o schedlock,
-    // so we need to publish it safely.
-    atomicstorep(unsafe.Pointer(&amp;allm), unsafe.Pointer(mp))
-    unlock(&amp;sched.lock)
- 
-    // Allocate memory to hold a cgo traceback if the cgo call crashes.
-    if iscgo || GOOS == &#34;solaris&#34; || GOOS == &#34;windows&#34; {
-        mp.cgoCallers = new(cgoCallers)
-    }
-}
-</code></pre></div><p>从这个函数的源代码可以看出，这里并未对m0做什么关于调度相关的初始化，所以可以简单的认为这个函数只是把m0放入全局链表allm之中就返回了。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>runtime/proc.go : 596
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>func mcommoninit(mp *m) {
+</span></span><span style="display:flex;"><span>    _g_ := getg() //初始化过程中_g_ = g0
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    // g0 stack won&#39;t make sense for user (and is not necessary unwindable).
+</span></span><span style="display:flex;"><span>    if _g_ != _g_.m.g0 {  //函数调用栈traceback，不需要关心
+</span></span><span style="display:flex;"><span>        callers(1, mp.createstack[:])
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    lock(&amp;sched.lock)
+</span></span><span style="display:flex;"><span>    if sched.mnext+1 &lt; sched.mnext {
+</span></span><span style="display:flex;"><span>        throw(&#34;runtime: thread ID overflow&#34;)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    mp.id = sched.mnext
+</span></span><span style="display:flex;"><span>    sched.mnext++
+</span></span><span style="display:flex;"><span>    checkmcount() //检查已创建系统线程是否超过了数量限制（10000）
+</span></span><span style="display:flex;"><span>    //random初始化
+</span></span><span style="display:flex;"><span>    mp.fastrand[0] = 1597334677 * uint32(mp.id)
+</span></span><span style="display:flex;"><span>    mp.fastrand[1] = uint32(cputicks())
+</span></span><span style="display:flex;"><span>    if mp.fastrand[0]|mp.fastrand[1] == 0 {
+</span></span><span style="display:flex;"><span>        mp.fastrand[1] = 1
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    //创建用于信号处理的gsignal，只是简单的从堆上分配一个g结构体对象,然后把栈设置好就返回了
+</span></span><span style="display:flex;"><span>    mpreinit(mp)
+</span></span><span style="display:flex;"><span>    if mp.gsignal != nil {
+</span></span><span style="display:flex;"><span>        mp.gsignal.stackguard1 = mp.gsignal.stack.lo + _StackGuard
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    //把m挂入全局链表allm之中
+</span></span><span style="display:flex;"><span>    // Add to allm so garbage collector doesn&#39;t free g-&gt;m
+</span></span><span style="display:flex;"><span>    // when it is just in a register or thread-local storage.
+</span></span><span style="display:flex;"><span>    mp.alllink = allm 
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    // NumCgoCall() iterates over allm w/o schedlock,
+</span></span><span style="display:flex;"><span>    // so we need to publish it safely.
+</span></span><span style="display:flex;"><span>    atomicstorep(unsafe.Pointer(&amp;allm), unsafe.Pointer(mp))
+</span></span><span style="display:flex;"><span>    unlock(&amp;sched.lock)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    // Allocate memory to hold a cgo traceback if the cgo call crashes.
+</span></span><span style="display:flex;"><span>    if iscgo || GOOS == &#34;solaris&#34; || GOOS == &#34;windows&#34; {
+</span></span><span style="display:flex;"><span>        mp.cgoCallers = new(cgoCallers)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>从这个函数的源代码可以看出，这里并未对m0做什么关于调度相关的初始化，所以可以简单的认为这个函数只是把m0放入全局链表allm之中就返回了。</p>
 <p>m0完成基本的初始化后，继续调用procresize创建和初始化p结构体对象，在这个函数里面会创建指定个数（根据cpu核数或环境变量确定）的p结构体对象放在全变量allp里, 并把m0和allp[0]绑定在一起，因此当这个函数执行完成之后就有</p>
 <p>m0.p = allp[0]
 allp[0].m = &amp;m0
 到此m0, g0, 和m需要的p完全关联在一起了。</p>
 <p>初始化allp</p>
 <p>下面我们来看procresize函数，考虑到初始化完成之后用户代码还可以通过 GOMAXPROCS()函数调用它重新创建和初始化p结构体对象，而在运行过程中再动态的调整p牵涉到的问题比较多，所以这个函数的处理比较复杂，但如果只考虑初始化，相对来说要简单很多，所以这里只保留了初始化时会执行的代码：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go">runtime/proc.<span style="color:#00f">go</span> : 3902
-
-<span style="color:#00f">func</span> <span style="color:#c34e00">procresize</span>(nprocs <span style="color:#00f">int32</span>) *p {
-    old := gomaxprocs <span style="color:#f00;font-style:italic">//系统初始化时 gomaxprocs = 0
-</span><span style="color:#f00;font-style:italic"></span> 
-    ......
- 
-    <span style="color:#f00;font-style:italic">// Grow allp if necessary.
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> nprocs &gt; int32(len(allp)) { <span style="color:#f00;font-style:italic">//初始化时 len(allp) == 0
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// Synchronize with retake, which could be running
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// concurrently since it doesn&#39;t run on a P.
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">lock</span>(&amp;allpLock)
-        <span style="color:#00f">if</span> nprocs &lt;= int32(cap(allp)) {
-            allp = allp[:nprocs]
-        } <span style="color:#00f">else</span> { <span style="color:#f00;font-style:italic">//初始化时进入此分支，创建allp 切片
-</span><span style="color:#f00;font-style:italic"></span>            nallp := make([]*p, nprocs)
-            <span style="color:#f00;font-style:italic">// Copy everything up to allp&#39;s cap so we
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// never lose old allocated Ps.
-</span><span style="color:#f00;font-style:italic"></span>            copy(nallp, allp[:cap(allp)])
-            allp = nallp
-        }
-        <span style="color:#c34e00">unlock</span>(&amp;allpLock)
-    }
-    <span style="color:#f00;font-style:italic">// initialize new P&#39;s
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//循环创建nprocs个p并完成基本初始化
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> i := int32(0); i &lt; nprocs; i++ {
-        pp := allp[i]
-        <span style="color:#00f">if</span> pp == <span style="color:#00f">nil</span> {
-            pp = new(p)<span style="color:#f00;font-style:italic">//调用内存分配器从堆上分配一个struct p
-</span><span style="color:#f00;font-style:italic"></span>            pp.id = i
-            pp.status = _Pgcstop
-            ......
-            <span style="color:#c34e00">atomicstorep</span>(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;allp[i]), unsafe.<span style="color:#c34e00">Pointer</span>(pp))
-        }
-        ......
-    }
-    ......
-    _g_ := <span style="color:#c34e00">getg</span>()  <span style="color:#f00;font-style:italic">// _g_ = g0
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> _g_.m.p != 0 &amp;&amp; _g_.m.p.<span style="color:#c34e00">ptr</span>().id &lt; nprocs {<span style="color:#f00;font-style:italic">//初始化时m0-&gt;p还未初始化，所以不会执行这个分支
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// continue to use the current P
-</span><span style="color:#f00;font-style:italic"></span>        _g_.m.p.<span style="color:#c34e00">ptr</span>().status = _Prunning
-        _g_.m.p.<span style="color:#c34e00">ptr</span>().mcache.<span style="color:#c34e00">prepareForSweep</span>()
-    } <span style="color:#00f">else</span> {<span style="color:#f00;font-style:italic">//初始化时执行这个分支
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// release the current P and acquire allp[0]
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> _g_.m.p != 0 {<span style="color:#f00;font-style:italic">//初始化时这里不执行
-</span><span style="color:#f00;font-style:italic"></span>            _g_.m.p.<span style="color:#c34e00">ptr</span>().m = 0
-        }
-        _g_.m.p = 0
-        _g_.m.mcache = <span style="color:#00f">nil</span>
-        p := allp[0]
-        p.m = 0
-        p.status = _Pidle
-        <span style="color:#c34e00">acquirep</span>(p) <span style="color:#f00;font-style:italic">//把p和m0关联起来，其实是这两个strct的成员相互赋值
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> trace.enabled {
-            <span style="color:#c34e00">traceGoStart</span>()
-        }
-    }
-   
-    <span style="color:#f00;font-style:italic">//下面这个for 循环把所有空闲的p放入空闲链表
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">var</span> runnablePs *p
-    <span style="color:#00f">for</span> i := nprocs - 1; i &gt;= 0; i-- {
-        p := allp[i]
-        <span style="color:#00f">if</span> _g_.m.p.<span style="color:#c34e00">ptr</span>() == p {<span style="color:#f00;font-style:italic">//allp[0]跟m0关联了，所以是不能放任
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">continue</span>
-        }
-        p.status = _Pidle
-        <span style="color:#00f">if</span> <span style="color:#c34e00">runqempty</span>(p) {<span style="color:#f00;font-style:italic">//初始化时除了allp[0]其它p全部执行这个分支，放入空闲链表
-</span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">pidleput</span>(p)
-        } <span style="color:#00f">else</span> {
-            ......
-        }
-    }
- 
-    ......
-   
-    <span style="color:#00f">return</span> runnablePs
-}
-</code></pre></div><p>这个函数代码比较长，但并不复杂，这里总结一下这个函数的主要流程：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>runtime/proc.<span style="color:#00f">go</span> : 3902
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">procresize</span>(nprocs <span style="color:#00f">int32</span>) *p {
+</span></span><span style="display:flex;"><span>    old := gomaxprocs <span style="color:#f00;font-style:italic">//系统初始化时 gomaxprocs = 0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// Grow allp if necessary.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> nprocs &gt; int32(len(allp)) { <span style="color:#f00;font-style:italic">//初始化时 len(allp) == 0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// Synchronize with retake, which could be running
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// concurrently since it doesn&#39;t run on a P.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#c34e00">lock</span>(&amp;allpLock)
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> nprocs &lt;= int32(cap(allp)) {
+</span></span><span style="display:flex;"><span>            allp = allp[:nprocs]
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">else</span> { <span style="color:#f00;font-style:italic">//初始化时进入此分支，创建allp 切片
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            nallp := make([]*p, nprocs)
+</span></span><span style="display:flex;"><span>            <span style="color:#f00;font-style:italic">// Copy everything up to allp&#39;s cap so we
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#f00;font-style:italic">// never lose old allocated Ps.
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            copy(nallp, allp[:cap(allp)])
+</span></span><span style="display:flex;"><span>            allp = nallp
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">unlock</span>(&amp;allpLock)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// initialize new P&#39;s
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#f00;font-style:italic">//循环创建nprocs个p并完成基本初始化
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">for</span> i := int32(0); i &lt; nprocs; i++ {
+</span></span><span style="display:flex;"><span>        pp := allp[i]
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> pp == <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>            pp = new(p)<span style="color:#f00;font-style:italic">//调用内存分配器从堆上分配一个struct p
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            pp.id = i
+</span></span><span style="display:flex;"><span>            pp.status = _Pgcstop
+</span></span><span style="display:flex;"><span>            ......
+</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">atomicstorep</span>(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;allp[i]), unsafe.<span style="color:#c34e00">Pointer</span>(pp))
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        ......
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span>    _g_ := <span style="color:#c34e00">getg</span>()  <span style="color:#f00;font-style:italic">// _g_ = g0
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> _g_.m.p != 0 &amp;&amp; _g_.m.p.<span style="color:#c34e00">ptr</span>().id &lt; nprocs {<span style="color:#f00;font-style:italic">//初始化时m0-&gt;p还未初始化，所以不会执行这个分支
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// continue to use the current P
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        _g_.m.p.<span style="color:#c34e00">ptr</span>().status = _Prunning
+</span></span><span style="display:flex;"><span>        _g_.m.p.<span style="color:#c34e00">ptr</span>().mcache.<span style="color:#c34e00">prepareForSweep</span>()
+</span></span><span style="display:flex;"><span>    } <span style="color:#00f">else</span> {<span style="color:#f00;font-style:italic">//初始化时执行这个分支
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#f00;font-style:italic">// release the current P and acquire allp[0]
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> _g_.m.p != 0 {<span style="color:#f00;font-style:italic">//初始化时这里不执行
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            _g_.m.p.<span style="color:#c34e00">ptr</span>().m = 0
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        _g_.m.p = 0
+</span></span><span style="display:flex;"><span>        _g_.m.mcache = <span style="color:#00f">nil</span>
+</span></span><span style="display:flex;"><span>        p := allp[0]
+</span></span><span style="display:flex;"><span>        p.m = 0
+</span></span><span style="display:flex;"><span>        p.status = _Pidle
+</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">acquirep</span>(p) <span style="color:#f00;font-style:italic">//把p和m0关联起来，其实是这两个strct的成员相互赋值
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> trace.enabled {
+</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">traceGoStart</span>()
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">//下面这个for 循环把所有空闲的p放入空闲链表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">var</span> runnablePs *p
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> i := nprocs - 1; i &gt;= 0; i-- {
+</span></span><span style="display:flex;"><span>        p := allp[i]
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> _g_.m.p.<span style="color:#c34e00">ptr</span>() == p {<span style="color:#f00;font-style:italic">//allp[0]跟m0关联了，所以是不能放任
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#00f">continue</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        p.status = _Pidle
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> <span style="color:#c34e00">runqempty</span>(p) {<span style="color:#f00;font-style:italic">//初始化时除了allp[0]其它p全部执行这个分支，放入空闲链表
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>            <span style="color:#c34e00">pidleput</span>(p)
+</span></span><span style="display:flex;"><span>        } <span style="color:#00f">else</span> {
+</span></span><span style="display:flex;"><span>            ......
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    ......
+</span></span><span style="display:flex;"><span>   
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> runnablePs
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这个函数代码比较长，但并不复杂，这里总结一下这个函数的主要流程：</p>
 <p>使用make([]*p, nprocs)初始化全局变量allp，即allp = make([]*p, nprocs)</p>
 <p>循环创建并初始化nprocs个p结构体对象并依次保存在allp切片之中</p>
 <p>把m0和allp[0]绑定在一起，即m0.p = allp[0], allp[0].m = m0</p>

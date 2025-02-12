@@ -331,11 +331,11 @@
 </blockquote>
 <p>msgid是由msgget函数返回的消息队列标识符。</p>
 <p>msg_ptr是一个指向准备发送消息的指针，但是消息的数据结构却有一定的要求，指针msg_ptr所指向的消息结构一定要是以一个长整型成员变量开始的结构体，接收函数将用这个成员来确定消息的类型。所以消息结构要定义成这样：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#00f">struct</span> my_message {
-    <span style="color:#00f">long</span> <span style="color:#00f">int</span> message_type;
-    <span style="color:#f00;font-style:italic">/* The data you wish to transfer */</span>
-};
-</code></pre></div><p>msg_sz 是msg_ptr指向的消息的长度，注意是消息的长度，而不是整个结构体的长度，也就是说msg_sz是不包括长整型消息类型成员变量的长度。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#00f">struct</span> my_message {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">long</span> <span style="color:#00f">int</span> message_type;
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">/* The data you wish to transfer */</span>
+</span></span><span style="display:flex;"><span>};
+</span></span></code></pre></div><p>msg_sz 是msg_ptr指向的消息的长度，注意是消息的长度，而不是整个结构体的长度，也就是说msg_sz是不包括长整型消息类型成员变量的长度。</p>
 <p>msgflg 用于控制当前消息队列满或队列消息到达系统范围的限制时将要发生的事情。</p>
 <p>如果调用成功，消息数据的一分副本将被放到消息队列中，并返回0，失败时返回-1.</p>
 <p><strong>3、msgrcv()函数</strong></p>
@@ -359,119 +359,119 @@
 <li>IPC_RMID：删除消息队列</li>
 </ul>
 <p>buf是指向msgid_ds结构的指针，它指向消息队列模式和访问权限的结构。msgid_ds结构至少包括以下成员：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-mysql" data-lang="mysql">struct` `msgid_ds``{``  ``uid_t shm_perm.uid;``  ``uid_t shm_perm.gid;``  ``mode_t shm_perm.mode;``};
-</code></pre></div><p>成功时返回0，失败时返回-1.</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-mysql" data-lang="mysql"><span style="display:flex;"><span>struct` `msgid_ds``{``  ``uid_t shm_perm.uid;``  ``uid_t shm_perm.gid;``  ``mode_t shm_perm.mode;``};
+</span></span></code></pre></div><p>成功时返回0，失败时返回-1.</p>
 <h3 id="三使用消息队列进行进程间通信">三、使用消息队列进行进程间通信</h3>
 <p>马不停蹄，介绍完消息队列的定义和可使用的接口之后，我们来看看它是怎么让进程进行通信的。由于可以让不相关的进程进行行通信，所以我们在这里将会编写两个程序，msgreceive()和msgsned()来表示接收和发送信息。根据正常的情况，我们允许两个程序都可以创建消息，但只有接收者在接收完最后一个消息之后，它才把它删除。</p>
 <p>接收信息的程序源文件为msgreceive.c的源代码为：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;string.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/msg.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;errno.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span> 
-<span style="color:#00f">struct</span> msg_st
-{
-    <span style="color:#00f">long</span> <span style="color:#00f">int</span> msg_type;
-    <span style="color:#00f">char</span> text[BUFSIZ];
-};
- 
-<span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> **argv)
-{
-    <span style="color:#00f">int</span> msgid = -1;
-    <span style="color:#00f">struct</span> msg_st data;
-    <span style="color:#00f">long</span> <span style="color:#00f">int</span> msgtype = 0;   <span style="color:#f00;font-style:italic">// 注意1
-</span><span style="color:#f00;font-style:italic"></span> 
-    <span style="color:#f00;font-style:italic">// 建立消息队列
-</span><span style="color:#f00;font-style:italic"></span>    msgid = msgget((key_t)1234, 0666 | IPC_CREAT);
-    <span style="color:#00f">if</span> (msgid == -1)
-    {
-        fprintf(stderr, <span style="color:#009c00">&#34;msgget failed width error: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, errno);
-        exit(EXIT_FAILURE);
-    }
- 
-    <span style="color:#f00;font-style:italic">// 从队列中获取消息，直到遇到end消息为止
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">while</span> (1)
-    {
-        <span style="color:#00f">if</span> (msgrcv(msgid, (<span style="color:#00f">void</span> *)&amp;data, BUFSIZ, msgtype, 0) == -1)
-        {
-            fprintf(stderr, <span style="color:#009c00">&#34;msgrcv failed width erro: %d&#34;</span>, errno);
-        }
- 
-        printf(<span style="color:#009c00">&#34;You wrote: %s</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, data.text);
- 
-        <span style="color:#f00;font-style:italic">// 遇到end结束
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (strncmp(data.text, <span style="color:#009c00">&#34;end&#34;</span>, 3) == 0)
-        {
-            <span style="color:#00f">break</span>;
-        }
-    }
- 
-    <span style="color:#f00;font-style:italic">// 删除消息队列
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> (msgctl(msgid, IPC_RMID, 0) == -1)
-    {
-        fprintf(stderr, <span style="color:#009c00">&#34;msgctl(IPC_RMID) failed</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
-    }
- 
-    exit(EXIT_SUCCESS);
-}
-</code></pre></div><p>发送信息的程序的源文件msgsend.c的源代码为：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;string.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;unistd.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/msg.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;errno.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span> 
-<span style="color:#f00;font-style:italic">#define MAX_TEXT 512
-</span><span style="color:#f00;font-style:italic"></span> 
-<span style="color:#00f">struct</span> msg_st
-{
-    <span style="color:#00f">long</span> <span style="color:#00f">int</span> msg_type;
-    <span style="color:#00f">char</span> text[MAX_TEXT];
-};
- 
-<span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> **argv)
-{
-    <span style="color:#00f">struct</span> msg_st data;
-    <span style="color:#00f">char</span> buffer[BUFSIZ];
-    <span style="color:#00f">int</span> msgid = -1;
- 
-    <span style="color:#f00;font-style:italic">// 建立消息队列
-</span><span style="color:#f00;font-style:italic"></span>    msgid = msgget((key_t)1234, 0666 | IPC_CREAT);
-    <span style="color:#00f">if</span> (msgid == -1)
-    {
-        fprintf(stderr, <span style="color:#009c00">&#34;msgget failed error: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, errno);
-        exit(EXIT_FAILURE);
-    }
- 
-    <span style="color:#f00;font-style:italic">// 向消息队里中写消息，直到写入end
-</span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">while</span> (1)
-    {
-        printf(<span style="color:#009c00">&#34;Enter some text: </span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
-        fgets(buffer, BUFSIZ, stdin);
-        data.msg_type = 1; <span style="color:#f00;font-style:italic">// 注意2
-</span><span style="color:#f00;font-style:italic"></span>        strcpy(data.text, buffer);
- 
-        <span style="color:#f00;font-style:italic">// 向队列里发送数据
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (msgsnd(msgid, (<span style="color:#00f">void</span> *)&amp;data, MAX_TEXT, 0) == -1)
-        {
-            fprintf(stderr, <span style="color:#009c00">&#34;msgsnd failed</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
-            exit(EXIT_FAILURE);
-        }
- 
-        <span style="color:#f00;font-style:italic">// 输入end结束输入
-</span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (strncmp(buffer, <span style="color:#009c00">&#34;end&#34;</span>, 3) == 0)
-        {
-            <span style="color:#00f">break</span>;
-        }
- 
-        sleep(1);
-    }
- 
-    exit(EXIT_SUCCESS);
-}
-</code></pre></div><p>运行结果如下：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;string.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/msg.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;errno.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> msg_st
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">long</span> <span style="color:#00f">int</span> msg_type;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> text[BUFSIZ];
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> **argv)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> msgid = -1;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> msg_st data;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">long</span> <span style="color:#00f">int</span> msgtype = 0;   <span style="color:#f00;font-style:italic">// 注意1
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 建立消息队列
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    msgid = msgget((key_t)1234, 0666 | IPC_CREAT);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (msgid == -1)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        fprintf(stderr, <span style="color:#009c00">&#34;msgget failed width error: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, errno);
+</span></span><span style="display:flex;"><span>        exit(EXIT_FAILURE);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 从队列中获取消息，直到遇到end消息为止
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">while</span> (1)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (msgrcv(msgid, (<span style="color:#00f">void</span> *)&amp;data, BUFSIZ, msgtype, 0) == -1)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            fprintf(stderr, <span style="color:#009c00">&#34;msgrcv failed width erro: %d&#34;</span>, errno);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>        printf(<span style="color:#009c00">&#34;You wrote: %s</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, data.text);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 遇到end结束
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (strncmp(data.text, <span style="color:#009c00">&#34;end&#34;</span>, 3) == 0)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 删除消息队列
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">if</span> (msgctl(msgid, IPC_RMID, 0) == -1)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        fprintf(stderr, <span style="color:#009c00">&#34;msgctl(IPC_RMID) failed</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    exit(EXIT_SUCCESS);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>发送信息的程序的源文件msgsend.c的源代码为：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;string.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;unistd.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;sys/msg.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;errno.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define MAX_TEXT 512
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> msg_st
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">long</span> <span style="color:#00f">int</span> msg_type;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> text[MAX_TEXT];
+</span></span><span style="display:flex;"><span>};
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> **argv)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">struct</span> msg_st data;
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">char</span> buffer[BUFSIZ];
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> msgid = -1;
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 建立消息队列
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    msgid = msgget((key_t)1234, 0666 | IPC_CREAT);
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (msgid == -1)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        fprintf(stderr, <span style="color:#009c00">&#34;msgget failed error: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, errno);
+</span></span><span style="display:flex;"><span>        exit(EXIT_FAILURE);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">// 向消息队里中写消息，直到写入end
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    <span style="color:#00f">while</span> (1)
+</span></span><span style="display:flex;"><span>    {
+</span></span><span style="display:flex;"><span>        printf(<span style="color:#009c00">&#34;Enter some text: </span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
+</span></span><span style="display:flex;"><span>        fgets(buffer, BUFSIZ, stdin);
+</span></span><span style="display:flex;"><span>        data.msg_type = 1; <span style="color:#f00;font-style:italic">// 注意2
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        strcpy(data.text, buffer);
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 向队列里发送数据
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (msgsnd(msgid, (<span style="color:#00f">void</span> *)&amp;data, MAX_TEXT, 0) == -1)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            fprintf(stderr, <span style="color:#009c00">&#34;msgsnd failed</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>);
+</span></span><span style="display:flex;"><span>            exit(EXIT_FAILURE);
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">// 输入end结束输入
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        <span style="color:#00f">if</span> (strncmp(buffer, <span style="color:#009c00">&#34;end&#34;</span>, 3) == 0)
+</span></span><span style="display:flex;"><span>        {
+</span></span><span style="display:flex;"><span>            <span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>        sleep(1);
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    exit(EXIT_SUCCESS);
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>运行结果如下：</p>
 <p><img src="http://shanks.link/img/it/381128-20160912002132918-678377876.jpg" alt="img"></p>
 <h3 id="四例子分析消息类型">四、例子分析——消息类型</h3>
 <p>这里主要说明一下消息类型是怎么一回事，注意msgreceive.c文件main()函数中定义的变量msgtype（注释为注意1），它作为msgrcv()函数的接收信息类型参数的值，其值为0，表示获取队列中第一个可用的消息。再来看看msgsend.c文件中while循环中的语句data.msg_type = 1（注释为注意2），它用来设置发送的信息的信息类型，即其发送的信息的类型为1。所以程序msgreceive()能够接收到程序msgsend()发送的信息。</p>

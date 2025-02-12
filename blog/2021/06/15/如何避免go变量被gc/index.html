@@ -303,63 +303,63 @@
 <p>在 Go 中，我们不需要自己管理内存分配和释放。然而，有些时候我们需要对程序进行更细粒度的控制。Go 运行时提供了很多种控制运行时状态及其与内存管理器之间相互影响的方式。本文中，我们来审查让变量不被 GC 回收的能力。</p>
 <h2 id="场景">场景</h2>
 <p>我们来看一个基于 <strong>Go 官方文档</strong>[1] 的例子：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">type</span> File <span style="color:#00f">struct</span> { d <span style="color:#00f">int</span> }
-
-<span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
- p := <span style="color:#c34e00">openFile</span>(<span style="color:#009c00">&#34;t.txt&#34;</span>)
- content := <span style="color:#c34e00">readFile</span>(p.d)
-
- println(<span style="color:#009c00">&#34;Here is the content: &#34;</span>+content)
-}
-
-<span style="color:#00f">func</span> <span style="color:#c34e00">openFile</span>(path <span style="color:#00f">string</span>) *File {
- d, err := syscall.<span style="color:#c34e00">Open</span>(path, syscall.O_RDONLY, 0)
- <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
-  panic(err)
- }
-
- p := &amp;File{d}
- runtime.<span style="color:#c34e00">SetFinalizer</span>(p, <span style="color:#00f">func</span>(p *File) {
-  syscall.<span style="color:#c34e00">Close</span>(p.d)
- })
-
- <span style="color:#00f">return</span> p
-}
-
-<span style="color:#00f">func</span> <span style="color:#c34e00">readFile</span>(descriptor <span style="color:#00f">int</span>) <span style="color:#00f">string</span> {
- <span style="color:#c34e00">doSomeAllocation</span>()
-
- <span style="color:#00f">var</span> buf [1000]<span style="color:#00f">byte</span>
- _, err := syscall.<span style="color:#c34e00">Read</span>(descriptor, buf[:])
- <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
-  panic(err)
- }
-
- <span style="color:#00f">return</span> string(buf[:])
-}
-
-<span style="color:#00f">func</span> <span style="color:#c34e00">doSomeAllocation</span>() {
- <span style="color:#00f">var</span> a *<span style="color:#00f">int</span>
-
- <span style="color:#f00;font-style:italic">// memory increase to force the GC
-</span><span style="color:#f00;font-style:italic"></span> <span style="color:#00f">for</span> i:= 0; i &lt; 10000000; i++ {
-  i := 1
-  a = &amp;i
- }
-
- _ = a
-}
-</code></pre></div><p><strong>源码地址</strong>[2]</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> File <span style="color:#00f">struct</span> { d <span style="color:#00f">int</span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span> p := <span style="color:#c34e00">openFile</span>(<span style="color:#009c00">&#34;t.txt&#34;</span>)
+</span></span><span style="display:flex;"><span> content := <span style="color:#c34e00">readFile</span>(p.d)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> println(<span style="color:#009c00">&#34;Here is the content: &#34;</span>+content)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">openFile</span>(path <span style="color:#00f">string</span>) *File {
+</span></span><span style="display:flex;"><span> d, err := syscall.<span style="color:#c34e00">Open</span>(path, syscall.O_RDONLY, 0)
+</span></span><span style="display:flex;"><span> <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>  panic(err)
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> p := &amp;File{d}
+</span></span><span style="display:flex;"><span> runtime.<span style="color:#c34e00">SetFinalizer</span>(p, <span style="color:#00f">func</span>(p *File) {
+</span></span><span style="display:flex;"><span>  syscall.<span style="color:#c34e00">Close</span>(p.d)
+</span></span><span style="display:flex;"><span> })
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#00f">return</span> p
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">readFile</span>(descriptor <span style="color:#00f">int</span>) <span style="color:#00f">string</span> {
+</span></span><span style="display:flex;"><span> <span style="color:#c34e00">doSomeAllocation</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#00f">var</span> buf [1000]<span style="color:#00f">byte</span>
+</span></span><span style="display:flex;"><span> _, err := syscall.<span style="color:#c34e00">Read</span>(descriptor, buf[:])
+</span></span><span style="display:flex;"><span> <span style="color:#00f">if</span> err != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>  panic(err)
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#00f">return</span> string(buf[:])
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">doSomeAllocation</span>() {
+</span></span><span style="display:flex;"><span> <span style="color:#00f">var</span> a *<span style="color:#00f">int</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> <span style="color:#f00;font-style:italic">// memory increase to force the GC
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span> <span style="color:#00f">for</span> i:= 0; i &lt; 10000000; i++ {
+</span></span><span style="display:flex;"><span>  i := 1
+</span></span><span style="display:flex;"><span>  a = &amp;i
+</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span> _ = a
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><strong>源码地址</strong>[2]</p>
 <p>这个程序中一个函数打开文件，另一个函数读取文件。代表文件的结构体注册了一个 finalizer，在 gc 释放结构体时自动关闭文件。运行这个程序，会出现 panic：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">panic: bad file descriptor
-
-goroutine 1 [running]:
-main.readFile(0x3, 0x5, 0xc000078008)
-main.go:42 +0x103
-main.main()
-main.go:14 +0x4b
-exit status 2
-</code></pre></div><p>下面是流程图：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>panic: bad file descriptor
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>goroutine 1 [running]:
+</span></span><span style="display:flex;"><span>main.readFile(0x3, 0x5, 0xc000078008)
+</span></span><span style="display:flex;"><span>main.go:42 +0x103
+</span></span><span style="display:flex;"><span>main.main()
+</span></span><span style="display:flex;"><span>main.go:14 +0x4b
+</span></span><span style="display:flex;"><span>exit status 2
+</span></span></code></pre></div><p>下面是流程图：</p>
 <ul>
 <li>打开文件，返回一个文件描述符</li>
 <li>这个文件描述符被传递给读取文件的函数</li>
