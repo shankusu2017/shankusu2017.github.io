@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
-    <title>云风的Blog-Lua GC的源码解剖5 - Golang编程语言知识介绍</title>
-    <meta name="keywords" content="git,Git,Lua,lua,Golang,go">
+    <title>云风的Blog-Lua GC的源码解剖5 - Golang入门指南</title>
+    <meta name="keywords" content="Golang,golang,go,git,Git,Lua,lua">
     
     <meta property="og:title" content="云风的Blog-Lua GC的源码解剖5">
-    <meta property="og:site_name" content="Golang编程语言知识介绍">
+    <meta property="og:site_name" content="Golang入门指南">
     <meta property="og:image" content="/img/author.jpg"> 
-    <meta name="title" content="云风的Blog-Lua GC的源码解剖5 - Golang编程语言知识介绍" />
+    <meta name="title" content="云风的Blog-Lua GC的源码解剖5 - Golang入门指南" />
     <meta name="description" content="愿星光伴你左右"> 
     <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
     <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
@@ -39,7 +39,7 @@
   <div class="custom-logo-site-title">
     <a href="http://shanks.link/"  class="brand" rel="start">
       <span class="logo-line-before"><i></i></span>
-      <span class="site-title">Golang编程语言知识介绍</span>
+      <span class="site-title">Golang入门指南</span>
       <span class="logo-line-after"><i></i></span>
     </a>
   </div>
@@ -319,15 +319,15 @@
 <p>为何 table 要被特殊对待？</p>
 <p>因为 table 的引用关系是 1 对 N ，往往修改同一个 table 是很频繁的。而其它对象之间则是有限的联系。分开处理可以减少 barrier 本身的开销。</p>
 <p><code>luaC_barrierf</code> 用于把新建立联系的对象立刻标记。它的实现在 lgc.c 的 663 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>void luaC_barrierf (lua_State *L, GCObject *o, GCObject *v) {
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-gdscript3" data-lang="gdscript3"><span style="display:flex;"><span>void luaC_barrierf (lua_State *L, GCObject *o, GCObject *v) {
 </span></span><span style="display:flex;"><span>  global_State *g = G(L);
 </span></span><span style="display:flex;"><span>  lua_assert(isblack(o) &amp;&amp; iswhite(v) &amp;&amp; !isdead(g, v) &amp;&amp; !isdead(g, o));
 </span></span><span style="display:flex;"><span>  lua_assert(g-&gt;gcstate != GCSfinalize &amp;&amp; g-&gt;gcstate != GCSpause);
 </span></span><span style="display:flex;"><span>  lua_assert(ttype(&amp;o-&gt;gch) != LUA_TTABLE);
 </span></span><span style="display:flex;"><span>  /* must keep invariant? */
-</span></span><span style="display:flex;"><span>  if (g-&gt;gcstate == GCSpropagate)
+</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (g-&gt;gcstate == GCSpropagate)
 </span></span><span style="display:flex;"><span>    reallymarkobject(g, v);  /* restore invariant */
-</span></span><span style="display:flex;"><span>  else  /* don&#39;t mind */
+</span></span><span style="display:flex;"><span>  <span style="color:#00f">else</span>  /* don<span style="color:#009c00">&#39;t mind */</span>
 </span></span><span style="display:flex;"><span>    makewhite(g, o);  /* mark as white just to avoid other barriers */
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>简而言之，当 GC 处于 GCSpropagate 状态（mark 流程中），就标记 v 。否则，把与之联系的节点 o 从黑色置为白色。前面我们已经说过，lua 的 GC 采用了两种白色标记，乒乓切换。在 mark 流程结束后，白色状态被切换。这个时候调用 makewhite 并不会导致 sweep 过程清除这个节点。同时，由于 o 变为白色，就可以减少 barrier 的开销。即，再有对 o 的修改，不会产生 <code>luaC_barrierf</code> 的函数调用了。</p>
@@ -446,25 +446,25 @@
 </span></span></code></pre></div><p>也是这个用意。</p>
 <p>ps. lua 的 GC 在实现时，即使要推迟扫描，也要先做一次。都是为了 atomic 阶段尽量短，把有可能遍历的部分先遍历完。</p>
 <p>TPROTO 对象的遍历函数在 lgc.c 的 199 行：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-fallback" data-lang="fallback"><span style="display:flex;"><span>/*
-</span></span><span style="display:flex;"><span>** All marks are conditional because a GC may happen while the
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-gdscript3" data-lang="gdscript3"><span style="display:flex;"><span>/*
+</span></span><span style="display:flex;"><span>** All marks are conditional because a GC may happen <span style="color:#00f">while</span> the
 </span></span><span style="display:flex;"><span>** prototype is still being created
 </span></span><span style="display:flex;"><span>*/
-</span></span><span style="display:flex;"><span>static void traverseproto (global_State *g, Proto *f) {
+</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> void traverseproto (global_State *g, Proto *f) {
 </span></span><span style="display:flex;"><span>  int i;
-</span></span><span style="display:flex;"><span>  if (f-&gt;source) stringmark(f-&gt;source);
-</span></span><span style="display:flex;"><span>  for (i=0; isizek; i++)  /* mark literals */
+</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (f-&gt;source) stringmark(f-&gt;source);
+</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (i=0; isizek; i++)  /* mark literals */
 </span></span><span style="display:flex;"><span>    markvalue(g, &amp;f-&gt;k[i]);
-</span></span><span style="display:flex;"><span>  for (i=0; isizeupvalues; i++) {  /* mark upvalue names */
-</span></span><span style="display:flex;"><span>    if (f-&gt;upvalues[i])
+</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (i=0; isizeupvalues; i++) {  /* mark upvalue names */
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (f-&gt;upvalues[i])
 </span></span><span style="display:flex;"><span>      stringmark(f-&gt;upvalues[i]);
 </span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  for (i=0; isizep; i++) {  /* mark nested protos */
-</span></span><span style="display:flex;"><span>    if (f-&gt;p[i])
+</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (i=0; isizep; i++) {  /* mark nested protos */
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (f-&gt;p[i])
 </span></span><span style="display:flex;"><span>      markobject(g, f-&gt;p[i]);
 </span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  for (i=0; isizelocvars; i++) {  /* mark local-variable names */
-</span></span><span style="display:flex;"><span>    if (f-&gt;locvars[i].varname)
+</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (i=0; isizelocvars; i++) {  /* mark local-variable names */
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (f-&gt;locvars[i].varname)
 </span></span><span style="display:flex;"><span>      stringmark(f-&gt;locvars[i].varname);
 </span></span><span style="display:flex;"><span>  }
 </span></span><span style="display:flex;"><span>}
@@ -546,8 +546,8 @@
       <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
     <img class="site-author-image" itemprop="image"
         src="http://shanks.link/img/logo.jpg"
-        alt="shankusu2017@gmail.com" />
-    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+        alt="" />
+    <p class="site-author-name" itemprop="name"></p>
     <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">

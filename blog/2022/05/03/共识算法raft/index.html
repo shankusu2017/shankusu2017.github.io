@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
-    <title>共识算法Raft - Golang编程语言知识介绍</title>
-    <meta name="keywords" content="git,Git,Lua,lua,Golang,go">
+    <title>共识算法Raft - Golang入门指南</title>
+    <meta name="keywords" content="Golang,golang,go,git,Git,Lua,lua">
     
     <meta property="og:title" content="共识算法Raft">
-    <meta property="og:site_name" content="Golang编程语言知识介绍">
+    <meta property="og:site_name" content="Golang入门指南">
     <meta property="og:image" content="/img/author.jpg"> 
-    <meta name="title" content="共识算法Raft - Golang编程语言知识介绍" />
+    <meta name="title" content="共识算法Raft - Golang入门指南" />
     <meta name="description" content="愿星光伴你左右"> 
     <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
     <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
@@ -39,7 +39,7 @@
   <div class="custom-logo-site-title">
     <a href="http://shanks.link/"  class="brand" rel="start">
       <span class="logo-line-before"><i></i></span>
-      <span class="site-title">Golang编程语言知识介绍</span>
+      <span class="site-title">Golang入门指南</span>
       <span class="logo-line-after"><i></i></span>
     </a>
   </div>
@@ -313,16 +313,14 @@
     <div class="post-body" itemprop="articleBody">
     <p>上篇讲到了「拜占庭将军问题」：多个拜占庭将军要如何在可能有叛徒、信使可能被策反或者暗杀的情况下达成是否要进攻的一致性决定？还不了解的先看看上一篇<a href="https://link.jianshu.com/?t=%5Bhttps%3A%2F%2Fmp.weixin.qq.com%2Fs%2FPJvCXm9pwU-Wp3LNN7g8pQ%5D(https%3A%2F%2Fmp.weixin.qq.com%2Fs%2FPJvCXm9pwU-Wp3LNN7g8pQ)">《拜占庭将军问题》</a>。这篇主要是介绍简化版拜占庭将军问题的解决方案：Raft 共识算法。</p>
 <blockquote>
-<p>拜占庭将军问题是分布式领域最复杂、最严格的容错模型。但在日常工作中使用的分布式系统面对的问题不会那么复杂，更多的是计算机故障挂掉了，或者网络通信问题而没法传递信息，这种情况不考虑计算机之间互相发送恶意信息，极大简化了系统对容错的要求，最主要的是达到一致性。</p>
-</blockquote>
+<p>拜占庭将军问题是分布式领域最复杂、最严格的容错模型。但在日常工作中使用的分布式系统面对的问题不会那么复杂，更多的是计算机故障挂掉了，或者网络通信问题而没法传递信息，这种情况不考虑计算机之间互相发送恶意信息，极大简化了系统对容错的要求，最主要的是达到一致性。</p></blockquote>
 <p>所以将拜占庭将军问题根据常见的工作上的问题进行简化：<strong>假设将军中没有叛军，信使的信息可靠但有可能被暗杀的情况下，将军们如何达成一致性决定？</strong></p>
 <p>对于这个简化后的问题，有许多解决方案，第一个被证明的共识算法是 Paxos，由拜占庭将军问题的作者 Leslie Lamport 在1990年提出，最初以论文难懂而出名，后来这哥们在2001重新发了一篇简单版的论文 <a href="https://link.jianshu.com/?t=%5Bhttps%3A%2F%2Flamport.azurewebsites.net%2Fpubs%2Fpaxos-simple.pdf%5D(https%3A%2F%2Flamport.azurewebsites.net%2Fpubs%2Fpaxos-simple.pdf)">Paxos Made Simple</a>，然而还是挺难懂的。</p>
 <p>因为 Paxos 难懂，难实现，所以斯坦福大学的教授在2014年发表了新的分布式协议 Raft。与 Paxos 相比，Raft 有着基本相同运行效率，但是更容易理解，也更容易被用在系统开发上。</p>
 <h2 id="针对简化版拜占庭将军问题raft-解决方案类比">针对简化版拜占庭将军问题，Raft 解决方案类比</h2>
 <p>我们还是用拜占庭将军的例子来帮助理解 Raft。</p>
 <blockquote>
-<p>假设将军中没有叛军，信使的信息可靠但有可能被暗杀的情况下，将军们如何达成一致性决定？</p>
-</blockquote>
+<p>假设将军中没有叛军，信使的信息可靠但有可能被暗杀的情况下，将军们如何达成一致性决定？</p></blockquote>
 <p>Raft 的解决方案大概可以理解成 先在所有将军中选出一个大将军，所有的决定由大将军来做。<strong>选举环节</strong>：比如说现在一共有3个将军 A, B, C，每个将军都有一个<strong>随机时间</strong>的倒计时器，倒计时一结束，这个将军就会把自己当成大将军候选人，然后派信使去问其他几个将军，能不能选我为总将军？假设现在将军A倒计时结束了，他派信使传递选举投票的信息给将军B和C，如果将军B和C还没把自己当成候选人（倒计时还没有结束），并且没有把选举票投给其他，他们把票投给将军A，信使在回到将军A时，将军A知道自己收到了足够的票数，成为了大将军。在这之后，是否要进攻就由大将军决定，然后派信使去通知另外两个将军，如果在一段时间后还没有收到回复（可能信使被暗杀），那就再重派一个信使，直到收到回复。</p>
 <p>故事先讲到这里，希望不做技术方面的朋友可以大概能理解 Raft 的原理，下面从比较技术的角度讲讲 Raft 的原理。</p>
 <h2 id="1-raft-节点状态">1. Raft 节点状态</h2>
@@ -495,8 +493,8 @@ Raft 官网：<a href="https://link.jianshu.com/?t=https%3A%2F%2Fraft.github.io%
       <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
     <img class="site-author-image" itemprop="image"
         src="http://shanks.link/img/logo.jpg"
-        alt="shankusu2017@gmail.com" />
-    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+        alt="" />
+    <p class="site-author-name" itemprop="name"></p>
     <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
