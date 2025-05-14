@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
-    <title> - Golang编程语言知识介绍</title>
-    <meta name="keywords" content="git,Git,Lua,lua,Golang,go">
+    <title> - Golang入门指南</title>
+    <meta name="keywords" content="Golang,golang,go,git,Git,Lua,lua">
     
     <meta property="og:title" content="">
-    <meta property="og:site_name" content="Golang编程语言知识介绍">
+    <meta property="og:site_name" content="Golang入门指南">
     <meta property="og:image" content="/img/author.jpg"> 
-    <meta name="title" content=" - Golang编程语言知识介绍" />
+    <meta name="title" content=" - Golang入门指南" />
     <meta name="description" content="愿星光伴你左右"> 
     <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
     <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
@@ -39,7 +39,7 @@
   <div class="custom-logo-site-title">
     <a href="http://shanks.link/"  class="brand" rel="start">
       <span class="logo-line-before"><i></i></span>
-      <span class="site-title">Golang编程语言知识介绍</span>
+      <span class="site-title">Golang入门指南</span>
       <span class="logo-line-after"><i></i></span>
     </a>
   </div>
@@ -279,7 +279,7 @@
       </div>
     </header>
     <div class="post-body" itemprop="articleBody">
-    <h1 id="---">#&mdash;</h1>
+    <h1 id="heading">#&mdash;</h1>
 <h2 id="categories-go">title: Go：defer 语句如何工作
 date: 2021-04-05 11:55:28
 tags: [go]
@@ -289,160 +289,157 @@ categories: [go]</h2>
 <p>ℹ️ 这篇文章基于 Go 1.12。</p>
 <p>defer 语句是在函数返回前执行一段代码的便捷方法，如 Golang 规范所描述：</p>
 <blockquote>
-<p>延迟函数（ deferred functions ）在所在函数返回前，以与声明相反的顺序立即被调用</p>
-</blockquote>
+<p>延迟函数（ deferred functions ）在所在函数返回前，以与声明相反的顺序立即被调用</p></blockquote>
 <p>以下是 LIFO (后进先出)实现的例子：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() {
-      println(<span style="color:#009c00">`defer 1`</span>)
-   }()
-   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() {
-      println(<span style="color:#009c00">`defer 2`</span>)
-   }()
-}
-<span style="color:#00f">defer</span> 2 &lt;- 后进先出
-<span style="color:#00f">defer</span> 1
-</code></pre></div><p>来看一下内部的实现，然后再看一个更复杂的案例。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() {
+</span></span><span style="display:flex;"><span>      println(<span style="color:#009c00">`defer 1`</span>)
+</span></span><span style="display:flex;"><span>   }()
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() {
+</span></span><span style="display:flex;"><span>      println(<span style="color:#009c00">`defer 2`</span>)
+</span></span><span style="display:flex;"><span>   }()
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#00f">defer</span> 2 &lt;- 后进先出
+</span></span><span style="display:flex;"><span><span style="color:#00f">defer</span> 1
+</span></span></code></pre></div><p>来看一下内部的实现，然后再看一个更复杂的案例。</p>
 <p><strong>内部实现</strong>
 Go 运行时（runtime）使用一个链表来实现 LIFO。实际上，一个 defer 结构体持有一个指向下一个要被执行的 defer 结构体的指针：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">type</span> _defer <span style="color:#00f">struct</span> {
-   siz     <span style="color:#00f">int32</span>
-   started <span style="color:#00f">bool</span>
-   sp      <span style="color:#00f">uintptr</span>
-   pc      <span style="color:#00f">uintptr</span>
-   fn      *funcval
-   _panic  *_panic
-   link    *_defer <span style="color:#f00;font-style:italic">// 下一个要被执行的延迟函数
-</span></code></pre></div><p>当一个新的 defer 方法被创建的时候，它被附加到当前的 Goroutine 上，然后之前的 defer 方法作为下一个要执行的函数被链接到新创建的方法上：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">newdefer</span>(siz <span style="color:#00f">int32</span>) *_defer {
-   <span style="color:#00f">var</span> d *_defer
-   gp := <span style="color:#c34e00">getg</span>() <span style="color:#f00;font-style:italic">// 获取当前 goroutine
-</span><span style="color:#f00;font-style:italic"></span>   [...]
-   <span style="color:#f00;font-style:italic">// 延迟列表现在被附加到新的 _defer 结构体
-</span><span style="color:#f00;font-style:italic"></span>   d.link = gp._defer
-   gp._defer = d <span style="color:#f00;font-style:italic">// 新的结构现在是第一个被调用的
-</span><span style="color:#f00;font-style:italic"></span>   <span style="color:#00f">return</span> d
-}
-</code></pre></div><p>现在，后续调用会从栈的顶部依次出栈延迟函数：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">deferreturn</span>(arg0 <span style="color:#00f">uintptr</span>) {
-   gp := <span style="color:#c34e00">getg</span>() <span style="color:#f00;font-style:italic">// 获取当前 goroutine
-</span><span style="color:#f00;font-style:italic"></span>   d:= gp._defer <span style="color:#f00;font-style:italic">// 拷贝延迟函数到一个变量上
-</span><span style="color:#f00;font-style:italic"></span>   <span style="color:#00f">if</span> d == <span style="color:#00f">nil</span> { <span style="color:#f00;font-style:italic">// 如果不存在延迟函数就直接返回
-</span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">return</span>
-   }
-   [...]
-   fn := d.fn <span style="color:#f00;font-style:italic">// 获取要调用的函数
-</span><span style="color:#f00;font-style:italic"></span>   d.fn = <span style="color:#00f">nil</span> <span style="color:#f00;font-style:italic">// 重置函数
-</span><span style="color:#f00;font-style:italic"></span>   gp._defer = d.link <span style="color:#f00;font-style:italic">// 把下一个 _defer 结构体依附到 Goroutine 上
-</span><span style="color:#f00;font-style:italic"></span>   <span style="color:#c34e00">freedefer</span>(d) <span style="color:#f00;font-style:italic">// 释放 _defer 结构体
-</span><span style="color:#f00;font-style:italic"></span>   <span style="color:#c34e00">jmpdefer</span>(fn, uintptr(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;arg0))) <span style="color:#f00;font-style:italic">// 调用该函数
-</span><span style="color:#f00;font-style:italic"></span>}
-</code></pre></div><p>如我们所见，并没有循环地去调用延迟函数，而是一个接一个地出栈。这一行为可以通过生成汇编代码得到验证：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#f00;font-style:italic">// 第一个延迟函数
-</span><span style="color:#f00;font-style:italic"></span>0x001d 00029 (main.<span style="color:#00f">go</span>:6)   MOVL   $0, (SP)
-0x0024 00036 (main.<span style="color:#00f">go</span>:6)   PCDATA $2, $1
-0x0024 00036 (main.<span style="color:#00f">go</span>:6)   LEAQ   <span style="color:#009c00">&#34;&#34;</span>.main.func1·<span style="color:#c34e00">f</span>(SB), AX
-0x002b 00043 (main.<span style="color:#00f">go</span>:6)   PCDATA $2, $0
-0x002b 00043 (main.<span style="color:#00f">go</span>:6)   MOVQ   AX, 8(SP)
-0x0030 00048 (main.<span style="color:#00f">go</span>:6)   CALL   runtime.<span style="color:#c34e00">deferproc</span>(SB)
-0x0035 00053 (main.<span style="color:#00f">go</span>:6)   TESTL  AX, AX
-0x0037 00055 (main.<span style="color:#00f">go</span>:6)   JNE    117
-<span style="color:#f00;font-style:italic">// 第二个延迟函数
-</span><span style="color:#f00;font-style:italic"></span>0x0039 00057 (main.<span style="color:#00f">go</span>:10)  MOVL   $0, (SP)
-0x0040 00064 (main.<span style="color:#00f">go</span>:10)  PCDATA $2, $1
-0x0040 00064 (main.<span style="color:#00f">go</span>:10)  LEAQ   <span style="color:#009c00">&#34;&#34;</span>.main.func2·<span style="color:#c34e00">f</span>(SB), AX
-0x0047 00071 (main.<span style="color:#00f">go</span>:10)  PCDATA $2, $0
-0x0047 00071 (main.<span style="color:#00f">go</span>:10)  MOVQ   AX, 8(SP)
-0x004c 00076 (main.<span style="color:#00f">go</span>:10)  CALL   runtime.<span style="color:#c34e00">deferproc</span>(SB)
-0x0051 00081 (main.<span style="color:#00f">go</span>:10)  TESTL  AX, AX
-0x0053 00083 (main.<span style="color:#00f">go</span>:10)  JNE    101
-<span style="color:#f00;font-style:italic">// main 函数结束
-</span><span style="color:#f00;font-style:italic"></span>0x0055 00085 (main.<span style="color:#00f">go</span>:18)  XCHGL  AX, AX
-0x0056 00086 (main.<span style="color:#00f">go</span>:18)  CALL   runtime.<span style="color:#c34e00">deferreturn</span>(SB)
-0x005b 00091 (main.<span style="color:#00f">go</span>:18)  MOVQ   16(SP), BP
-0x0060 00096 (main.<span style="color:#00f">go</span>:18)  ADDQ   $24, SP
-0x0064 00100 (main.<span style="color:#00f">go</span>:18)  RET
-0x0065 00101 (main.<span style="color:#00f">go</span>:10)  XCHGL  AX, AX
-0x0066 00102 (main.<span style="color:#00f">go</span>:10)  CALL   runtime.<span style="color:#c34e00">deferreturn</span>(SB)
-0x006b 00107 (main.<span style="color:#00f">go</span>:10)  MOVQ   16(SP), BP
-0x0070 00112 (main.<span style="color:#00f">go</span>:10)  ADDQ   $24, SP
-0x0074 00116 (main.<span style="color:#00f">go</span>:10)  RET
-</code></pre></div><p>deferproc 方法被调用了两次，并且内部调用了 newdefer 方法，我们之前已经看到该方法将我们的函数注册为延迟函数。之后，在函数的最后，在 deferreturn 函数的帮助下，延迟方法会被一个接一个地调用。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">type</span> _defer <span style="color:#00f">struct</span> {
+</span></span><span style="display:flex;"><span>   siz     <span style="color:#00f">int32</span>
+</span></span><span style="display:flex;"><span>   started <span style="color:#00f">bool</span>
+</span></span><span style="display:flex;"><span>   sp      <span style="color:#00f">uintptr</span>
+</span></span><span style="display:flex;"><span>   pc      <span style="color:#00f">uintptr</span>
+</span></span><span style="display:flex;"><span>   fn      *funcval
+</span></span><span style="display:flex;"><span>   _panic  *_panic
+</span></span><span style="display:flex;"><span>   link    *_defer <span style="color:#f00;font-style:italic">// 下一个要被执行的延迟函数</span>
+</span></span></code></pre></div><p>当一个新的 defer 方法被创建的时候，它被附加到当前的 Goroutine 上，然后之前的 defer 方法作为下一个要执行的函数被链接到新创建的方法上：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">newdefer</span>(siz <span style="color:#00f">int32</span>) *_defer {
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">var</span> d *_defer
+</span></span><span style="display:flex;"><span>   gp := <span style="color:#c34e00">getg</span>() <span style="color:#f00;font-style:italic">// 获取当前 goroutine</span>
+</span></span><span style="display:flex;"><span>   [...]
+</span></span><span style="display:flex;"><span>   <span style="color:#f00;font-style:italic">// 延迟列表现在被附加到新的 _defer 结构体</span>
+</span></span><span style="display:flex;"><span>   d.link = gp._defer
+</span></span><span style="display:flex;"><span>   gp._defer = d <span style="color:#f00;font-style:italic">// 新的结构现在是第一个被调用的</span>
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">return</span> d
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>现在，后续调用会从栈的顶部依次出栈延迟函数：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">deferreturn</span>(arg0 <span style="color:#00f">uintptr</span>) {
+</span></span><span style="display:flex;"><span>   gp := <span style="color:#c34e00">getg</span>() <span style="color:#f00;font-style:italic">// 获取当前 goroutine</span>
+</span></span><span style="display:flex;"><span>   d:= gp._defer <span style="color:#f00;font-style:italic">// 拷贝延迟函数到一个变量上</span>
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">if</span> d == <span style="color:#00f">nil</span> { <span style="color:#f00;font-style:italic">// 如果不存在延迟函数就直接返回</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#00f">return</span>
+</span></span><span style="display:flex;"><span>   }
+</span></span><span style="display:flex;"><span>   [...]
+</span></span><span style="display:flex;"><span>   fn := d.fn <span style="color:#f00;font-style:italic">// 获取要调用的函数</span>
+</span></span><span style="display:flex;"><span>   d.fn = <span style="color:#00f">nil</span> <span style="color:#f00;font-style:italic">// 重置函数</span>
+</span></span><span style="display:flex;"><span>   gp._defer = d.link <span style="color:#f00;font-style:italic">// 把下一个 _defer 结构体依附到 Goroutine 上</span>
+</span></span><span style="display:flex;"><span>   <span style="color:#c34e00">freedefer</span>(d) <span style="color:#f00;font-style:italic">// 释放 _defer 结构体</span>
+</span></span><span style="display:flex;"><span>   <span style="color:#c34e00">jmpdefer</span>(fn, uintptr(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;arg0))) <span style="color:#f00;font-style:italic">// 调用该函数</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>如我们所见，并没有循环地去调用延迟函数，而是一个接一个地出栈。这一行为可以通过生成汇编代码得到验证：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 第一个延迟函数</span>
+</span></span><span style="display:flex;"><span>0x001d 00029 (main.<span style="color:#00f">go</span>:6)   MOVL   $0, (SP)
+</span></span><span style="display:flex;"><span>0x0024 00036 (main.<span style="color:#00f">go</span>:6)   PCDATA $2, $1
+</span></span><span style="display:flex;"><span>0x0024 00036 (main.<span style="color:#00f">go</span>:6)   LEAQ   <span style="color:#009c00">&#34;&#34;</span>.main.func1·<span style="color:#c34e00">f</span>(SB), AX
+</span></span><span style="display:flex;"><span>0x002b 00043 (main.<span style="color:#00f">go</span>:6)   PCDATA $2, $0
+</span></span><span style="display:flex;"><span>0x002b 00043 (main.<span style="color:#00f">go</span>:6)   MOVQ   AX, 8(SP)
+</span></span><span style="display:flex;"><span>0x0030 00048 (main.<span style="color:#00f">go</span>:6)   CALL   runtime.<span style="color:#c34e00">deferproc</span>(SB)
+</span></span><span style="display:flex;"><span>0x0035 00053 (main.<span style="color:#00f">go</span>:6)   TESTL  AX, AX
+</span></span><span style="display:flex;"><span>0x0037 00055 (main.<span style="color:#00f">go</span>:6)   JNE    117
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 第二个延迟函数</span>
+</span></span><span style="display:flex;"><span>0x0039 00057 (main.<span style="color:#00f">go</span>:10)  MOVL   $0, (SP)
+</span></span><span style="display:flex;"><span>0x0040 00064 (main.<span style="color:#00f">go</span>:10)  PCDATA $2, $1
+</span></span><span style="display:flex;"><span>0x0040 00064 (main.<span style="color:#00f">go</span>:10)  LEAQ   <span style="color:#009c00">&#34;&#34;</span>.main.func2·<span style="color:#c34e00">f</span>(SB), AX
+</span></span><span style="display:flex;"><span>0x0047 00071 (main.<span style="color:#00f">go</span>:10)  PCDATA $2, $0
+</span></span><span style="display:flex;"><span>0x0047 00071 (main.<span style="color:#00f">go</span>:10)  MOVQ   AX, 8(SP)
+</span></span><span style="display:flex;"><span>0x004c 00076 (main.<span style="color:#00f">go</span>:10)  CALL   runtime.<span style="color:#c34e00">deferproc</span>(SB)
+</span></span><span style="display:flex;"><span>0x0051 00081 (main.<span style="color:#00f">go</span>:10)  TESTL  AX, AX
+</span></span><span style="display:flex;"><span>0x0053 00083 (main.<span style="color:#00f">go</span>:10)  JNE    101
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// main 函数结束</span>
+</span></span><span style="display:flex;"><span>0x0055 00085 (main.<span style="color:#00f">go</span>:18)  XCHGL  AX, AX
+</span></span><span style="display:flex;"><span>0x0056 00086 (main.<span style="color:#00f">go</span>:18)  CALL   runtime.<span style="color:#c34e00">deferreturn</span>(SB)
+</span></span><span style="display:flex;"><span>0x005b 00091 (main.<span style="color:#00f">go</span>:18)  MOVQ   16(SP), BP
+</span></span><span style="display:flex;"><span>0x0060 00096 (main.<span style="color:#00f">go</span>:18)  ADDQ   $24, SP
+</span></span><span style="display:flex;"><span>0x0064 00100 (main.<span style="color:#00f">go</span>:18)  RET
+</span></span><span style="display:flex;"><span>0x0065 00101 (main.<span style="color:#00f">go</span>:10)  XCHGL  AX, AX
+</span></span><span style="display:flex;"><span>0x0066 00102 (main.<span style="color:#00f">go</span>:10)  CALL   runtime.<span style="color:#c34e00">deferreturn</span>(SB)
+</span></span><span style="display:flex;"><span>0x006b 00107 (main.<span style="color:#00f">go</span>:10)  MOVQ   16(SP), BP
+</span></span><span style="display:flex;"><span>0x0070 00112 (main.<span style="color:#00f">go</span>:10)  ADDQ   $24, SP
+</span></span><span style="display:flex;"><span>0x0074 00116 (main.<span style="color:#00f">go</span>:10)  RET
+</span></span></code></pre></div><p>deferproc 方法被调用了两次，并且内部调用了 newdefer 方法，我们之前已经看到该方法将我们的函数注册为延迟函数。之后，在函数的最后，在 deferreturn 函数的帮助下，延迟方法会被一个接一个地调用。</p>
 <p>Go 标准库向我们展示了结构体 _defer 同样链接了一个 _panic *_panic 属性。来通过另一个例子看下它在哪里会起作用。</p>
 <p><strong>延迟和返回值</strong>
 如规范所描述，延迟函数访问返回的结果的唯一方法是使用命名返回参数：</p>
 <blockquote>
-<p>如果延迟函数是一个匿名函数（ function literal ），并且所在函数存在命名返回参数，同时该命名返回参数在匿名函数的作用域中，匿名函数可能会在返回参数返回前访问并修改它们。</p>
-</blockquote>
+<p>如果延迟函数是一个匿名函数（ function literal ），并且所在函数存在命名返回参数，同时该命名返回参数在匿名函数的作用域中，匿名函数可能会在返回参数返回前访问并修改它们。</p></blockquote>
 <p>这里有个例子：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-   fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;with named param, x: %d\n&#34;</span>, <span style="color:#c34e00">namedParam</span>())
-   fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;without named param, x: %d\n&#34;</span>, <span style="color:#c34e00">notNamedParam</span>())
-}
-<span style="color:#00f">func</span> <span style="color:#c34e00">namedParam</span>() (x <span style="color:#00f">int</span>) {
-   x = 1
-   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() { x = 2 }()
-   <span style="color:#00f">return</span> x
-}
- 
-<span style="color:#00f">func</span> <span style="color:#c34e00">notNamedParam</span>() (<span style="color:#00f">int</span>) {
-   x := 1
-   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() { x = 2 }()
-   <span style="color:#00f">return</span> x
-}
-</code></pre></div><p>with named param, x: 2
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>   fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;with named param, x: %d\n&#34;</span>, <span style="color:#c34e00">namedParam</span>())
+</span></span><span style="display:flex;"><span>   fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;without named param, x: %d\n&#34;</span>, <span style="color:#c34e00">notNamedParam</span>())
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">namedParam</span>() (x <span style="color:#00f">int</span>) {
+</span></span><span style="display:flex;"><span>   x = 1
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() { x = 2 }()
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">return</span> x
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">notNamedParam</span>() (<span style="color:#00f">int</span>) {
+</span></span><span style="display:flex;"><span>   x := 1
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() { x = 2 }()
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">return</span> x
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>with named param, x: 2
 without named param, x: 1
 确实就像这篇“defer, panic 和 recover”博客所描述的一样，一旦确定这一行为，我们可以将其与 recover 函数混合使用：</p>
 <blockquote>
-<p>recover 函数 是一个用于重新获取对恐慌（panicking）goroutine 控制的内置函数。recover 函数仅在延迟函数内部时才有效。</p>
-</blockquote>
+<p>recover 函数 是一个用于重新获取对恐慌（panicking）goroutine 控制的内置函数。recover 函数仅在延迟函数内部时才有效。</p></blockquote>
 <p>如我们所见，_defer 结构体链接了一个 _panic 属性，该属性在 panic 调用期间被链接。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">gopanic</span>(e <span style="color:#00f">interface</span>{}) {
-   [...]
-   <span style="color:#00f">var</span> p _panic
-   [...]
-   d := gp._defer <span style="color:#f00;font-style:italic">// 当前附加的 defer 函数
-</span><span style="color:#f00;font-style:italic"></span>   [...]
-   d._panic = (*_panic)(<span style="color:#c34e00">noescape</span>(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;p)))
-   [...]
-}
-</code></pre></div><p>确实，在发生 panic 的情况下，调用延迟函数之前会调用 gopanic 方法：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">0x0067 00103 (main.go:21)   CALL   runtime.gopanic(SB)
-0x006c 00108 (main.go:21)  UNDEF
-0x006e 00110 (main.go:16)  XCHGL  AX, AX
-0x006f 00111 (main.go:16)  CALL   runtime.deferreturn(SB)
-</code></pre></div><p>这里是一个 recover 函数利用命名返回参数的例子：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-go" data-lang="go"><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
-   fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;error from err1: %v\n&#34;</span>, <span style="color:#c34e00">err1</span>())
-   fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;error from err2: %v\n&#34;</span>, <span style="color:#c34e00">err2</span>())
-}
- 
-<span style="color:#00f">func</span> <span style="color:#c34e00">err1</span>() <span style="color:#00f">error</span> {
-   <span style="color:#00f">var</span> err <span style="color:#00f">error</span>
- 
-   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() {
-      <span style="color:#00f">if</span> r := recover(); r != <span style="color:#00f">nil</span> {
-         err = errors.<span style="color:#c34e00">New</span>(<span style="color:#009c00">&#34;recovered&#34;</span>)
-      }
-   }()
-   panic(<span style="color:#009c00">`foo`</span>)
- 
-   <span style="color:#00f">return</span> err
-}
- 
-<span style="color:#00f">func</span> <span style="color:#c34e00">err2</span>() (err <span style="color:#00f">error</span>) {
-   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() {
-      <span style="color:#00f">if</span> r := recover(); r != <span style="color:#00f">nil</span> {
-         err = errors.<span style="color:#c34e00">New</span>(<span style="color:#009c00">&#34;recovered&#34;</span>)
-      }
-   }()
-   panic(<span style="color:#009c00">`foo`</span>)
- 
-   <span style="color:#00f">return</span> err
-}
-<span style="color:#00f">error</span> from err1: &lt;<span style="color:#00f">nil</span>&gt;
-<span style="color:#00f">error</span> from err2: recovered
-</code></pre></div><p>两者的结合是我们可以正常使用 recover 函数将我们希望的 error 返回给调用方。 作为这篇关于延迟函数的文章的总结，让我们来看看延迟函数的提升。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">gopanic</span>(e <span style="color:#00f">interface</span>{}) {
+</span></span><span style="display:flex;"><span>   [...]
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">var</span> p _panic
+</span></span><span style="display:flex;"><span>   [...]
+</span></span><span style="display:flex;"><span>   d := gp._defer <span style="color:#f00;font-style:italic">// 当前附加的 defer 函数</span>
+</span></span><span style="display:flex;"><span>   [...]
+</span></span><span style="display:flex;"><span>   d._panic = (*_panic)(<span style="color:#c34e00">noescape</span>(unsafe.<span style="color:#c34e00">Pointer</span>(&amp;p)))
+</span></span><span style="display:flex;"><span>   [...]
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>确实，在发生 panic 的情况下，调用延迟函数之前会调用 gopanic 方法：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>0x0067 00103 (main.go:21)   CALL   runtime.gopanic(SB)
+</span></span><span style="display:flex;"><span>0x006c 00108 (main.go:21)  UNDEF
+</span></span><span style="display:flex;"><span>0x006e 00110 (main.go:16)  XCHGL  AX, AX
+</span></span><span style="display:flex;"><span>0x006f 00111 (main.go:16)  CALL   runtime.deferreturn(SB)
+</span></span></code></pre></div><p>这里是一个 recover 函数利用命名返回参数的例子：</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>   fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;error from err1: %v\n&#34;</span>, <span style="color:#c34e00">err1</span>())
+</span></span><span style="display:flex;"><span>   fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;error from err2: %v\n&#34;</span>, <span style="color:#c34e00">err2</span>())
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">err1</span>() <span style="color:#00f">error</span> {
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">var</span> err <span style="color:#00f">error</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() {
+</span></span><span style="display:flex;"><span>      <span style="color:#00f">if</span> r := recover(); r != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>         err = errors.<span style="color:#c34e00">New</span>(<span style="color:#009c00">&#34;recovered&#34;</span>)
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>   }()
+</span></span><span style="display:flex;"><span>   panic(<span style="color:#009c00">`foo`</span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">return</span> err
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">err2</span>() (err <span style="color:#00f">error</span>) {
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">defer</span> <span style="color:#00f">func</span>() {
+</span></span><span style="display:flex;"><span>      <span style="color:#00f">if</span> r := recover(); r != <span style="color:#00f">nil</span> {
+</span></span><span style="display:flex;"><span>         err = errors.<span style="color:#c34e00">New</span>(<span style="color:#009c00">&#34;recovered&#34;</span>)
+</span></span><span style="display:flex;"><span>      }
+</span></span><span style="display:flex;"><span>   }()
+</span></span><span style="display:flex;"><span>   panic(<span style="color:#009c00">`foo`</span>)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>   <span style="color:#00f">return</span> err
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#00f">error</span> from err1: &lt;<span style="color:#00f">nil</span>&gt;
+</span></span><span style="display:flex;"><span><span style="color:#00f">error</span> from err2: recovered
+</span></span></code></pre></div><p>两者的结合是我们可以正常使用 recover 函数将我们希望的 error 返回给调用方。 作为这篇关于延迟函数的文章的总结，让我们来看看延迟函数的提升。</p>
 <p><strong>性能提升</strong>
 Go 1.8是提升 defer 的最近的一个版本（译者注：目前 Go 1.14 才是提升 defer 性能的最近的一个版本），我们可以通过运行 Go 的基准测试来看到这些提升（在 1.7 和 1.8 之间进行对比）：</p>
 <ul>
@@ -523,8 +520,8 @@ Go 1.8是提升 defer 的最近的一个版本（译者注：目前 Go 1.14 才�
       <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
     <img class="site-author-image" itemprop="image"
         src="http://shanks.link/img/logo.jpg"
-        alt="shankusu2017@gmail.com" />
-    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+        alt="" />
+    <p class="site-author-name" itemprop="name"></p>
     <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">

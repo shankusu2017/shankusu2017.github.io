@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
-    <title>go语言调度器源代码情景分析之九：操作系统线程及线程调度 - Golang编程语言知识介绍</title>
-    <meta name="keywords" content="git,Git,Lua,lua,Golang,go">
+    <title>go语言调度器源代码情景分析之九：操作系统线程及线程调度 - Golang入门指南</title>
+    <meta name="keywords" content="Golang,golang,go,git,Git,Lua,lua">
     
     <meta property="og:title" content="go语言调度器源代码情景分析之九：操作系统线程及线程调度">
-    <meta property="og:site_name" content="Golang编程语言知识介绍">
+    <meta property="og:site_name" content="Golang入门指南">
     <meta property="og:image" content="/img/author.jpg"> 
-    <meta name="title" content="go语言调度器源代码情景分析之九：操作系统线程及线程调度 - Golang编程语言知识介绍" />
+    <meta name="title" content="go语言调度器源代码情景分析之九：操作系统线程及线程调度 - Golang入门指南" />
     <meta name="description" content="愿星光伴你左右"> 
     <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
     <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
@@ -39,7 +39,7 @@
   <div class="custom-logo-site-title">
     <a href="http://shanks.link/"  class="brand" rel="start">
       <span class="logo-line-before"><i></i></span>
-      <span class="site-title">Golang编程语言知识介绍</span>
+      <span class="site-title">Golang入门指南</span>
       <span class="logo-line-after"><i></i></span>
     </a>
   </div>
@@ -292,54 +292,54 @@
     <i class="fa fa-eye"></i>
 </span>
 <span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">1865 字 ~4分钟</span>
+<span class="leancloud-visitors-count">1867 字 ~4分钟</span>
 </span>
       </div>
     </header>
     <div class="post-body" itemprop="articleBody">
-    <h3 id="原创-爱写程序的阿波张-源码游记httpsmpweixinqqcomsovgli5vvvrdmrujegnromg-2019-04-25">原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/OvGlI5VvvRdMRuJegNrOMg">源码游记</a> 2019-04-25</h3>
+    <h3 id="原创-爱写程序的阿波张-源码游记-2019-04-25">原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/OvGlI5VvvRdMRuJegNrOMg">源码游记</a> 2019-04-25</h3>
 <p><strong>本文是《go调度器源代码情景分析》系列 第一章 预备知识的第九小节。</strong></p>
 <p>要深入理解goroutine的调度器，就需要对操作系统线程有个大致的了解，因为go的调度系统是建立在操作系统线程之上的，所以接下来我们对其做一个简单的介绍。</p>
 <p>很难对线程下一个准确且易于理解的定义，特别是对于从未接触过多线程编程的读者来说，要搞懂什么是线程可能并不是很容易，所以下面我们抛开定义直接从一个C语言的程序开始来直观的看一下什么是线程。之所以使用C语言，是因为C语言中我们一般使用pthread线程库，而使用该线程库创建的用户态线程其实就是Linux操作系统内核所支持的线程，它与go语言中的工作线程是一样的，这些线程都由Linux内核负责管理和调度，然后go语言在操作系统线程之上又做了goroutine，实现了一个二级线程模型。</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-c" data-lang="c"><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;unistd.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;pthread.h&gt;</span><span style="color:#f00;font-style:italic">
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#f00;font-style:italic">#define N (1000 * 1000 * 1000)
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#00f">volatile</span> <span style="color:#00f">int</span> g = 0;
-
-<span style="color:#00f">void</span> *<span style="color:#c34e00">start</span>(<span style="color:#00f">void</span> *arg)
-{
-<span style="color:#00f">int</span> i;
-
-<span style="color:#00f">for</span> (i = 0; i &lt; N; i++) {
-g++;
-}
-
-<span style="color:#00f">return</span> NULL;
-}
-
-<span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> *argv[])
-{
-pthread_t tid;
-
-<span style="color:#f00;font-style:italic">// 使用pthread_create函数创建一个新线程执行start函数
-</span><span style="color:#f00;font-style:italic"></span>pthread_create(&amp;tid, NULL, start, NULL);
-
-<span style="color:#00f">for</span> (;;) {
-usleep(1000 * 100 * 5);
-printf(<span style="color:#009c00">&#34;loop g: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, g);
-<span style="color:#00f">if</span> (g == N) {
-<span style="color:#00f">break</span>;
-}
-}
-
-pthread_join(tid, NULL); <span style="color:#f00;font-style:italic">// 等待子线程结束运行
-</span><span style="color:#f00;font-style:italic"></span>
-<span style="color:#00f">return</span> 0;
-}
-</code></pre></div><p>该程序运行起来之后将会有2个线程，一个是操作系统把程序加载起来运行时创建的主线程，另一个是主线程调用pthread_create创建的start子线程，主线程在创建完子线程之后每隔500毫秒打印一下全局变量 g 的值直到 g 等于10亿，而start线程启动后就开始执行一个10亿次的对 g 自增加 1 的循环，这两个线程同时并发运行在系统中，操作系统负责对它们进行调度，我们无法精确预知某个线程在什么时候会运行。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdio.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;unistd.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;pthread.h&gt;</span><span style="color:#f00;font-style:italic">
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define N (1000 * 1000 * 1000)
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">volatile</span> <span style="color:#00f">int</span> g = 0;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> *<span style="color:#c34e00">start</span>(<span style="color:#00f">void</span> *arg)
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> i;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">for</span> (i = 0; i &lt; N; i++) {
+</span></span><span style="display:flex;"><span>g++;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">return</span> NULL;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">main</span>(<span style="color:#00f">int</span> argc, <span style="color:#00f">char</span> *argv[])
+</span></span><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span><span style="color:#00f">pthread_t</span> tid;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">// 使用pthread_create函数创建一个新线程执行start函数
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span><span style="color:#c34e00">pthread_create</span>(&amp;tid, NULL, start, NULL);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">for</span> (;;) {
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">usleep</span>(1000 * 100 * 5);
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">printf</span>(<span style="color:#009c00">&#34;loop g: %d</span><span style="color:#009c00">\n</span><span style="color:#009c00">&#34;</span>, g);
+</span></span><span style="display:flex;"><span><span style="color:#00f">if</span> (g == N) {
+</span></span><span style="display:flex;"><span><span style="color:#00f">break</span>;
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#c34e00">pthread_join</span>(tid, NULL); <span style="color:#f00;font-style:italic">// 等待子线程结束运行
+</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
+</span></span><span style="display:flex;"><span><span style="color:#00f">return</span> 0;
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>该程序运行起来之后将会有2个线程，一个是操作系统把程序加载起来运行时创建的主线程，另一个是主线程调用pthread_create创建的start子线程，主线程在创建完子线程之后每隔500毫秒打印一下全局变量 g 的值直到 g 等于10亿，而start线程启动后就开始执行一个10亿次的对 g 自增加 1 的循环，这两个线程同时并发运行在系统中，操作系统负责对它们进行调度，我们无法精确预知某个线程在什么时候会运行。</p>
 <p><strong>关于操作系统对线程的调度，有两个问题需要搞清楚：</strong></p>
 <ol>
 <li>
@@ -354,20 +354,20 @@ pthread_join(tid, NULL); <span style="color:#f00;font-style:italic">// 等待子
 <p>硬件中断。硬件中断处理程序由操作系统提供，所以当硬件发生中断时，就会执行操作系统代码。硬件中断有个特别重要的时钟中断，这是操作系统能够发起抢占调度的基础。</p>
 <p>操作系统会在执行操作系统代码路径上的某些点检查是否需要调度，所以操作系统对线程的调度也会相应的发生在上述两种情况之下。</p>
 <p>下面来看一下在笔者的单核电脑上运行该程序的输出：</p>
-<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">bobo@ubuntu:~/study/c$ gcc thread.c -o thread -lpthread
-bobo@ubuntu:~/study/c$ ./thread
-loop g: 98938361
-loop g: 198264794
-loop g: 297862478
-loop g: 396750048
-loop g: 489684941
-loop g: 584723988
-loop g: 679293257
-loop g: 777715939
-loop g: 876083765
-loop g: 974378774
-loop g: 1000000000
-</code></pre></div><p>从输出可以看出，主线程和start线程在轮流着运行，这是操作系统对它们进行了调度的结果，操作系统一会儿把start线程调度起来运行，一会儿又把主线程调度起来运行。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>bobo@ubuntu:~/study/c$ gcc thread.c -o thread -lpthread
+</span></span><span style="display:flex;"><span>bobo@ubuntu:~/study/c$ ./thread
+</span></span><span style="display:flex;"><span>loop g: 98938361
+</span></span><span style="display:flex;"><span>loop g: 198264794
+</span></span><span style="display:flex;"><span>loop g: 297862478
+</span></span><span style="display:flex;"><span>loop g: 396750048
+</span></span><span style="display:flex;"><span>loop g: 489684941
+</span></span><span style="display:flex;"><span>loop g: 584723988
+</span></span><span style="display:flex;"><span>loop g: 679293257
+</span></span><span style="display:flex;"><span>loop g: 777715939
+</span></span><span style="display:flex;"><span>loop g: 876083765
+</span></span><span style="display:flex;"><span>loop g: 974378774
+</span></span><span style="display:flex;"><span>loop g: 1000000000
+</span></span></code></pre></div><p>从输出可以看出，主线程和start线程在轮流着运行，这是操作系统对它们进行了调度的结果，操作系统一会儿把start线程调度起来运行，一会儿又把主线程调度起来运行。</p>
 <p>从程序的输出结果可以看到抢占调度的身影，因为主线程在start线程运行过程中得到了运行，而start线程执行的start函数根本没有系统调用，并且这个程序又运行在单核系统中，没有其它CPU来运行主线程，所以如果没有中断时发生的抢占调度，操作系统就无法获取到CPU的控制权，也就不可能发生线程调度。</p>
 <p>接下来我们再来看看操作系统在调度线程时会做哪些事情。</p>
 <p>如上所述，操作系统会把不同的线程调度到同一个CPU上运行，而每个线程运行时又都会使用CPU的寄存器，但每个CPU却只有一组寄存器，所以操作系统在把线程B调度到CPU上运行时需要首先把刚刚正在运行的线程A所使用到的寄存器的值全部保存在内存之中，然后再把保存在内存中的线程B的寄存器的值全部又放回CPU的寄存器，这样线程B就能恢复到之前运行的状态接着运行。</p>
@@ -447,8 +447,8 @@ loop g: 1000000000
       <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
     <img class="site-author-image" itemprop="image"
         src="http://shanks.link/img/logo.jpg"
-        alt="shankusu2017@gmail.com" />
-    <p class="site-author-name" itemprop="name">shankusu2017@gmail.com</p>
+        alt="" />
+    <p class="site-author-name" itemprop="name"></p>
     <p class="site-description motion-element" itemprop="description"> </p>
 </div>
       <nav class="site-state motion-element">
