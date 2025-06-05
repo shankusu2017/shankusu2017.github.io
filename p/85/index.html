@@ -5,13 +5,13 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" /> 
-    <title>Golang入门指南 - Golang入门指南</title>
+    <title>程序员的小天地 - 程序员的小天地</title>
     <meta name="keywords" content="Golang,golang,go,git,Git,Lua,lua">
     
-    <meta property="og:title" content="Golang入门指南">
-    <meta property="og:site_name" content="Golang入门指南">
+    <meta property="og:title" content="程序员的小天地">
+    <meta property="og:site_name" content="程序员的小天地">
     <meta property="og:image" content="/img/author.jpg"> 
-    <meta name="title" content="Golang入门指南 - Golang入门指南" />
+    <meta name="title" content="程序员的小天地 - 程序员的小天地" />
     <meta name="description" content="愿星光伴你左右"> 
     <link rel="shortcut icon" href="http://shanks.link/img/favicon.ico" />
     <link rel="apple-touch-icon" href="http://shanks.link/img/apple-touch-icon.png" />
@@ -40,7 +40,7 @@
   <div class="custom-logo-site-title">
     <a href="http://shanks.link/"  class="brand" rel="start">
       <span class="logo-line-before"><i></i></span>
-      <span class="site-title">Golang入门指南</span>
+      <span class="site-title">程序员的小天地</span>
       <span class="logo-line-after"><i></i></span>
     </a>
   </div>
@@ -252,6 +252,151 @@
             
     
  <section id="posts" class="posts-expand">
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/03/go%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3defer%E4%B8%8Bdefer%E5%AE%9E%E7%8E%B0%E6%9C%BA%E5%88%B6/" itemprop="url">
+        go深入理解defer（下）defer实现机制
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-03">
+    2021-04-03
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/go" itemprop="url" rel="index">
+        <span itemprop="name">go</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">6131 字 ~13分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p>原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/iEtMbRXW4yYyCG0TTW5y9g">源码游记</a> 2019-06-17</p>
+<p>上一篇文章我们主要从使用的角度介绍了 defer 的基础知识，本文我们来分析一下 defer 的实现机制。</p>
+<p>还是从一个例子程序开始。</p>
+<div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#00f">package</span> main
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">import</span> <span style="color:#009c00">&#34;fmt&#34;</span>
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">sum</span>(a, b <span style="color:#00f">int</span>) {
+</span></span><span style="display:flex;"><span>    c := a + b
+</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Println</span>(<span style="color:#009c00">&#34;sum:&#34;</span> , c)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">f</span>(a, b <span style="color:#00f">int</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#00f">defer</span> <span style="color:#c34e00">sum</span>(a, b)
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span>    fmt.<span style="color:#c34e00">Printf</span>(<span style="color:#009c00">&#34;a: %d, b: %d\n&#34;</span>, a, b)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span> 
+</span></span><span style="display:flex;"><span><span style="color:#00f">func</span> <span style="color:#c34e00">main</span>() {
+</span></span><span style="display:flex;"><span>    a, b := 1, 2
+</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">f</span>(a, b)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>从前一篇文章我们得知，编译器会把 defer 语句翻译成对 deferproc 函数的调用，同时，编译器也会在使用了 defer 语句的 go 函数的末尾插入对 deferreturn 函数的调用，下面我们来看一下这两个函数的实现代码。</p>
+    </div>
+    
+    <div class="post-more-link text-center">
+    <a class="btn" href="http://shanks.link/blog/2021/04/03/go%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3defer%E4%B8%8Bdefer%E5%AE%9E%E7%8E%B0%E6%9C%BA%E5%88%B6/" rel="contents">
+      阅读全文 &raquo;
+    </a>
+    </div>
+    
+    <footer class="post-footer"><div class="post-eof"></div></footer>
+  </article>
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/04/03/go%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3defer%E4%B8%8Adefer%E5%9F%BA%E7%A1%80/" itemprop="url">
+        go深入理解defer（上）defer基础
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-03">
+    2021-04-03
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/go" itemprop="url" rel="index">
+        <span itemprop="name">go</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">2557 字 ~6分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p>原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/QmeQTONUuWlr_sRNP8b5Tw">源码游记</a> 2019-06-11</p>
+<p>深入理解 defer 分上下两篇文章，本文为上篇，主要介绍如下内容：</p>
+<p>为什么需要 defer；</p>
+<p>defer 语法及语义；</p>
+<p>defer 使用要点；</p>
+<p>defer 语句中的函数到底是在 return 语句之后被调用还是 return 语句之前被调用。</p>
+    </div>
+    
+    <div class="post-more-link text-center">
+    <a class="btn" href="http://shanks.link/blog/2021/04/03/go%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3defer%E4%B8%8Adefer%E5%9F%BA%E7%A1%80/" rel="contents">
+      阅读全文 &raquo;
+    </a>
+    </div>
+    
+    <footer class="post-footer"><div class="post-eof"></div></footer>
+  </article>
 
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <header class="post-header">
@@ -612,128 +757,6 @@
     
     <div class="post-more-link text-center">
     <a class="btn" href="http://shanks.link/blog/2021/04/03/go%E8%AF%AD%E8%A8%80%E8%B0%83%E5%BA%A6%E5%99%A8%E4%B9%8B%E7%9B%97%E5%8F%96goroutine17/" rel="contents">
-      阅读全文 &raquo;
-    </a>
-    </div>
-    
-    <footer class="post-footer"><div class="post-eof"></div></footer>
-  </article>
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <header class="post-header">
-      <h1 class="post-title" itemprop="name headline">
-        <a class="post-title-link" href="http://shanks.link/blog/2021/04/03/%E7%AC%AC%E4%B8%89%E7%AB%A0-goroutine%E8%B0%83%E5%BA%A6%E7%AD%96%E7%95%A516/" itemprop="url">
-        第三章 goroutine调度策略（16）
-        </a>
-      </h1>
-      <div class="post-meta">
-      <span class="post-time">
-<span class="post-meta-item-icon">
-    <i class="fa fa-calendar-o"></i>
-</span>
-<span class="post-meta-item-text">时间：</span>
-<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-03">
-    2021-04-03
-</time>
-</span> 
-      
-
-  <span class="post-category" >
-  &nbsp; | &nbsp;
-  <span class="post-meta-item-icon">
-    <i class="fa fa-folder-o"></i>
-  </span>
-  <span class="post-meta-item-text">分类：</span>
-  
-    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
-      <a href="http://shanks.link/categories/go" itemprop="url" rel="index">
-        <span itemprop="name">go</span>
-      </a>
-      &nbsp; 
-    </span>
-  
-</span>
-
-
-       <span>
-&nbsp; | &nbsp;
-<span class="post-meta-item-icon">
-    <i class="fa fa-eye"></i>
-</span>
-<span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">4382 字 ~9分钟</span>
-</span>
-      </div>
-    </header>
-    <div class="post-body" itemprop="articleBody">
-    <p>原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/2objs5JrlnKnwFbF4a2z2g">源码游记</a> 2019-05-14</p>
-<p>本文是《Go语言调度器源代码情景分析》系列的第16篇，也是第三章《Goroutine调度策略》的第1小节。</p>
-<p>在调度器概述一节我们提到过，所谓的goroutine调度，是指程序代码按照一定的算法在适当的时候挑选出合适的goroutine并放到CPU上去运行的过程。这句话揭示了调度系统需要解决的三大核心问题：</p>
-    </div>
-    
-    <div class="post-more-link text-center">
-    <a class="btn" href="http://shanks.link/blog/2021/04/03/%E7%AC%AC%E4%B8%89%E7%AB%A0-goroutine%E8%B0%83%E5%BA%A6%E7%AD%96%E7%95%A516/" rel="contents">
-      阅读全文 &raquo;
-    </a>
-    </div>
-    
-    <footer class="post-footer"><div class="post-eof"></div></footer>
-  </article>
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <header class="post-header">
-      <h1 class="post-title" itemprop="name headline">
-        <a class="post-title-link" href="http://shanks.link/blog/2021/04/03/%E9%9D%9Emain-goroutine%E7%9A%84%E9%80%80%E5%87%BA%E5%8F%8A%E8%B0%83%E5%BA%A6%E5%BE%AA%E7%8E%AF15/" itemprop="url">
-        非main goroutine的退出及调度循环（15）
-        </a>
-      </h1>
-      <div class="post-meta">
-      <span class="post-time">
-<span class="post-meta-item-icon">
-    <i class="fa fa-calendar-o"></i>
-</span>
-<span class="post-meta-item-text">时间：</span>
-<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-04-03">
-    2021-04-03
-</time>
-</span> 
-      
-
-  <span class="post-category" >
-  &nbsp; | &nbsp;
-  <span class="post-meta-item-icon">
-    <i class="fa fa-folder-o"></i>
-  </span>
-  <span class="post-meta-item-text">分类：</span>
-  
-    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
-      <a href="http://shanks.link/categories/go" itemprop="url" rel="index">
-        <span itemprop="name">go</span>
-      </a>
-      &nbsp; 
-    </span>
-  
-</span>
-
-
-       <span>
-&nbsp; | &nbsp;
-<span class="post-meta-item-icon">
-    <i class="fa fa-eye"></i>
-</span>
-<span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">4744 字 ~10分钟</span>
-</span>
-      </div>
-    </header>
-    <div class="post-body" itemprop="articleBody">
-    <p>原创 爱写程序的阿波张 <a href="https://mp.weixin.qq.com/s/XttP9q7-PO7VXhskaBzGqA">源码游记</a> 2019-05-12</p>
-<p>本文是《Go语言调度器源代码情景分析》系列的第15篇，也是第二章的第5小节。</p>
-<p>上一节我们说过main goroutine退出时会直接执行exit系统调用退出整个进程，而非main goroutine退出时则会进入goexit函数完成最后的清理工作，本小节我们首先就来验证一下非main goroutine执行完成后是否真的会去执行goexit，然后再对非main goroutine的退出流程做个梳理。这一节我们需要重点理解以下内容：</p>
-    </div>
-    
-    <div class="post-more-link text-center">
-    <a class="btn" href="http://shanks.link/blog/2021/04/03/%E9%9D%9Emain-goroutine%E7%9A%84%E9%80%80%E5%87%BA%E5%8F%8A%E8%B0%83%E5%BA%A6%E5%BE%AA%E7%8E%AF15/" rel="contents">
       阅读全文 &raquo;
     </a>
     </div>
