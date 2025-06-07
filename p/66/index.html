@@ -256,1187 +256,6 @@
   <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
     <header class="post-header">
       <h1 class="post-title" itemprop="name headline">
-        <a class="post-title-link" href="http://shanks.link/blog/2021/05/31/lua%E6%BA%90%E7%A0%81%E6%B3%A8%E9%87%8A-llex.c/" itemprop="url">
-        lua源码注释-llex.c
-        </a>
-      </h1>
-      <div class="post-meta">
-      <span class="post-time">
-<span class="post-meta-item-icon">
-    <i class="fa fa-calendar-o"></i>
-</span>
-<span class="post-meta-item-text">时间：</span>
-<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-05-31">
-    2021-05-31
-</time>
-</span> 
-      
-
-  <span class="post-category" >
-  &nbsp; | &nbsp;
-  <span class="post-meta-item-icon">
-    <i class="fa fa-folder-o"></i>
-  </span>
-  <span class="post-meta-item-text">分类：</span>
-  
-    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
-      <a href="http://shanks.link/categories/lua" itemprop="url" rel="index">
-        <span itemprop="name">lua</span>
-      </a>
-      &nbsp; 
-    </span>
-  
-</span>
-
-
-       <span>
-&nbsp; | &nbsp;
-<span class="post-meta-item-icon">
-    <i class="fa fa-eye"></i>
-</span>
-<span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">2470 字 ~5分钟</span>
-</span>
-      </div>
-    </header>
-    <div class="post-body" itemprop="articleBody">
-    <div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** $Id: llex.c,v 2.20.1.2 2009/11/23 14:58:22 roberto Exp $
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** Lexical Analyzer
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** See Copyright Notice in lua.h
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;ctype.h&gt;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;locale.h&gt;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;string.h&gt;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define llex_c
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define LUA_CORE
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lua.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;ldo.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;llex.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lobject.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lparser.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lstate.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lstring.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;ltable.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lzio.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define next(ls) (ls-&gt;current = zgetc(ls-&gt;z))
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define currIsNewline(ls)	(ls-&gt;current == &#39;\n&#39; || ls-&gt;current == &#39;\r&#39;)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* ORDER RESERVED */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">const</span> <span style="color:#00f">char</span> *<span style="color:#00f">const</span> luaX_tokens [] = {
-</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#34;and&#34;</span>, <span style="color:#009c00">&#34;break&#34;</span>, <span style="color:#009c00">&#34;do&#34;</span>, <span style="color:#009c00">&#34;else&#34;</span>, <span style="color:#009c00">&#34;elseif&#34;</span>,
-</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#34;end&#34;</span>, <span style="color:#009c00">&#34;false&#34;</span>, <span style="color:#009c00">&#34;for&#34;</span>, <span style="color:#009c00">&#34;function&#34;</span>, <span style="color:#009c00">&#34;if&#34;</span>,
-</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#34;in&#34;</span>, <span style="color:#009c00">&#34;local&#34;</span>, <span style="color:#009c00">&#34;nil&#34;</span>, <span style="color:#009c00">&#34;not&#34;</span>, <span style="color:#009c00">&#34;or&#34;</span>, <span style="color:#009c00">&#34;repeat&#34;</span>,
-</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#34;return&#34;</span>, <span style="color:#009c00">&#34;then&#34;</span>, <span style="color:#009c00">&#34;true&#34;</span>, <span style="color:#009c00">&#34;until&#34;</span>, <span style="color:#009c00">&#34;while&#34;</span>,
-</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#34;..&#34;</span>, <span style="color:#009c00">&#34;...&#34;</span>, <span style="color:#009c00">&#34;==&#34;</span>, <span style="color:#009c00">&#34;&gt;=&#34;</span>, <span style="color:#009c00">&#34;&lt;=&#34;</span>, <span style="color:#009c00">&#34;~=&#34;</span>,
-</span></span><span style="display:flex;"><span>    <span style="color:#009c00">&#34;&lt;number&gt;&#34;</span>, <span style="color:#009c00">&#34;&lt;name&gt;&#34;</span>, <span style="color:#009c00">&#34;&lt;string&gt;&#34;</span>, <span style="color:#009c00">&#34;&lt;eof&gt;&#34;</span>,
-</span></span><span style="display:flex;"><span>    NULL
-</span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define save_and_next(ls) (save(ls, ls-&gt;current), next(ls))
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 将c存到ls-&gt;buff中 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">save</span> (LexState *ls, <span style="color:#00f">int</span> c) {
-</span></span><span style="display:flex;"><span>  Mbuffer *b = ls-&gt;buff;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (b-&gt;n + 1 &gt; b-&gt;buffsize) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">size_t</span> newsize;
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (b-&gt;buffsize &gt;= MAX_SIZET/2)
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaX_lexerror</span>(ls, <span style="color:#009c00">&#34;lexical element too long&#34;</span>, 0);
-</span></span><span style="display:flex;"><span>    newsize = b-&gt;buffsize * 2;
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaZ_resizebuffer</span>(ls-&gt;L, b, newsize);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  b-&gt;buffer[b-&gt;n++] = <span style="color:#c34e00">cast</span>(<span style="color:#00f">char</span>, c);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 构建出关键字 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaX_init</span> (lua_State *L) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> i;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (i=0; i&lt;NUM_RESERVED; i++) {
-</span></span><span style="display:flex;"><span>    TString *ts = <span style="color:#c34e00">luaS_new</span>(L, luaX_tokens[i]);
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaS_fix</span>(ts);  <span style="color:#f00;font-style:italic">/* reserved words are never collected */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(<span style="color:#c34e00">strlen</span>(luaX_tokens[i])+1 &lt;= TOKEN_LEN);
-</span></span><span style="display:flex;"><span>    ts-&gt;tsv.reserved = <span style="color:#c34e00">cast_byte</span>(i+1);  <span style="color:#f00;font-style:italic">/* reserved word */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define MAXSRC          80
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">const</span> <span style="color:#00f">char</span> *<span style="color:#c34e00">luaX_token2str</span> (LexState *ls, <span style="color:#00f">int</span> token) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (token &lt; FIRST_RESERVED) {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(token == <span style="color:#c34e00">cast</span>(<span style="color:#00f">unsigned</span> <span style="color:#00f">char</span>, token));
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> (<span style="color:#c34e00">iscntrl</span>(token)) ? <span style="color:#c34e00">luaO_pushfstring</span>(ls-&gt;L, <span style="color:#009c00">&#34;char(%d)&#34;</span>, token) :
-</span></span><span style="display:flex;"><span>                              <span style="color:#c34e00">luaO_pushfstring</span>(ls-&gt;L, <span style="color:#009c00">&#34;%c&#34;</span>, token);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">else</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> luaX_tokens[token-FIRST_RESERVED];
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">const</span> <span style="color:#00f">char</span> *<span style="color:#c34e00">txtToken</span> (LexState *ls, <span style="color:#00f">int</span> token) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">switch</span> (token) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> TK_NAME:
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> TK_STRING:
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> TK_NUMBER:
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">save</span>(ls, <span style="color:#009c00">&#39;\0&#39;</span>);
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">return</span> <span style="color:#c34e00">luaZ_buffer</span>(ls-&gt;buff);
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">default</span>:
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">return</span> <span style="color:#c34e00">luaX_token2str</span>(ls, token);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaX_lexerror</span> (LexState *ls, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *msg, <span style="color:#00f">int</span> token) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">char</span> buff[MAXSRC];
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaO_chunkid</span>(buff, <span style="color:#c34e00">getstr</span>(ls-&gt;source), MAXSRC);
-</span></span><span style="display:flex;"><span>  msg = <span style="color:#c34e00">luaO_pushfstring</span>(ls-&gt;L, <span style="color:#009c00">&#34;%s:%d: %s&#34;</span>, buff, ls-&gt;linenumber, msg);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (token)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaO_pushfstring</span>(ls-&gt;L, <span style="color:#009c00">&#34;%s near &#34;</span> LUA_QS, msg, <span style="color:#c34e00">txtToken</span>(ls, token));
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaD_throw</span>(ls-&gt;L, LUA_ERRSYNTAX);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaX_syntaxerror</span> (LexState *ls, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *msg) {
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaX_lexerror</span>(ls, msg, ls-&gt;t.token);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>TString *<span style="color:#c34e00">luaX_newstring</span> (LexState *ls, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *str, <span style="color:#00f">size_t</span> l) {
-</span></span><span style="display:flex;"><span>  lua_State *L = ls-&gt;L;
-</span></span><span style="display:flex;"><span>  TString *ts = <span style="color:#c34e00">luaS_newlstr</span>(L, str, l);
-</span></span><span style="display:flex;"><span>  TValue *o = <span style="color:#c34e00">luaH_setstr</span>(L, ls-&gt;fs-&gt;h, ts);  <span style="color:#f00;font-style:italic">/* entry for `str&#39; */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (<span style="color:#c34e00">ttisnil</span>(o)) {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">setbvalue</span>(o, 1);  <span style="color:#f00;font-style:italic">/* make sure `str&#39; will not be collected */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaC_checkGC</span>(L);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> ts;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 读到单个换行符\n，\r，再多读一个字符，看是否是双字符的换行\n\r,\r\n */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">inclinenumber</span> (LexState *ls) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> old = ls-&gt;current;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_assert</span>(<span style="color:#c34e00">currIsNewline</span>(ls));	<span style="color:#f00;font-style:italic">/* 当前是换行符 */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 往后再读一个字符，看看不是不是\n\r和\r\n这种双字符的换行符（仅算一次换行） */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">next</span>(ls);  <span style="color:#f00;font-style:italic">/* skip `\n&#39; or `\r&#39; */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (<span style="color:#c34e00">currIsNewline</span>(ls) &amp;&amp; ls-&gt;current != old)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">next</span>(ls);  <span style="color:#f00;font-style:italic">/* skip `\n\r&#39; or `\r\n&#39; */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (++ls-&gt;linenumber &gt;= MAX_INT)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaX_syntaxerror</span>(ls, <span style="color:#009c00">&#34;chunk has too many lines&#34;</span>);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 初始化LexState，初始化ls-&gt;buf,从ZIO读取第一个字符 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaX_setinput</span> (lua_State *L, LexState *ls, ZIO *z, TString *source) {
-</span></span><span style="display:flex;"><span>  ls-&gt;decpoint = <span style="color:#009c00">&#39;.&#39;</span>;
-</span></span><span style="display:flex;"><span>  ls-&gt;L = L;
-</span></span><span style="display:flex;"><span>  ls-&gt;lookahead.token = TK_EOS;  <span style="color:#f00;font-style:italic">/* no look-ahead token */</span>
-</span></span><span style="display:flex;"><span>  ls-&gt;z = z;
-</span></span><span style="display:flex;"><span>  ls-&gt;fs = NULL;	<span style="color:#f00;font-style:italic">/* 尚未开始编译函数，这里置NULL */</span>
-</span></span><span style="display:flex;"><span>  ls-&gt;linenumber = 1;	<span style="color:#f00;font-style:italic">/* 当前在第一行，亲 */</span>
-</span></span><span style="display:flex;"><span>  ls-&gt;lastline = 1;
-</span></span><span style="display:flex;"><span>  ls-&gt;source = source;
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 申请属于ls-&gt;buff的私有buff */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaZ_resizebuffer</span>(ls-&gt;L, ls-&gt;buff, LUA_MINBUFFER);  <span style="color:#f00;font-style:italic">/* initialize buffer */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">next</span>(ls);  <span style="color:#f00;font-style:italic">/* read first char */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** =======================================================
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** LEXICAL ANALYZER
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** =======================================================
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* ls-&gt;current和set字符集中的某个字符匹配吗 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">int</span> <span style="color:#c34e00">check_next</span> (LexState *ls, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *set) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (!<span style="color:#c34e00">strchr</span>(set, ls-&gt;current))	
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> 0;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> 1;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 将ls-&gt;buff中的from字符替换层to字符 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">buffreplace</span> (LexState *ls, <span style="color:#00f">char</span> from, <span style="color:#00f">char</span> to) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">size_t</span> n = <span style="color:#c34e00">luaZ_bufflen</span>(ls-&gt;buff);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">char</span> *p = <span style="color:#c34e00">luaZ_buffer</span>(ls-&gt;buff);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">while</span> (n--)
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (p[n] == from) p[n] = to;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 数字字符串转换为数字时失败，尝试更换成本地区的数字字符小数点后再次尝试转换 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">trydecpoint</span> (LexState *ls, SemInfo *seminfo) {
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* format error: try to update decimal point separator */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">struct</span> lconv *cv = <span style="color:#c34e00">localeconv</span>();
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">char</span> old = ls-&gt;decpoint;
-</span></span><span style="display:flex;"><span>  ls-&gt;decpoint = (cv ? cv-&gt;decimal_point[0] : <span style="color:#009c00">&#39;.&#39;</span>);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">buffreplace</span>(ls, old, ls-&gt;decpoint);  <span style="color:#f00;font-style:italic">/* try updated decimal separator */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (!<span style="color:#c34e00">luaO_str2d</span>(<span style="color:#c34e00">luaZ_buffer</span>(ls-&gt;buff), &amp;seminfo-&gt;r)) {
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">/* format error with correct decimal point: no more options */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">buffreplace</span>(ls, ls-&gt;decpoint, <span style="color:#009c00">&#39;.&#39;</span>);  <span style="color:#f00;font-style:italic">/* undo change (for error message) */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaX_lexerror</span>(ls, <span style="color:#009c00">&#34;malformed number&#34;</span>, TK_NUMBER);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* LUA_NUMBER 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** .123这种  123或者科学计数法形式(1.99714E+13)的数字
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">read_numeral</span> (LexState *ls, SemInfo *seminfo) {
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_assert</span>(<span style="color:#c34e00">isdigit</span>(ls-&gt;current));	<span style="color:#f00;font-style:italic">/* 属于 [0,9] 集合？*/</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 读取第一部分 1.99714 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">do</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>  } <span style="color:#00f">while</span> (<span style="color:#c34e00">isdigit</span>(ls-&gt;current) || ls-&gt;current == <span style="color:#009c00">&#39;.&#39;</span>);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 读取第二部分 E+ */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (<span style="color:#c34e00">check_next</span>(ls, <span style="color:#009c00">&#34;Ee&#34;</span>))  <span style="color:#f00;font-style:italic">/* `E&#39;? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">check_next</span>(ls, <span style="color:#009c00">&#34;+-&#34;</span>);  <span style="color:#f00;font-style:italic">/* optional exponent sign */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 读取第三部分 13 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">while</span> (<span style="color:#c34e00">isalnum</span>(ls-&gt;current) || ls-&gt;current == <span style="color:#009c00">&#39;_&#39;</span>)	<span style="color:#f00;font-style:italic">/* 这里的_不太明白其含义 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 主动补\0,关闭字符串 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">save</span>(ls, <span style="color:#009c00">&#39;\0&#39;</span>);
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 不同国家不同的小数点 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">buffreplace</span>(ls, <span style="color:#009c00">&#39;.&#39;</span>, ls-&gt;decpoint);  <span style="color:#f00;font-style:italic">/* follow locale for decimal point */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (!<span style="color:#c34e00">luaO_str2d</span>(<span style="color:#c34e00">luaZ_buffer</span>(ls-&gt;buff), &amp;seminfo-&gt;r))  <span style="color:#f00;font-style:italic">/* format error? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">trydecpoint</span>(ls, seminfo); <span style="color:#f00;font-style:italic">/* try to update decimal point separator */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 尝试读取多行字符串的开头或结尾 --[{=}[ 或者 ]{=}] */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">int</span> <span style="color:#c34e00">skip_sep</span> (LexState *ls) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> count = 0;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> s = ls-&gt;current;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_assert</span>(s == <span style="color:#009c00">&#39;[&#39;</span> || s == <span style="color:#009c00">&#39;]&#39;</span>);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">while</span> (ls-&gt;current == <span style="color:#009c00">&#39;=&#39;</span>) {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>    count++;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> (ls-&gt;current == s) ? count : (-count) - 1;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 读取一个长字符串和&#34;结尾控制符&#34;(长注释或String的token)(同时更新linenumber) */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">read_long_string</span> (LexState *ls, SemInfo *seminfo, <span style="color:#00f">int</span> sep) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> cont = 0;
-</span></span><span style="display:flex;"><span>  (<span style="color:#00f">void</span>)(cont);  <span style="color:#f00;font-style:italic">/* avoid warnings when `cont&#39; is not used */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">save_and_next</span>(ls);  		<span style="color:#f00;font-style:italic">/* skip 2nd `[&#39; */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (<span style="color:#c34e00">currIsNewline</span>(ls))  	<span style="color:#f00;font-style:italic">/* string starts with a newline? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">inclinenumber</span>(ls);  <span style="color:#f00;font-style:italic">/* skip it */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (;;) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">switch</span> (ls-&gt;current) {
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> EOZ:
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">luaX_lexerror</span>(ls, (seminfo) ? <span style="color:#009c00">&#34;unfinished long string&#34;</span> :
-</span></span><span style="display:flex;"><span>                                   <span style="color:#009c00">&#34;unfinished long comment&#34;</span>, TK_EOS);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">break</span>;  <span style="color:#f00;font-style:italic">/* to avoid warnings */</span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#if defined(LUA_COMPAT_LSTR)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;[&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (<span style="color:#c34e00">skip_sep</span>(ls) == sep) {
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">save_and_next</span>(ls);  <span style="color:#f00;font-style:italic">/* skip 2nd `[&#39; */</span>
-</span></span><span style="display:flex;"><span>          cont++;
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#if LUA_COMPAT_LSTR == 1
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>          <span style="color:#00f">if</span> (sep == 0)
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">luaX_lexerror</span>(ls, <span style="color:#009c00">&#34;nesting of [[...]] is deprecated&#34;</span>, <span style="color:#009c00">&#39;[&#39;</span>);
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#endif
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#endif
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;]&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (<span style="color:#c34e00">skip_sep</span>(ls) == sep) {
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">save_and_next</span>(ls);  <span style="color:#f00;font-style:italic">/* skip 2nd `]&#39; */</span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#if defined(LUA_COMPAT_LSTR) &amp;&amp; LUA_COMPAT_LSTR == 2
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>          cont--;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">if</span> (sep == 0 &amp;&amp; cont &gt;= 0) <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#endif
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>          <span style="color:#00f">goto</span> endloop;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\n&#39;</span>:
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\r&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">save</span>(ls, <span style="color:#009c00">&#39;\n&#39;</span>);	
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">inclinenumber</span>(ls);	<span style="color:#f00;font-style:italic">/* 注释的业务中也不能忘了linenumber */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (!seminfo) <span style="color:#c34e00">luaZ_resetbuffer</span>(ls-&gt;buff);  <span style="color:#f00;font-style:italic">/* avoid wasting space */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">default</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (seminfo) <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  } endloop:
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* seminfo为null是注释逻辑，注释不用管里面的具体String，否则是一个正常的String的token，需将String保存 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (seminfo) {
-</span></span><span style="display:flex;"><span>  	<span style="color:#f00;font-style:italic">/* 2+sep:[{=}[ */</span>
-</span></span><span style="display:flex;"><span>    seminfo-&gt;ts = <span style="color:#c34e00">luaX_newstring</span>(ls, <span style="color:#c34e00">luaZ_buffer</span>(ls-&gt;buff) + (2 + sep),	
-</span></span><span style="display:flex;"><span>                                     <span style="color:#c34e00">luaZ_bufflen</span>(ls-&gt;buff) - 2*(2 + sep));
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 读一个&#34;字符串&#34;或&#39;字符串&#39;格式的字符串 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">read_string</span> (LexState *ls, <span style="color:#00f">int</span> del, SemInfo *seminfo) {
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">while</span> (ls-&gt;current != del) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">switch</span> (ls-&gt;current) {
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> EOZ:
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">luaX_lexerror</span>(ls, <span style="color:#009c00">&#34;unfinished string&#34;</span>, TK_EOS);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">continue</span>;  <span style="color:#f00;font-style:italic">/* to avoid warnings */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\n&#39;</span>:
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\r&#39;</span>:
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">luaX_lexerror</span>(ls, <span style="color:#009c00">&#34;unfinished string&#34;</span>, TK_STRING);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">continue</span>;  <span style="color:#f00;font-style:italic">/* to avoid warnings */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\\&#39;</span>: {	<span style="color:#f00;font-style:italic">/* 可能的转移序列 */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">int</span> c;
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">next</span>(ls);  <span style="color:#f00;font-style:italic">/* do not save the `\&#39; */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">switch</span> (ls-&gt;current) {
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;a&#39;</span>: c = <span style="color:#009c00">&#39;\a&#39;</span>; <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;b&#39;</span>: c = <span style="color:#009c00">&#39;\b&#39;</span>; <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;f&#39;</span>: c = <span style="color:#009c00">&#39;\f&#39;</span>; <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;n&#39;</span>: c = <span style="color:#009c00">&#39;\n&#39;</span>; <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;r&#39;</span>: c = <span style="color:#009c00">&#39;\r&#39;</span>; <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;t&#39;</span>: c = <span style="color:#009c00">&#39;\t&#39;</span>; <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;v&#39;</span>: c = <span style="color:#009c00">&#39;\v&#39;</span>; <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		  <span style="color:#f00;font-style:italic">/* 本身就是一个换行符 */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\n&#39;</span>:  <span style="color:#f00;font-style:italic">/* go through */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\r&#39;</span>: <span style="color:#c34e00">save</span>(ls, <span style="color:#009c00">&#39;\n&#39;</span>); <span style="color:#c34e00">inclinenumber</span>(ls); <span style="color:#00f">continue</span>;
-</span></span><span style="display:flex;"><span>		  
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">case</span> EOZ: <span style="color:#00f">continue</span>;  <span style="color:#f00;font-style:italic">/* will raise an error next loop */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">default</span>: {
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">if</span> (!<span style="color:#c34e00">isdigit</span>(ls-&gt;current))
-</span></span><span style="display:flex;"><span>              <span style="color:#c34e00">save_and_next</span>(ls);  <span style="color:#f00;font-style:italic">/* handles \\, \&#34;, \&#39;, and \? */</span>
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">else</span> {  <span style="color:#f00;font-style:italic">/* \xxx */</span>
-</span></span><span style="display:flex;"><span>              <span style="color:#00f">int</span> i = 0;
-</span></span><span style="display:flex;"><span>              c = 0;
-</span></span><span style="display:flex;"><span>              <span style="color:#00f">do</span> {
-</span></span><span style="display:flex;"><span>                c = 10*c + (ls-&gt;current-<span style="color:#009c00">&#39;0&#39;</span>);
-</span></span><span style="display:flex;"><span>                <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>              } <span style="color:#00f">while</span> (++i&lt;3 &amp;&amp; <span style="color:#c34e00">isdigit</span>(ls-&gt;current));
-</span></span><span style="display:flex;"><span>              <span style="color:#00f">if</span> (c &gt; UCHAR_MAX)
-</span></span><span style="display:flex;"><span>                <span style="color:#c34e00">luaX_lexerror</span>(ls, <span style="color:#009c00">&#34;escape sequence too large&#34;</span>, TK_STRING);
-</span></span><span style="display:flex;"><span>              <span style="color:#c34e00">save</span>(ls, c);
-</span></span><span style="display:flex;"><span>            }
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">continue</span>;
-</span></span><span style="display:flex;"><span>          }
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">save</span>(ls, c);
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">continue</span>;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">default</span>:
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">save_and_next</span>(ls);  <span style="color:#f00;font-style:italic">/* skip delimiter(分隔符) */</span>
-</span></span><span style="display:flex;"><span>  seminfo-&gt;ts = <span style="color:#c34e00">luaX_newstring</span>(ls, <span style="color:#c34e00">luaZ_buffer</span>(ls-&gt;buff) + 1,
-</span></span><span style="display:flex;"><span>                                   <span style="color:#c34e00">luaZ_bufflen</span>(ls-&gt;buff) - 2);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 从读取下一个字符token 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 从ZIO读取下一个token到seminfo,并返回TokenType(中途可能用到lx-&gt;buff)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">int</span> <span style="color:#c34e00">llex</span> (LexState *ls, SemInfo *seminfo) {
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaZ_resetbuffer</span>(ls-&gt;buff);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (;;) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">switch</span> (ls-&gt;current) {
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\n&#39;</span>:
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\r&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">inclinenumber</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">continue</span>;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;-&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>		<span style="color:#f00;font-style:italic">/* 单独的 - */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (ls-&gt;current != <span style="color:#009c00">&#39;-&#39;</span>) <span style="color:#00f">return</span> <span style="color:#009c00">&#39;-&#39;</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/* else is a comment */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">next</span>(ls);	<span style="color:#f00;font-style:italic">/* 单行OR多行注释? */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (ls-&gt;current == <span style="color:#009c00">&#39;[&#39;</span>) {
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">int</span> sep = <span style="color:#c34e00">skip_sep</span>(ls);
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">luaZ_resetbuffer</span>(ls-&gt;buff);  <span style="color:#f00;font-style:italic">/* `skip_sep&#39; may dirty the buffer */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">if</span> (sep &gt;= 0) {
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">read_long_string</span>(ls, NULL, sep);  <span style="color:#f00;font-style:italic">/* long comment */</span>
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">luaZ_resetbuffer</span>(ls-&gt;buff);
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">continue</span>;
-</span></span><span style="display:flex;"><span>          }
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#f00;font-style:italic">/* else short comment */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">while</span> (!<span style="color:#c34e00">currIsNewline</span>(ls) &amp;&amp; ls-&gt;current != EOZ)
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">continue</span>;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;[&#39;</span>: {	<span style="color:#f00;font-style:italic">/* 长字符串: [{=}[ String ]{=}] */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">int</span> sep = <span style="color:#c34e00">skip_sep</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (sep &gt;= 0) {	<span style="color:#f00;font-style:italic">/* 多行字符串开头 [{=}[ */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">read_long_string</span>(ls, seminfo, sep);
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">return</span> TK_STRING;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> <span style="color:#00f">if</span> (sep == -1) <span style="color:#00f">return</span> <span style="color:#009c00">&#39;[&#39;</span>;	<span style="color:#f00;font-style:italic">/* [,others这样的开头 */</span>
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> <span style="color:#c34e00">luaX_lexerror</span>(ls, <span style="color:#009c00">&#34;invalid long string delimiter&#34;</span>, TK_STRING);		<span style="color:#f00;font-style:italic">/* [={=},others这样的开头 */</span>
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;=&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (ls-&gt;current != <span style="color:#009c00">&#39;=&#39;</span>) <span style="color:#00f">return</span> <span style="color:#009c00">&#39;=&#39;</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> { <span style="color:#c34e00">next</span>(ls); <span style="color:#00f">return</span> TK_EQ; }
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;&lt;&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (ls-&gt;current != <span style="color:#009c00">&#39;=&#39;</span>) <span style="color:#00f">return</span> <span style="color:#009c00">&#39;&lt;&#39;</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> { <span style="color:#c34e00">next</span>(ls); <span style="color:#00f">return</span> TK_LE; }
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;&gt;&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (ls-&gt;current != <span style="color:#009c00">&#39;=&#39;</span>) <span style="color:#00f">return</span> <span style="color:#009c00">&#39;&gt;&#39;</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> { <span style="color:#c34e00">next</span>(ls); <span style="color:#00f">return</span> TK_GE; }
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;~&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (ls-&gt;current != <span style="color:#009c00">&#39;=&#39;</span>) <span style="color:#00f">return</span> <span style="color:#009c00">&#39;~&#39;</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> { <span style="color:#c34e00">next</span>(ls); <span style="color:#00f">return</span> TK_NE; }
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>	  <span style="color:#f00;font-style:italic">/* 短字符串 */</span>
-</span></span><span style="display:flex;"><span>	  <span style="color:#00f">case</span> <span style="color:#009c00">&#39;&#34;&#39;</span>:
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;\&#39;&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">read_string</span>(ls, ls-&gt;current, seminfo);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> TK_STRING;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>	  <span style="color:#f00;font-style:italic">/* 看这个符号的解析，是一个深度优先的解析示例 */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> <span style="color:#009c00">&#39;.&#39;</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (<span style="color:#c34e00">check_next</span>(ls, <span style="color:#009c00">&#34;.&#34;</span>)) {
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">if</span> (<span style="color:#c34e00">check_next</span>(ls, <span style="color:#009c00">&#34;.&#34;</span>))
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> TK_DOTS;   <span style="color:#f00;font-style:italic">/* ... */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">else</span> <span style="color:#00f">return</span> TK_CONCAT;   <span style="color:#f00;font-style:italic">/* .. */</span>
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> <span style="color:#00f">if</span> (!<span style="color:#c34e00">isdigit</span>(ls-&gt;current)) <span style="color:#00f">return</span> <span style="color:#009c00">&#39;.&#39;</span>;
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">read_numeral</span>(ls, seminfo);
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">return</span> TK_NUMBER;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">case</span> EOZ: {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span> TK_EOS;
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">default</span>: {
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">if</span> (<span style="color:#c34e00">isspace</span>(ls-&gt;current)) {
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">lua_assert</span>(!<span style="color:#c34e00">currIsNewline</span>(ls));	<span style="color:#f00;font-style:italic">/* 换行符在前面就被解析掉了，这里不能再是换行符了,否则就重复了 */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">continue</span>;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> <span style="color:#00f">if</span> (<span style="color:#c34e00">isdigit</span>(ls-&gt;current)) {
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">read_numeral</span>(ls, seminfo);
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">return</span> TK_NUMBER;
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> <span style="color:#00f">if</span> (<span style="color:#c34e00">isalpha</span>(ls-&gt;current) || ls-&gt;current == <span style="color:#009c00">&#39;_&#39;</span>) {	<span style="color:#f00;font-style:italic">/* 标识符 */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#f00;font-style:italic">/* identifier or reserved word */</span>
-</span></span><span style="display:flex;"><span>          TString *ts;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">do</span> {
-</span></span><span style="display:flex;"><span>            <span style="color:#c34e00">save_and_next</span>(ls);
-</span></span><span style="display:flex;"><span>          } <span style="color:#00f">while</span> (<span style="color:#c34e00">isalnum</span>(ls-&gt;current) || ls-&gt;current == <span style="color:#009c00">&#39;_&#39;</span>);	<span style="color:#f00;font-style:italic">/* 这里和上面的有一点差别 */</span>
-</span></span><span style="display:flex;"><span>		  
-</span></span><span style="display:flex;"><span>          ts = <span style="color:#c34e00">luaX_newstring</span>(ls, <span style="color:#c34e00">luaZ_buffer</span>(ls-&gt;buff),
-</span></span><span style="display:flex;"><span>                                  <span style="color:#c34e00">luaZ_bufflen</span>(ls-&gt;buff));
-</span></span><span style="display:flex;"><span>		  <span style="color:#f00;font-style:italic">/* 关键或保留字符串 */</span>
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">if</span> (ts-&gt;tsv.reserved &gt; 0)  <span style="color:#f00;font-style:italic">/* reserved word? */</span>
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> ts-&gt;tsv.reserved - 1 + FIRST_RESERVED;
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>            seminfo-&gt;ts = ts;
-</span></span><span style="display:flex;"><span>            <span style="color:#00f">return</span> TK_NAME;
-</span></span><span style="display:flex;"><span>          }
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">int</span> c = ls-&gt;current;
-</span></span><span style="display:flex;"><span>          <span style="color:#c34e00">next</span>(ls);
-</span></span><span style="display:flex;"><span>          <span style="color:#00f">return</span> c;  <span style="color:#f00;font-style:italic">/* single-char tokens (+ - / ...) */</span>
-</span></span><span style="display:flex;"><span>        }
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaX_next</span> (LexState *ls) {
-</span></span><span style="display:flex;"><span>  ls-&gt;lastline = ls-&gt;linenumber
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 已有一个准备好的lookhead&#39;token,则取出来用 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (ls-&gt;lookahead.token != TK_EOS) {  <span style="color:#f00;font-style:italic">/* is there a look-ahead token? */</span>
-</span></span><span style="display:flex;"><span>    ls-&gt;t = ls-&gt;lookahead;  <span style="color:#f00;font-style:italic">/* use this one */</span>
-</span></span><span style="display:flex;"><span>    ls-&gt;lookahead.token = TK_EOS;  <span style="color:#f00;font-style:italic">/* and discharge it */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">else</span> <span style="color:#f00;font-style:italic">/* 读取一个token */</span>
-</span></span><span style="display:flex;"><span>    ls-&gt;t.token = <span style="color:#c34e00">llex</span>(ls, &amp;ls-&gt;t.seminfo);  <span style="color:#f00;font-style:italic">/* read next token */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 当前lookhead&#39;token已过期，重新准备lookhead&#39;token */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaX_lookahead</span> (LexState *ls) {
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_assert</span>(ls-&gt;lookahead.token == TK_EOS);
-</span></span><span style="display:flex;"><span>  ls-&gt;lookahead.token = <span style="color:#c34e00">llex</span>(ls, &amp;ls-&gt;lookahead.seminfo);
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div>
-    </div>
-    
-    <footer class="post-footer"><div class="post-eof"></div></footer>
-  </article>
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <header class="post-header">
-      <h1 class="post-title" itemprop="name headline">
-        <a class="post-title-link" href="http://shanks.link/blog/2021/05/28/lua%E6%BA%90%E7%A0%81%E6%B3%A8%E9%87%8A-ldo.c/" itemprop="url">
-        lua源码注释-ldo.c
-        </a>
-      </h1>
-      <div class="post-meta">
-      <span class="post-time">
-<span class="post-meta-item-icon">
-    <i class="fa fa-calendar-o"></i>
-</span>
-<span class="post-meta-item-text">时间：</span>
-<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-05-28">
-    2021-05-28
-</time>
-</span> 
-      
-
-  <span class="post-category" >
-  &nbsp; | &nbsp;
-  <span class="post-meta-item-icon">
-    <i class="fa fa-folder-o"></i>
-  </span>
-  <span class="post-meta-item-text">分类：</span>
-  
-    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
-      <a href="http://shanks.link/categories/lua" itemprop="url" rel="index">
-        <span itemprop="name">lua</span>
-      </a>
-      &nbsp; 
-    </span>
-  
-</span>
-
-
-       <span>
-&nbsp; | &nbsp;
-<span class="post-meta-item-icon">
-    <i class="fa fa-eye"></i>
-</span>
-<span class="post-meta-item-text">阅读：</span>
-<span class="leancloud-visitors-count">4661 字 ~10分钟</span>
-</span>
-      </div>
-    </header>
-    <div class="post-body" itemprop="articleBody">
-    <div class="highlight"><pre tabindex="0" style="background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** $Id: ldo.c,v 2.38.1.4 2012/01/18 02:27:10 roberto Exp $
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** Stack and Call structure of Lua
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** See Copyright Notice in lua.h
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;setjmp.h&gt;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;stdlib.h&gt;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&lt;string.h&gt;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define ldo_c
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define LUA_CORE
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lua.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;ldebug.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;ldo.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lfunc.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lgc.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lmem.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lobject.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lopcodes.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lparser.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lstate.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lstring.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;ltable.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;ltm.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lundump.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lvm.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#include</span> <span style="color:#f00;font-style:italic">&#34;lzio.h&#34;</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** {======================================================
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** Error-recovery functions
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** =======================================================
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* chain list of long jump buffers */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> lua_longjmp {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">struct</span> lua_longjmp *previous;
-</span></span><span style="display:flex;"><span>  luai_jmpbuf b;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">volatile</span> <span style="color:#00f">int</span> status;  <span style="color:#f00;font-style:italic">/* error code */</span>
-</span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaD_seterrorobj</span> (lua_State *L, <span style="color:#00f">int</span> errcode, StkId oldtop) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">switch</span> (errcode) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> LUA_ERRMEM: {
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">setsvalue2s</span>(L, oldtop, <span style="color:#c34e00">luaS_newliteral</span>(L, MEMERRMSG));
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> LUA_ERRERR: {
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">setsvalue2s</span>(L, oldtop, <span style="color:#c34e00">luaS_newliteral</span>(L, <span style="color:#009c00">&#34;error in error handling&#34;</span>));
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> LUA_ERRSYNTAX:
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">case</span> LUA_ERRRUN: {
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">setobjs2s</span>(L, oldtop, L-&gt;top - 1);  <span style="color:#f00;font-style:italic">/* error message on current top */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">break</span>;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 这里结合 luaD_pcall 来一起来看 */</span>
-</span></span><span style="display:flex;"><span>  L-&gt;top = oldtop + 1;	<span style="color:#f00;font-style:italic">/* correct top */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 空闲的callInfo过多时，尝试压缩其空间 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">restore_stack_limit</span> (lua_State *L) {
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_assert</span>(L-&gt;stack_last - L-&gt;stack == L-&gt;stacksize - EXTRA_STACK - 1);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (L-&gt;size_ci &gt; LUAI_MAXCALLS) {  <span style="color:#f00;font-style:italic">/* there was an overflow? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> inuse = <span style="color:#c34e00">cast_int</span>(L-&gt;ci - L-&gt;base_ci);
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (inuse + 1 &lt; LUAI_MAXCALLS)  <span style="color:#f00;font-style:italic">/* can `undo&#39; overflow? */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaD_reallocCI</span>(L, LUAI_MAXCALLS);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 回滚stack到初始状态！！！！ */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">resetstack</span> (lua_State *L, <span style="color:#00f">int</span> status) {
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 这一下彻底回滚了 */</span>
-</span></span><span style="display:flex;"><span>  L-&gt;ci = L-&gt;base_ci;
-</span></span><span style="display:flex;"><span>  L-&gt;base = L-&gt;ci-&gt;base;
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaF_close</span>(L, L-&gt;base);  <span style="color:#f00;font-style:italic">/* close eventual pending closures */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaD_seterrorobj</span>(L, status, L-&gt;base);
-</span></span><span style="display:flex;"><span>  L-&gt;nCcalls = L-&gt;baseCcalls;
-</span></span><span style="display:flex;"><span>  L-&gt;allowhook = 1;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">restore_stack_limit</span>(L);
-</span></span><span style="display:flex;"><span>  L-&gt;errfunc = 0;
-</span></span><span style="display:flex;"><span>  L-&gt;errorJmp = NULL;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 尝试调用异常处理函数 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 主要在luaG_errormsg中被间接调用
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaD_throw</span> (lua_State *L, <span style="color:#00f">int</span> errcode) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (L-&gt;errorJmp) {
-</span></span><span style="display:flex;"><span>    L-&gt;errorJmp-&gt;status = errcode;  <span style="color:#f00;font-style:italic">/* !!! 跳出去之前设置status */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">LUAI_THROW</span>(L, L-&gt;errorJmp); 	<span style="color:#f00;font-style:italic">/* 正式跳出 */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">else</span> {	<span style="color:#f00;font-style:italic">/* 没有设置errHdl，调用panic后退出进程 */</span>
-</span></span><span style="display:flex;"><span>    L-&gt;status = <span style="color:#c34e00">cast_byte</span>(errcode);	<span style="color:#f00;font-style:italic">/* 无jump点了，在这里设置L的状态，有则由上层业务处理 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (<span style="color:#c34e00">G</span>(L)-&gt;panic) {
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">resetstack</span>(L, errcode);	<span style="color:#f00;font-style:italic">/* 这里对stack进行收尾 */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">lua_unlock</span>(L);
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">G</span>(L)-&gt;<span style="color:#c34e00">panic</span>(L);
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">exit</span>(EXIT_FAILURE);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 保护模式下(longjump)调用C函数
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 但发生错误，则调用了L-&gt;errfunc后(若设置了)，后走到这里而不是直接退出进程
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** RETURN：执行流的执行结果，没有同步到L-&gt;status中(由上层调用决定是否同步)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">luaD_rawrunprotected</span> (lua_State *L, Pfunc f, <span style="color:#00f">void</span> *ud) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">struct</span> lua_longjmp lj;
-</span></span><span style="display:flex;"><span>  lj.status = 0;
-</span></span><span style="display:flex;"><span>  lj.previous = L-&gt;errorJmp;  <span style="color:#f00;font-style:italic">/* chain new error handler */</span>
-</span></span><span style="display:flex;"><span>  L-&gt;errorJmp = &amp;lj;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">LUAI_TRY</span>(L, &amp;lj,
-</span></span><span style="display:flex;"><span>    (*f)(L, ud);
-</span></span><span style="display:flex;"><span>  );
-</span></span><span style="display:flex;"><span>  L-&gt;errorJmp = lj.previous;  <span style="color:#f00;font-style:italic">/* restore old error handler */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> lj.status;	<span style="color:#f00;font-style:italic">/* luaD_throw()中更新了status */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* }====================================================== */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* stack移动后更新upvalues,ci-list和L-&gt;base */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">correctstack</span> (lua_State *L, TValue *oldstack) {
-</span></span><span style="display:flex;"><span>  CallInfo *ci;
-</span></span><span style="display:flex;"><span>  GCObject *up;
-</span></span><span style="display:flex;"><span>  L-&gt;top = (L-&gt;top - oldstack) + L-&gt;stack;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (up = L-&gt;openupval; up != NULL; up = up-&gt;gch.next)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">gco2uv</span>(up)-&gt;v = (<span style="color:#c34e00">gco2uv</span>(up)-&gt;v - oldstack) + L-&gt;stack;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (ci = L-&gt;base_ci; ci &lt;= L-&gt;ci; ci++) {
-</span></span><span style="display:flex;"><span>    ci-&gt;top = (ci-&gt;top - oldstack) + L-&gt;stack;
-</span></span><span style="display:flex;"><span>    ci-&gt;base = (ci-&gt;base - oldstack) + L-&gt;stack;
-</span></span><span style="display:flex;"><span>    ci-&gt;func = (ci-&gt;func - oldstack) + L-&gt;stack;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* L-&gt;ci不用调整哈 */</span>
-</span></span><span style="display:flex;"><span>  L-&gt;base = (L-&gt;base - oldstack) + L-&gt;stack;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 重新调整stack的大小 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaD_reallocstack</span> (lua_State *L, <span style="color:#00f">int</span> newsize) {
-</span></span><span style="display:flex;"><span>  TValue *oldstack = L-&gt;stack;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> realsize = newsize + 1 + EXTRA_STACK;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_assert</span>(L-&gt;stack_last - L-&gt;stack == L-&gt;stacksize - EXTRA_STACK - 1);	<span style="color:#f00;font-style:italic">/* 和stack_init()函数对应 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaM_reallocvector</span>(L, L-&gt;stack, L-&gt;stacksize, realsize, TValue);
-</span></span><span style="display:flex;"><span>  L-&gt;stacksize = realsize;
-</span></span><span style="display:flex;"><span>  L-&gt;stack_last = L-&gt;stack+newsize;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">correctstack</span>(L, oldstack);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 调整callInfo链的大小 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaD_reallocCI</span> (lua_State *L, <span style="color:#00f">int</span> newsize) {
-</span></span><span style="display:flex;"><span>  CallInfo *oldci = L-&gt;base_ci;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaM_reallocvector</span>(L, L-&gt;base_ci, L-&gt;size_ci, newsize, CallInfo);
-</span></span><span style="display:flex;"><span>  L-&gt;size_ci = newsize;
-</span></span><span style="display:flex;"><span>  L-&gt;ci = (L-&gt;ci - oldci) + L-&gt;base_ci;
-</span></span><span style="display:flex;"><span>  L-&gt;end_ci = L-&gt;base_ci + L-&gt;size_ci - 1;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaD_growstack</span> (lua_State *L, <span style="color:#00f">int</span> n) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (n &lt;= L-&gt;stacksize)  <span style="color:#f00;font-style:italic">/* double size is enough? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_reallocstack</span>(L, 2*L-&gt;stacksize);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">else</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_reallocstack</span>(L, L-&gt;stacksize + n);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> CallInfo *<span style="color:#c34e00">growCI</span> (lua_State *L) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (L-&gt;size_ci &gt; LUAI_MAXCALLS)  <span style="color:#f00;font-style:italic">/* overflow while handling overflow? 嵌套调用层次太深了，直接报错，方便用户检查调用情况 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_throw</span>(L, LUA_ERRERR);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_reallocCI</span>(L, 2*L-&gt;size_ci);	<span style="color:#f00;font-style:italic">/* 简单粗暴，直接扩大一倍 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (L-&gt;size_ci &gt; LUAI_MAXCALLS)
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaG_runerror</span>(L, <span style="color:#009c00">&#34;stack overflow&#34;</span>);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> ++L-&gt;ci;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">static</span> StkId <span style="color:#c34e00">callrethooks</span> (lua_State *L, StkId firstResult) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">ptrdiff_t</span> fr = <span style="color:#c34e00">savestack</span>(L, firstResult);  <span style="color:#f00;font-style:italic">/* next call may change stack */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaD_callhook</span>(L, LUA_HOOKRET, -1);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (<span style="color:#c34e00">f_isLua</span>(L-&gt;ci)) {  <span style="color:#f00;font-style:italic">/* Lua function? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">while</span> ((L-&gt;hookmask &amp; LUA_MASKRET) &amp;&amp; L-&gt;ci-&gt;tailcalls--) <span style="color:#f00;font-style:italic">/* tail calls */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaD_callhook</span>(L, LUA_HOOKTAILRET, -1);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> <span style="color:#c34e00">restorestack</span>(L, fr);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 调用钩子函数 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaD_callhook</span> (lua_State *L, <span style="color:#00f">int</span> event, <span style="color:#00f">int</span> line) {
-</span></span><span style="display:flex;"><span>  lua_Hook hook = L-&gt;hook;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (hook &amp;&amp; L-&gt;allowhook) {
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">ptrdiff_t</span> top = <span style="color:#c34e00">savestack</span>(L, L-&gt;top);
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">ptrdiff_t</span> ci_top = <span style="color:#c34e00">savestack</span>(L, L-&gt;ci-&gt;top);
-</span></span><span style="display:flex;"><span>    lua_Debug ar;
-</span></span><span style="display:flex;"><span>    ar.event = event;
-</span></span><span style="display:flex;"><span>    ar.currentline = line;
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (event == LUA_HOOKTAILRET)
-</span></span><span style="display:flex;"><span>      ar.i_ci = 0;  <span style="color:#f00;font-style:italic">/* tail call; no debug information about it */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span>
-</span></span><span style="display:flex;"><span>      ar.i_ci = <span style="color:#c34e00">cast_int</span>(L-&gt;ci - L-&gt;base_ci);
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_checkstack</span>(L, LUA_MINSTACK);  <span style="color:#f00;font-style:italic">/* ensure minimum stack size */</span>
-</span></span><span style="display:flex;"><span>    L-&gt;ci-&gt;top = L-&gt;top + LUA_MINSTACK;
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(L-&gt;ci-&gt;top &lt;= L-&gt;stack_last);
-</span></span><span style="display:flex;"><span>    L-&gt;allowhook = 0;  <span style="color:#f00;font-style:italic">/* cannot call hooks inside a hook */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_unlock</span>(L);
-</span></span><span style="display:flex;"><span>    (*hook)(L, &amp;ar);	<span style="color:#f00;font-style:italic">/* 正式调用钩子函数 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_lock</span>(L);
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(!L-&gt;allowhook);
-</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">/* !!!! 现场需恢复，别忘了，亲 */</span>
-</span></span><span style="display:flex;"><span>    L-&gt;allowhook = 1;
-</span></span><span style="display:flex;"><span>    L-&gt;ci-&gt;top = <span style="color:#c34e00">restorestack</span>(L, ci_top);
-</span></span><span style="display:flex;"><span>    L-&gt;top = <span style="color:#c34e00">restorestack</span>(L, top);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">**补齐固定形参(若实际传入的参数不够)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">**将传给固定形参的值mv到top之上且纠正top
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">**将剩下(若还有剩下)的参数留给变参...
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> StkId <span style="color:#c34e00">adjust_varargs</span> (lua_State *L, Proto *p, <span style="color:#00f">int</span> actual) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> i;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> nfixargs = p-&gt;numparams;
-</span></span><span style="display:flex;"><span>  Table *htab = NULL;
-</span></span><span style="display:flex;"><span>  StkId base, fixed;
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 传入的参数数量不够填补fixed参数的，直接补nil：至少得把fixed形参需要的个数补齐 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (; actual &lt; nfixargs; ++actual)	
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">setnilvalue</span>(L-&gt;top++);
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#if defined(LUA_COMPAT_VARARG)	</span><span style="color:#f00;font-style:italic">/* 将留给...的参数信息打包到额外的arg表中 */</span><span style="color:#f00;font-style:italic">
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>  <span style="color:#00f">if</span> (p-&gt;is_vararg &amp; VARARG_NEEDSARG) { <span style="color:#f00;font-style:italic">/* compat. with old-style vararg? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> nvar = actual - nfixargs;  <span style="color:#f00;font-style:italic">/* number of extra arguments */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(p-&gt;is_vararg &amp; VARARG_HASARG);
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaC_checkGC</span>(L);
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_checkstack</span>(L, p-&gt;maxstacksize);
-</span></span><span style="display:flex;"><span>    htab = <span style="color:#c34e00">luaH_new</span>(L, nvar, 1);  <span style="color:#f00;font-style:italic">/* create `arg&#39; table */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (i=0; i&lt;nvar; i++)  <span style="color:#f00;font-style:italic">/* put extra arguments into `arg&#39; table */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">setobj2n</span>(L, <span style="color:#c34e00">luaH_setnum</span>(L, htab, i+1), L-&gt;top - nvar + i);
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">/* store counter in field `n&#39; */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">setnvalue</span>(<span style="color:#c34e00">luaH_setstr</span>(L, htab, <span style="color:#c34e00">luaS_newliteral</span>(L, <span style="color:#009c00">&#34;n&#34;</span>)), <span style="color:#c34e00">cast_num</span>(nvar));
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#endif
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>  <span style="color:#f00;font-style:italic">/* move fixed parameters to final position */</span>
-</span></span><span style="display:flex;"><span>  fixed = L-&gt;top - actual;  <span style="color:#f00;font-style:italic">/* first fixed argument */</span>
-</span></span><span style="display:flex;"><span>  base = L-&gt;top;  <span style="color:#f00;font-style:italic">/* final position of first argument */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 从第一个参数开始移动其值到被调函数的fixed‘arg域,直到给所有的fixed&#39;arg赋值为止
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  ** 如果还剩下多余的参数，则直接保留下来(留给变参...)，无需移动
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (i=0; i&lt;nfixargs; i++) {	
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">setobjs2s</span>(L, L-&gt;top++, fixed+i);	<span style="color:#f00;font-style:italic">/* !!!!这里移动了top指针 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">setnilvalue</span>(fixed+i);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* add `arg&#39; parameter */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (htab) {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">sethvalue</span>(L, L-&gt;top++, htab);
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(<span style="color:#c34e00">iswhite</span>(<span style="color:#c34e00">obj2gco</span>(htab)));
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> base;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 直接看代码 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> StkId <span style="color:#c34e00">tryfuncTM</span> (lua_State *L, StkId func) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">const</span> TValue *tm = <span style="color:#c34e00">luaT_gettmbyobj</span>(L, func, TM_CALL);
-</span></span><span style="display:flex;"><span>  StkId p;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">ptrdiff_t</span> funcr = <span style="color:#c34e00">savestack</span>(L, func);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (!<span style="color:#c34e00">ttisfunction</span>(tm))
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaG_typeerror</span>(L, func, <span style="color:#009c00">&#34;call&#34;</span>);
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* Open a hole inside the stack at `func&#39; */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (p = L-&gt;top; p &gt; func; p--) <span style="color:#c34e00">setobjs2s</span>(L, p, p-1);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">incr_top</span>(L);
-</span></span><span style="display:flex;"><span>  func = <span style="color:#c34e00">restorestack</span>(L, funcr);  <span style="color:#f00;font-style:italic">/* previous call may change stack */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">setobj2s</span>(L, func, tm);  <span style="color:#f00;font-style:italic">/* tag method is the new function to be called */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> func;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">#define inc_ci(L) \
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  ((L-&gt;ci == L-&gt;end_ci) ? growCI(L) : \
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">   (condhardstacktests(luaD_reallocCI(L, L-&gt;size_ci)), ++L-&gt;ci))
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 先做调用前的准备工作，后进入函数调用(for C,not Lua)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** nresults:-1返回所有的返回值
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 0：不要返回值
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 1：期待一个返回值
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">luaD_precall</span> (lua_State *L, StkId func, <span style="color:#00f">int</span> nresults) {
-</span></span><span style="display:flex;"><span>  LClosure *cl;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">ptrdiff_t</span> funcr;	<span style="color:#f00;font-style:italic">/* 当前调用函数的pc距离stack栈底的偏移量 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (!<span style="color:#c34e00">ttisfunction</span>(func)) <span style="color:#f00;font-style:italic">/* `func&#39; is not a function? */</span>
-</span></span><span style="display:flex;"><span>    func = <span style="color:#c34e00">tryfuncTM</span>(L, func);  <span style="color:#f00;font-style:italic">/* check the `function&#39; tag method */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 随着新的调用产生,ci链/stack可能因为增长而移动位置
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  ** 故不能记住绝地位置而记住相对位置，后面根据此值最终确定ci-&gt;func 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  */</span>
-</span></span><span style="display:flex;"><span>  funcr = <span style="color:#c34e00">savestack</span>(L, func);	
-</span></span><span style="display:flex;"><span>  cl = &amp;<span style="color:#c34e00">clvalue</span>(func)-&gt;l;
-</span></span><span style="display:flex;"><span>  L-&gt;ci-&gt;savedpc = L-&gt;savedpc;	<span style="color:#f00;font-style:italic">/* 正式调用前，存档L-&gt;savedpc至L-&gt;ci-&gt;savedpc */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (!cl-&gt;isC) {  <span style="color:#f00;font-style:italic">/* Lua function? prepare its call */</span>
-</span></span><span style="display:flex;"><span>    CallInfo *ci;
-</span></span><span style="display:flex;"><span>    StkId st, base;
-</span></span><span style="display:flex;"><span>    Proto *p = cl-&gt;p;
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_checkstack</span>(L, p-&gt;maxstacksize);
-</span></span><span style="display:flex;"><span>    func = <span style="color:#c34e00">restorestack</span>(L, funcr);
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (!p-&gt;is_vararg) {  <span style="color:#f00;font-style:italic">/* no varargs?(不是变参函数?即函数参数数量固定) */</span>
-</span></span><span style="display:flex;"><span>      base = func + 1;
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">if</span> (L-&gt;top &gt; base + p-&gt;numparams)	<span style="color:#f00;font-style:italic">/* 删除栈上多余的传入参数 */</span>
-</span></span><span style="display:flex;"><span>        L-&gt;top = base + p-&gt;numparams;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span> {  <span style="color:#f00;font-style:italic">/* vararg function */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">int</span> nargs = <span style="color:#c34e00">cast_int</span>(L-&gt;top - func) - 1;	<span style="color:#f00;font-style:italic">/* 计算实际传入的参数个数 */</span>
-</span></span><span style="display:flex;"><span>      base = <span style="color:#c34e00">adjust_varargs</span>(L, p, nargs);
-</span></span><span style="display:flex;"><span>      func = <span style="color:#c34e00">restorestack</span>(L, funcr);  <span style="color:#f00;font-style:italic">/* previous call may change the stack */</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    ci = <span style="color:#c34e00">inc_ci</span>(L);  <span style="color:#f00;font-style:italic">/* now `enter&#39; new function */</span>
-</span></span><span style="display:flex;"><span>    ci-&gt;func = func;
-</span></span><span style="display:flex;"><span>    L-&gt;base = ci-&gt;base = base;
-</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">/* 这里可以推导出L-&gt;base----&gt;L-&gt;top之间的区域都是ci的私有栈空间(lua,c均如此) */</span>
-</span></span><span style="display:flex;"><span>    ci-&gt;top = L-&gt;base + p-&gt;maxstacksize;
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(ci-&gt;top &lt;= L-&gt;stack_last);
-</span></span><span style="display:flex;"><span>    L-&gt;savedpc = p-&gt;code;  <span style="color:#f00;font-style:italic">/* starting point */</span>
-</span></span><span style="display:flex;"><span>    ci-&gt;tailcalls = 0;
-</span></span><span style="display:flex;"><span>    ci-&gt;nresults = nresults;
-</span></span><span style="display:flex;"><span>	
-</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">/* 新的函数的私有栈空间直接补nil(参数的区域除外) */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">for</span> (st = L-&gt;top; st &lt; ci-&gt;top; st++)
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">setnilvalue</span>(st);	
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">/* 最后调整L-&gt;top使其指向本次ci的栈顶,对于Lua函数而言L-&gt;Base----&gt;(L-&gt;Base+L-&gt;maxstacksize)之间都是我私有的了，且是有效的
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">	** C由于L-&gt;top是动态变化的，故而L-&gt;top的值被设置为传入参数后栈顶的位置，后面会因为push等函数而动态变化-
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">	*/</span>
-</span></span><span style="display:flex;"><span>    L-&gt;top = ci-&gt;top;
-</span></span><span style="display:flex;"><span>	
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (L-&gt;hookmask &amp; LUA_MASKCALL) {
-</span></span><span style="display:flex;"><span>      L-&gt;savedpc++;  <span style="color:#f00;font-style:italic">/* hooks assume &#39;pc&#39; is already incremented */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaD_callhook</span>(L, LUA_HOOKCALL, -1);
-</span></span><span style="display:flex;"><span>      L-&gt;savedpc--;  <span style="color:#f00;font-style:italic">/* correct &#39;pc&#39; */</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> PCRLUA;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">else</span> {  <span style="color:#f00;font-style:italic">/* if is a C function, call it */</span>
-</span></span><span style="display:flex;"><span>    CallInfo *ci;
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">int</span> n;
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_checkstack</span>(L, LUA_MINSTACK);  <span style="color:#f00;font-style:italic">/* ensure minimum stack size */</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">/* 填充新的CallInfo */</span>
-</span></span><span style="display:flex;"><span>    ci = <span style="color:#c34e00">inc_ci</span>(L);  <span style="color:#f00;font-style:italic">/* now `enter&#39; new function */</span>
-</span></span><span style="display:flex;"><span>    ci-&gt;func = <span style="color:#c34e00">restorestack</span>(L, funcr);
-</span></span><span style="display:flex;"><span>    L-&gt;base = ci-&gt;base = ci-&gt;func + 1;	<span style="color:#f00;font-style:italic">/* C函数没有Lua函数的变参问题，所以这里无需adjust_varargs() */</span>
-</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">/* &#34;OP_CALL指令&#34;已经将L-&gt;top指向了最后一个传入参数的上方 */</span>
-</span></span><span style="display:flex;"><span>    ci-&gt;top = L-&gt;top + LUA_MINSTACK;	<span style="color:#f00;font-style:italic">/* 这里和上面luaD_checkstack呼应 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(ci-&gt;top &lt;= L-&gt;stack_last);
-</span></span><span style="display:flex;"><span>    ci-&gt;nresults = nresults;
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (L-&gt;hookmask &amp; LUA_MASKCALL)
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaD_callhook</span>(L, LUA_HOOKCALL, -1);
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_unlock</span>(L);
-</span></span><span style="display:flex;"><span>	<span style="color:#f00;font-style:italic">// L-&gt;top已经在lvm中准备好了(call和vararg指令)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic"></span>    n = (*<span style="color:#c34e00">curr_func</span>(L)-&gt;c.f)(L);  <span style="color:#f00;font-style:italic">/* do the actual call */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_lock</span>(L);
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (n &lt; 0)  <span style="color:#f00;font-style:italic">/* yielding, co调用yield，co.yeild运行完毕了,co.yeild还不能释放ci-list信息，需等到母thread调用resume，将控制权转移到co，再在co.resume中luaD_poscall()才释放 */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">return</span> PCRYIELD;
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaD_poscall</span>(L, L-&gt;top - n);	<span style="color:#f00;font-style:italic">/* 调整子C函数的返回值到指定位置并适配母函数的wanted(results) */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">return</span> PCRC;
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 函数调用结束后，处理实际返回值和期待返回值的匹配问题
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 也处理ci链的嵌套逻辑（本层ci结束往后退一层)
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">**
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 即处理C函数调用,也处理Lua函数执行结束即将返回这两种情况
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** 没有检测C函数说返回了n个参数，当实际上没有返回那么多参数的情况
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** RETURNS: wanted.cnt: 0:返回多个参数，1：返回0个，2：返回1个。。。
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">luaD_poscall</span> (lua_State *L, StkId firstResult) {
-</span></span><span style="display:flex;"><span>  StkId res;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> wanted, i;
-</span></span><span style="display:flex;"><span>  CallInfo *ci;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (L-&gt;hookmask &amp; LUA_MASKRET)
-</span></span><span style="display:flex;"><span>    firstResult = <span style="color:#c34e00">callrethooks</span>(L, firstResult);
-</span></span><span style="display:flex;"><span>  ci = L-&gt;ci--;
-</span></span><span style="display:flex;"><span>  res = ci-&gt;func;  <span style="color:#f00;font-style:italic">/* res == final position of 1st result */</span>
-</span></span><span style="display:flex;"><span>  wanted = ci-&gt;nresults;
-</span></span><span style="display:flex;"><span>  L-&gt;base = (ci - 1)-&gt;base;  <span style="color:#f00;font-style:italic">/* restore base */</span>
-</span></span><span style="display:flex;"><span>  L-&gt;savedpc = (ci - 1)-&gt;savedpc;  <span style="color:#f00;font-style:italic">/* restore savedpc */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* move results to correct place */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (i = wanted; i != 0 &amp;&amp; firstResult &lt; L-&gt;top; i--)	<span style="color:#f00;font-style:italic">/* 这个判断即处理非尾调用，又处理了尾调用 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">setobjs2s</span>(L, res++, firstResult++);	<span style="color:#f00;font-style:italic">/* wanted根据实际返回数量赋值 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">while</span> (i-- &gt; 0)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">setnilvalue</span>(res++);	<span style="color:#f00;font-style:italic">/* local a, b, c = funcA(...), 针对 funcA的返回值不够则补nil */</span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  ** L-&gt;top恢复到最后一个返回参数在stack的位置，这里和调用函数之前，
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  ** 将L-&gt;top设置到最后一个传入参数在stack的位置相呼应了！！！
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  ** 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  ** 最终将L-&gt;top恢复到ci-&gt;top是由“OP_CALL”指令负责
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  */</span>
-</span></span><span style="display:flex;"><span>  L-&gt;top = res;	
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> (wanted - LUA_MULTRET);  <span style="color:#f00;font-style:italic">/* 0 iff wanted == LUA_MULTRET */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** Call a function (C or Lua). The function to be called is at *func.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** The arguments are on the stack, right after the function.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** When returns, all the results are on the stack, starting at the original
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** function position.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span> 
-</span></span><span style="display:flex;"><span><span style="color:#00f">void</span> <span style="color:#c34e00">luaD_call</span> (lua_State *L, StkId func, <span style="color:#00f">int</span> nResults) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (++L-&gt;nCcalls &gt;= LUAI_MAXCCALLS) {	<span style="color:#f00;font-style:italic">/* 调用层次太深，进入抛出异常 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (L-&gt;nCcalls == LUAI_MAXCCALLS)
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaG_runerror</span>(L, <span style="color:#009c00">&#34;C stack overflow&#34;</span>);
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span> <span style="color:#00f">if</span> (L-&gt;nCcalls &gt;= (LUAI_MAXCCALLS + (LUAI_MAXCCALLS&gt;&gt;3)))
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">luaD_throw</span>(L, LUA_ERRERR);  <span style="color:#f00;font-style:italic">/* error while handing stack error */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (<span style="color:#c34e00">luaD_precall</span>(L, func, nResults) == PCRLUA)  <span style="color:#f00;font-style:italic">/* is a Lua function? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaV_execute</span>(L, 1);  <span style="color:#f00;font-style:italic">/* call it, 这里的1是真的妙啊 */</span>
-</span></span><span style="display:flex;"><span>  L-&gt;nCcalls--;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaC_checkGC</span>(L);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* 协程co开始执行co.resume 母thread在lbaselib.auxresume()中交出CPU，等待子co返回 */</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">resume</span> (lua_State *L, <span style="color:#00f">void</span> *ud) {
-</span></span><span style="display:flex;"><span>  StkId firstArg = <span style="color:#c34e00">cast</span>(StkId, ud);	<span style="color:#f00;font-style:italic">/* 没有传参时firstArg指向top,下面的firstArg&gt;L-&gt;base还是成立 */</span>
-</span></span><span style="display:flex;"><span>  CallInfo *ci = L-&gt;ci;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (L-&gt;status == 0) {  <span style="color:#f00;font-style:italic">/* start coroutine? */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(ci == L-&gt;base_ci);	<span style="color:#f00;font-style:italic">/* 尚未有任何调用链ci生成(或co已运行完毕) */</span>
-</span></span><span style="display:flex;"><span>	  <span style="color:#c34e00">lua_assert</span>(firstArg &gt; L-&gt;base);	<span style="color:#f00;font-style:italic">/* 至少还有个参数(是co.fun),意味着不是co运行完毕的状态，运行完毕后不能调用本函数了，co.fun都没有了，ci也是空的，ro不知道该怎么运行了不是 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#f00;font-style:italic">/* 若是崭新的co第一次开始运行resume,则会生成相应的ci（co.initFun),再运行起来和普通的c.main中构建一个thread后第一次运行是一样的 */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (<span style="color:#c34e00">luaD_precall</span>(L, firstArg - 1, LUA_MULTRET) != PCRLUA)
-</span></span><span style="display:flex;"><span>        <span style="color:#00f">return</span>;
-</span></span><span style="display:flex;"><span>  } <span style="color:#00f">else</span> {  <span style="color:#f00;font-style:italic">/* resuming from previous yield */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(L-&gt;status == LUA_YIELD);	<span style="color:#f00;font-style:italic">/* 非YEILD状态，不能调用resume */</span>
-</span></span><span style="display:flex;"><span>    L-&gt;status = 0;	<span style="color:#f00;font-style:italic">/* switch back status */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">if</span> (!<span style="color:#c34e00">f_isLua</span>(ci)) {  <span style="color:#f00;font-style:italic">/* `common&#39; yield? ci这里指向的是baselib.yield */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#f00;font-style:italic">/* finish interrupted execution of `OP_CALL&#39; */</span>
-</span></span><span style="display:flex;"><span>      <span style="color:#c34e00">lua_assert</span>(<span style="color:#c34e00">GET_OPCODE</span>(*((ci-1)-&gt;savedpc - 1)) == OP_CALL ||
-</span></span><span style="display:flex;"><span>                 <span style="color:#c34e00">GET_OPCODE</span>(*((ci-1)-&gt;savedpc - 1)) == OP_TAILCALL);
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">if</span> (<span style="color:#c34e00">luaD_poscall</span>(L, firstArg))  <span style="color:#f00;font-style:italic">/* complete it... 结束上述说的baselib.yield的调用流程 */</span>
-</span></span><span style="display:flex;"><span>        L-&gt;top = L-&gt;ci-&gt;top;  <span style="color:#f00;font-style:italic">/* and correct top if not multiple results,如果是 multiple results则由跟在后面的vararg或者setlist来调整L-&gt;top(他们还需要用到L-&gt;top来确定传入参数的个数呢,所以这里不能将其恢复到L-&gt;ci-&gt;top，) */</span>
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">else</span>  <span style="color:#f00;font-style:italic">/* yielded inside a hook: just continue its execution */</span>
-</span></span><span style="display:flex;"><span>      L-&gt;base = L-&gt;ci-&gt;base;
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaV_execute</span>(L, <span style="color:#c34e00">cast_int</span>(L-&gt;ci - L-&gt;base_ci));	<span style="color:#f00;font-style:italic">/* 这里的nexeccalls值得好好推导一下 */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">int</span> <span style="color:#c34e00">resume_error</span> (lua_State *L, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *msg) {
-</span></span><span style="display:flex;"><span>  L-&gt;top = L-&gt;ci-&gt;base;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">setsvalue2s</span>(L, L-&gt;top, <span style="color:#c34e00">luaS_new</span>(L, msg));
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">incr_top</span>(L);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_unlock</span>(L);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> LUA_ERRRUN;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>LUA_API <span style="color:#00f">int</span> <span style="color:#c34e00">lua_resume</span> (lua_State *L, <span style="color:#00f">int</span> nargs) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> status;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_lock</span>(L);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (L-&gt;status != LUA_YIELD &amp;&amp; (L-&gt;status != 0 || L-&gt;ci != L-&gt;base_ci))
-</span></span><span style="display:flex;"><span>      <span style="color:#00f">return</span> <span style="color:#c34e00">resume_error</span>(L, <span style="color:#009c00">&#34;cannot resume non-suspended coroutine&#34;</span>);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (L-&gt;nCcalls &gt;= LUAI_MAXCCALLS)
-</span></span><span style="display:flex;"><span>    <span style="color:#00f">return</span> <span style="color:#c34e00">resume_error</span>(L, <span style="color:#009c00">&#34;C stack overflow&#34;</span>);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luai_userstateresume</span>(L, nargs);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_assert</span>(L-&gt;errfunc == 0);
-</span></span><span style="display:flex;"><span>  L-&gt;baseCcalls = ++L-&gt;nCcalls;
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 必须protected状态下call，不然协程出错，整个进程都会被关闭 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  ** 本函数还没有为co生成ci链,resume中会生成co的ci调用链（如果是第一次resume）
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">  */</span>
-</span></span><span style="display:flex;"><span>  status = <span style="color:#c34e00">luaD_rawrunprotected</span>(L, resume, L-&gt;top - nargs);	
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (status != 0) {  <span style="color:#f00;font-style:italic">/* error? */</span>
-</span></span><span style="display:flex;"><span>    L-&gt;status = <span style="color:#c34e00">cast_byte</span>(status);  <span style="color:#f00;font-style:italic">/* mark thread as `dead&#39; */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_seterrorobj</span>(L, status, L-&gt;top);
-</span></span><span style="display:flex;"><span>    L-&gt;ci-&gt;top = L-&gt;top;	<span style="color:#f00;font-style:italic">/* 上面压入了errMsg这里更新下top */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">else</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">lua_assert</span>(L-&gt;nCcalls == L-&gt;baseCcalls);
-</span></span><span style="display:flex;"><span>    status = L-&gt;status;	<span style="color:#f00;font-style:italic">/* coroutinue运行中出让则为 LUA_YIELD */</span>
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  --L-&gt;nCcalls;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_unlock</span>(L);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> status;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>LUA_API <span style="color:#00f">int</span> <span style="color:#c34e00">lua_yield</span> (lua_State *L, <span style="color:#00f">int</span> nresults) {
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luai_userstateyield</span>(L, nresults);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_lock</span>(L);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (L-&gt;nCcalls &gt; L-&gt;baseCcalls)
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaG_runerror</span>(L, <span style="color:#009c00">&#34;attempt to yield across metamethod/C-call boundary&#34;</span>);
-</span></span><span style="display:flex;"><span>  L-&gt;base = L-&gt;top - nresults;  <span style="color:#f00;font-style:italic">/* protect stack slots below */</span>
-</span></span><span style="display:flex;"><span>  L-&gt;status = LUA_YIELD;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">lua_unlock</span>(L);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> -1;	<span style="color:#f00;font-style:italic">/* note:这是一个特殊的值，用于标识从yield返回 */</span>
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/* old_top 指向被调用函数slot 
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** KEYCODE
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">luaD_pcall</span> (lua_State *L, Pfunc func, <span style="color:#00f">void</span> *u,
-</span></span><span style="display:flex;"><span>                <span style="color:#00f">ptrdiff_t</span> old_top, <span style="color:#00f">ptrdiff_t</span> ef) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> status;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">unsigned</span> <span style="color:#00f">short</span> oldnCcalls = L-&gt;nCcalls;
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 存档当前的ci,以便发生错误恢复时使用 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">ptrdiff_t</span> old_ci = <span style="color:#c34e00">saveci</span>(L, L-&gt;ci);	<span style="color:#f00;font-style:italic">/* 这里只能记住offset而不是绝对地址(call过程中ci可能会调整!) */</span>
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>  lu_byte old_allowhooks = L-&gt;allowhook;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">ptrdiff_t</span> old_errfunc = L-&gt;errfunc;
-</span></span><span style="display:flex;"><span>  L-&gt;errfunc = ef;
-</span></span><span style="display:flex;"><span>  status = <span style="color:#c34e00">luaD_rawrunprotected</span>(L, func, u);
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#f00;font-style:italic">/* 发生了错误，回滚到存档时刻 */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">if</span> (status != 0) {  <span style="color:#f00;font-style:italic">/* an error occurred? */</span>
-</span></span><span style="display:flex;"><span>    StkId oldtop = <span style="color:#c34e00">restorestack</span>(L, old_top);
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaF_close</span>(L, oldtop);  <span style="color:#f00;font-style:italic">/* close eventual pending closures */</span>
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">luaD_seterrorobj</span>(L, status, oldtop);	<span style="color:#f00;font-style:italic">/* 顺带correct了top */</span>
-</span></span><span style="display:flex;"><span>    L-&gt;nCcalls = oldnCcalls;
-</span></span><span style="display:flex;"><span>    L-&gt;ci = <span style="color:#c34e00">restoreci</span>(L, old_ci);
-</span></span><span style="display:flex;"><span>    L-&gt;base = L-&gt;ci-&gt;base;
-</span></span><span style="display:flex;"><span>    L-&gt;savedpc = L-&gt;ci-&gt;savedpc;
-</span></span><span style="display:flex;"><span>    L-&gt;allowhook = old_allowhooks;
-</span></span><span style="display:flex;"><span>    <span style="color:#c34e00">restore_stack_limit</span>(L);
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>  L-&gt;errfunc = old_errfunc;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> status;
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">/*
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">** Execute a protected parser.
-</span></span></span><span style="display:flex;"><span><span style="color:#f00;font-style:italic">*/</span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">struct</span> SParser {  <span style="color:#f00;font-style:italic">/* data to `f_parser&#39; */</span>
-</span></span><span style="display:flex;"><span>  ZIO *z;
-</span></span><span style="display:flex;"><span>  Mbuffer buff;  <span style="color:#f00;font-style:italic">/* buffer to be used by the scanner */</span>
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">const</span> <span style="color:#00f">char</span> *name;
-</span></span><span style="display:flex;"><span>};
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">static</span> <span style="color:#00f">void</span> <span style="color:#c34e00">f_parser</span> (lua_State *L, <span style="color:#00f">void</span> *ud) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> i;
-</span></span><span style="display:flex;"><span>  Proto *tf;
-</span></span><span style="display:flex;"><span>  Closure *cl;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">struct</span> SParser *p = <span style="color:#c34e00">cast</span>(<span style="color:#00f">struct</span> SParser *, ud);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> c = <span style="color:#c34e00">luaZ_lookahead</span>(p-&gt;z);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaC_checkGC</span>(L);
-</span></span><span style="display:flex;"><span>  tf = ((c == LUA_SIGNATURE[0]) ? luaU_undump : luaY_parser)(L, p-&gt;z,
-</span></span><span style="display:flex;"><span>                                                             &amp;p-&gt;buff, p-&gt;name);
-</span></span><span style="display:flex;"><span>  cl = <span style="color:#c34e00">luaF_newLclosure</span>(L, tf-&gt;nups, <span style="color:#c34e00">hvalue</span>(<span style="color:#c34e00">gt</span>(L)));	<span style="color:#f00;font-style:italic">/* 新生成的clouse的env直接来自gobal&#39;table而不是上层函数的env */</span>
-</span></span><span style="display:flex;"><span>  cl-&gt;l.p = tf;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">for</span> (i = 0; i &lt; tf-&gt;nups; i++)  <span style="color:#f00;font-style:italic">/* initialize eventual upvalues */</span>
-</span></span><span style="display:flex;"><span>    cl-&gt;l.upvals[i] = <span style="color:#c34e00">luaF_newupval</span>(L);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">setclvalue</span>(L, L-&gt;top, cl);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">incr_top</span>(L);
-</span></span><span style="display:flex;"><span>}
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#00f">int</span> <span style="color:#c34e00">luaD_protectedparser</span> (lua_State *L, ZIO *z, <span style="color:#00f">const</span> <span style="color:#00f">char</span> *name) {
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">struct</span> SParser p;
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">int</span> status;
-</span></span><span style="display:flex;"><span>  p.z = z; p.name = name;
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaZ_initbuffer</span>(L, &amp;p.buff);
-</span></span><span style="display:flex;"><span>  status = <span style="color:#c34e00">luaD_pcall</span>(L, f_parser, &amp;p, <span style="color:#c34e00">savestack</span>(L, L-&gt;top), L-&gt;errfunc);
-</span></span><span style="display:flex;"><span>  <span style="color:#c34e00">luaZ_freebuffer</span>(L, &amp;p.buff);
-</span></span><span style="display:flex;"><span>  <span style="color:#00f">return</span> status;
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div>
-    </div>
-    
-    <footer class="post-footer"><div class="post-eof"></div></footer>
-  </article>
-
-  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
-    <header class="post-header">
-      <h1 class="post-title" itemprop="name headline">
         <a class="post-title-link" href="http://shanks.link/blog/2021/05/26/lua-5.1-reference-manual/" itemprop="url">
         Lua 5.1 Reference Manual
         </a>
@@ -3331,6 +2150,149 @@ Lua is an extension programming language designed to support general procedural 
     
     <div class="post-more-link text-center">
     <a class="btn" href="http://shanks.link/blog/2021/05/19/a-no-frills-introduction-to-lua-5.1-vm-instructions/" rel="contents">
+      阅读全文 &raquo;
+    </a>
+    </div>
+    
+    <footer class="post-footer"><div class="post-eof"></div></footer>
+  </article>
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/05/17/lua%E6%BA%90%E7%A0%81%E9%98%85%E8%AF%BB%E4%B9%8B%E6%97%85-%E5%85%B7%E4%BD%93%E6%8E%92%E6%9C%9F/" itemprop="url">
+        lua源码阅读之旅-具体排期
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-05-17">
+    2021-05-17
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/lua" itemprop="url" rel="index">
+        <span itemprop="name">lua</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">225 字 ~1分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <p>​		开篇规划了整理思路，跨度比较大，不利于把控进度，这篇做一个以week为单位的周期安排，以便有效的利用时间和及时复盘自己的学习计划。</p>
+<ul>
+<li>
+<p>资料</p>
+<blockquote>
+<ol>
+<li>5.10-16 《A No-Frills Introduction to Lua 5.1 VM Instructions.pdf》</li>
+<li>5.17-23《计算机程序的构造和解释》</li>
+<li>5.24-30 本网站上面的lua相关文章</li>
+</ol></blockquote>
+</li>
+<li>
+<p>源码</p>
+    </div>
+    
+    <div class="post-more-link text-center">
+    <a class="btn" href="http://shanks.link/blog/2021/05/17/lua%E6%BA%90%E7%A0%81%E9%98%85%E8%AF%BB%E4%B9%8B%E6%97%85-%E5%85%B7%E4%BD%93%E6%8E%92%E6%9C%9F/" rel="contents">
+      阅读全文 &raquo;
+    </a>
+    </div>
+    
+    <footer class="post-footer"><div class="post-eof"></div></footer>
+  </article>
+
+  <article class="post post-type-normal " itemscope itemtype="http://schema.org/Article">
+    <header class="post-header">
+      <h1 class="post-title" itemprop="name headline">
+        <a class="post-title-link" href="http://shanks.link/blog/2021/05/13/github-%E6%85%A2-github.io-%E8%AE%BF%E9%97%AE%E4%B8%8D%E4%BA%86/" itemprop="url">
+        github 慢 github.io 访问不了
+        </a>
+      </h1>
+      <div class="post-meta">
+      <span class="post-time">
+<span class="post-meta-item-icon">
+    <i class="fa fa-calendar-o"></i>
+</span>
+<span class="post-meta-item-text">时间：</span>
+<time itemprop="dateCreated" datetime="2016-03-22T13:04:35+08:00" content="2021-05-13">
+    2021-05-13
+</time>
+</span> 
+      
+
+  <span class="post-category" >
+  &nbsp; | &nbsp;
+  <span class="post-meta-item-icon">
+    <i class="fa fa-folder-o"></i>
+  </span>
+  <span class="post-meta-item-text">分类：</span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/%E8%BF%90%E7%BB%B4" itemprop="url" rel="index">
+        <span itemprop="name">运维</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+    <span itemprop="about" itemscope itemtype="https://schema.org/Thing">
+      <a href="http://shanks.link/categories/git" itemprop="url" rel="index">
+        <span itemprop="name">git</span>
+      </a>
+      &nbsp; 
+    </span>
+  
+</span>
+
+
+       <span>
+&nbsp; | &nbsp;
+<span class="post-meta-item-icon">
+    <i class="fa fa-eye"></i>
+</span>
+<span class="post-meta-item-text">阅读：</span>
+<span class="leancloud-visitors-count">239 字 ~1分钟</span>
+</span>
+      </div>
+    </header>
+    <div class="post-body" itemprop="articleBody">
+    <ol>
+<li>
+<p>使用国内镜像</p>
+<p>​    目前已知Github国内镜像网站有 <a href="github.com.cnpmjs.org">github.com.cnpmjs.org</a> 和 <a href="git.sdut.me/">git.sdut.me/</a> 。速度根据各地情况而定，在clone某个项目的时候将 <code>github.com</code> 替换为 <code>github.com.cnpmjs.org</code> 即可。</p>
+</li>
+<li>
+<p>使用国外的dns查询最新的github的ip地址后修改hosts</p>
+    </div>
+    
+    <div class="post-more-link text-center">
+    <a class="btn" href="http://shanks.link/blog/2021/05/13/github-%E6%85%A2-github.io-%E8%AE%BF%E9%97%AE%E4%B8%8D%E4%BA%86/" rel="contents">
       阅读全文 &raquo;
     </a>
     </div>
